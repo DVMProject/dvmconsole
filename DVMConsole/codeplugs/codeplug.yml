@@ -1,0 +1,35 @@
+systems:
+  - name: "System 1"
+    address: "localhost"
+    port: 3001
+    authKey: "RPT_PASSWORD"
+    peerId: 1234567
+    rid: "12345"
+
+zones:
+  - name: "Zone 1"
+    channels:
+      - name: "Channel 1"
+        system: "System 1"
+        tgid: "2001"
+        keyId: 0x50
+        algoId: 0xaa # 0xAA or 0x84 (RC4 or AES)
+        encryptionKey: null # Ignored now, we use dvmfne KMM support
+      - name: "Channel 2"
+        system: "System 1"
+        tgid: "15002"
+      - name: "Channel 3"
+        system: "System 1"
+        tgid: "15003"
+
+  - name: "Zone 2"
+    channels:
+      - name: "Channel A"
+        system: "System 1"
+        tgid: "16001"
+      - name: "Channel B"
+        system: "System 1"
+        tgid: "16002"
+      - name: "Channel C"
+        system: "System 1"
+        tgid: "16002"
