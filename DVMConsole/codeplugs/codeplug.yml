@@ -1,20 +1,42 @@
+# List of FNE master instances to connect to
 systems:
+    # Textual name for internal and external reference to this system
   - name: "System 1"
+    # Textual name to idenitify this peer in the FNE
+    Identity: "CONS OP1"
+    # FNE Address
     address: "localhost"
+    # FNE Port
     port: 3001
-    authKey: "RPT_PASSWORD"
+    # Peer ID for FNE
     peerId: 1234567
+    # Radio ID transmitted traffic will come from
     rid: "12345"
+    # FNE Password
+    password: "RPT_PASSWORD"
+    # FNE Encrypted flag
+    encrypted: false
+    # Preshared FNE encryption key
+    presharedKey: "123ABC1234"
 
+# List of Zones
 zones:
+    # Textual name of the zone
   - name: "Zone 1"
+    # List of channels
     channels:
+        # Textual name of channel
       - name: "Channel 1"
+        # System name this channel is linked to
         system: "System 1"
+        # Talkgroup Id to send and receive traffic
         tgid: "2001"
+        # Encryption Key Id (If 0 or blank, will be assumed clear)
         keyId: 0x50
-        algoId: 0xaa # 0xAA or 0x84 (RC4 or AES)
-        encryptionKey: null # Ignored now, we use dvmfne KMM support
+        # Algorithm Id 0xAA or 0x84 (RC4 or AES) (If 0 or blank, will be assumed clear)
+        algoId: 0xaa
+        # Ignored now, we use dvmfne KMM support (This will be used in the future to ovveride FNE KMM support)
+        encryptionKey: null
       - name: "Channel 2"
         system: "System 1"
         tgid: "15002"

@@ -44,7 +44,6 @@ namespace DVMConsole
         private static FnePeer Create(Codeplug.System system)
         {
             IPEndPoint endpoint = new IPEndPoint(IPAddress.Any, system.Port);
-            string presharedKey = null;
 
             if (system.Address == null)
                 throw new NullReferenceException("address");
@@ -63,17 +62,19 @@ namespace DVMConsole
                     endpoint = new IPEndPoint(addresses[0], system.Port);
             }
 
-            FnePeer peer = new FnePeer("DVMCONSOLE", system.PeerId, endpoint, presharedKey);
+            string key = system.Encrypted ? system.PresharedKey : null;
+
+            FnePeer peer = new FnePeer("DVMCONSOLE", system.PeerId, endpoint, key);
 
             // set configuration parameters
-            peer.Passphrase = system.AuthKey;
+            peer.Passphrase = system.Password;
             peer.Information = new PeerInformation
             {
                 Details = new PeerDetails
                 {
                     ConventionalPeer = true,
                     Software = "DVMCONSOLE",
-                    Identity = "CONS OP" // TODO: Add to config
+                    Identity = system.Identity
                 }
             };
 

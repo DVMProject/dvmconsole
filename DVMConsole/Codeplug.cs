@@ -30,11 +30,14 @@ namespace DVMConsole
         public class System
         {
             public string Name { get; set; }
+            public string Identity { get; set; }
             public string Address { get; set; }
+            public string Password { get; set; }
+            public string PresharedKey { get; set; }
+            public bool Encrypted { get; set; }
             public uint PeerId { get; set; }
             public int Port { get; set; }
             public string Rid { get; set; }
-            public string AuthKey { get; set; }
             public string AliasPath { get; set; } = "./alias.yml";
             public List<RadioAlias> RidAlias { get; set; } = null;
 
