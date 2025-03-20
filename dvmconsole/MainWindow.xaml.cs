@@ -121,7 +121,7 @@ namespace dvmconsole
             settingsManager.LoadSettings();
             selectedChannelsManager = new SelectedChannelsManager();
             flashingManager = new FlashingBackgroundManager(null, ChannelsCanvas, null, this);
-            emergencyAlertPlayback = new WaveFilePlaybackManager(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "emergency.wav"));
+            emergencyAlertPlayback = new WaveFilePlaybackManager(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/emergency.wav"));
 
             channelHoldTimer = new System.Timers.Timer(10000);
             channelHoldTimer.Elapsed += OnHoldTimerElapsed;
@@ -1037,7 +1037,7 @@ namespace dvmconsole
                     handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
                     await Task.Delay(1000);
 
-                    SendAlertTone("hold.wav", true);
+                    SendAlertTone(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/hold.wav"), true);
                 }
             }
         }
@@ -1075,7 +1075,7 @@ namespace dvmconsole
         private void btnAlert1_Click(object sender, RoutedEventArgs e)
         {
             Dispatcher.Invoke(() => {
-                SendAlertTone("alert1.wav");
+                SendAlertTone(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/alert1.wav"));
             });
         }
 
@@ -1088,7 +1088,7 @@ namespace dvmconsole
         {
             Dispatcher.Invoke(() =>
             {
-                SendAlertTone("alert2.wav");
+                SendAlertTone(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/alert2.wav"));
             });
         }
 
@@ -1101,7 +1101,7 @@ namespace dvmconsole
         {
             Dispatcher.Invoke(() =>
             {
-                SendAlertTone("alert3.wav");
+                SendAlertTone(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/alert3.wav"));
             });
         }
 
