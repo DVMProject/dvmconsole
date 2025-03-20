@@ -6,6 +6,9 @@
              MouseMove="AlertTone_MouseMove"
              MouseRightButtonDown="AlertTone_MouseRightButtonDown"
              DataContext="{Binding RelativeSource={RelativeSource Self}}" Background="#FF848484">
+    <UserControl.Effect>
+        <DropShadowEffect ShadowDepth="1" BlurRadius="16" Color="#FF686767" Opacity="0.3" />
+    </UserControl.Effect>
     <Grid Margin="1,1,1,1" Background="#FF00BC48">
         <Grid.RowDefinitions>
             <RowDefinition Height="31*"/>
