@@ -1237,7 +1237,7 @@ namespace dvmconsole
 
             if (true) // TODO: Disable/enable detection
             {
-                tone = channel.toneDetector.Detect(signal);
+                tone = channel.ToneDetector.Detect(signal);
             }
 
             if (tone > 0)
@@ -1247,17 +1247,21 @@ namespace dvmconsole
             }
             else
             {
-#if WIN32
-                if (channel.extFullRateVocoder == null)
-                    channel.extFullRateVocoder = new AmbeVocoder(true);
+                // do we have the external vocoder library?
+                if (channel.ExternalVocoderEnabled)
+                {
+                    if (channel.ExtFullRateVocoder == null)
+                        channel.ExtFullRateVocoder = new AmbeVocoder(true);
 
-                channel.extFullRateVocoder.encode(samples, out imbe);
-#else
-                if (channel.encoder == null)
-                    channel.encoder = new MBEEncoder(MBE_MODE.IMBE_88BIT);
+                    channel.ExtFullRateVocoder.encode(samples, out imbe);
+                }
+                else
+                {
+                    if (channel.Encoder == null)
+                        channel.Encoder = new MBEEncoder(MBE_MODE.IMBE_88BIT);
 
-                channel.encoder.encode(samples, imbe);
-#endif
+                    channel.Encoder.encode(samples, imbe);
+                }
             }
             // Log.Logger.Debug($"IMBE {FneUtils.HexDump(imbe)}");
 
@@ -1276,17 +1280,17 @@ namespace dvmconsole
                         }
                     }
 
-                    channel.crypter.Prepare(cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
+                    channel.Crypter.Prepare(cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
                 }
 
                 // crypto time
-                channel.crypter.Process(imbe, channel.p25N < 9U ? P25DUID.LDU1 : P25DUID.LDU2);
+                channel.Crypter.Process(imbe, channel.p25N < 9U ? P25DUID.LDU1 : P25DUID.LDU2);
 
                 // last block of LDU2, prepare a new MI
                 if (channel.p25N == 17U)
                 {
                     P25Crypto.CycleP25Lfsr(channel.mi);
-                    channel.crypter.Prepare(cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
+                    channel.Crypter.Prepare(cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
                 }
             }
 
@@ -1451,17 +1455,18 @@ namespace dvmconsole
 
                     short[] samples = new short[FneSystemBase.MBE_SAMPLES_LENGTH];
 
-                    channel.crypter.Process(imbe, duid);
+                    channel.Crypter.Process(imbe, duid);
 
-#if WIN32
-                    if (channel.extFullRateVocoder == null)
-                        channel.extFullRateVocoder = new AmbeVocoder(true);
+                    // do we have the external vocoder library?
+                    if (channel.ExternalVocoderEnabled)
+                    {
+                        if (channel.ExtFullRateVocoder == null)
+                            channel.ExtFullRateVocoder = new AmbeVocoder(true);
 
-                    channel.p25Errs = channel.extFullRateVocoder.decode(imbe, out samples);
-#else
-
-                    channel.p25Errs = channel.decoder.decode(imbe, samples);
-#endif
+                        channel.p25Errs = channel.ExtFullRateVocoder.decode(imbe, out samples);
+                    }
+                    else
+                        channel.p25Errs = channel.Decoder.decode(imbe, samples);
 
                     if (emergency && !channel.Emergency)
                     {
@@ -1527,7 +1532,7 @@ namespace dvmconsole
                         PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
 
                         if (cpgChannel.GetKeyId() != 0 && cpgChannel.GetAlgoId() != 0)
-                            channel.crypter.AddKey(key.KeyId, e.KmmKey.KeysetItem.AlgId, key.GetKey());
+                            channel.Crypter.AddKey(key.KeyId, e.KmmKey.KeysetItem.AlgId, key.GetKey());
                     }
                 });
             }
@@ -1581,8 +1586,8 @@ namespace dvmconsole
                     if (!systemStatuses.ContainsKey(cpgChannel.Name))
                         systemStatuses[cpgChannel.Name] = new SlotStatus();
 
-                    if (channel.decoder == null)
-                        channel.decoder = new MBEDecoder(MBE_MODE.IMBE_88BIT);
+                    if (channel.Decoder == null)
+                        channel.Decoder = new MBEDecoder(MBE_MODE.IMBE_88BIT);
 
                     SlotStatus slot = systemStatuses[cpgChannel.Name];
 
@@ -1598,7 +1603,7 @@ namespace dvmconsole
                             channel.kId = (ushort)((e.Data[182] << 8) | e.Data[183]);
                             Array.Copy(e.Data, 184, channel.mi, 0, P25Defines.P25_MI_LENGTH);
 
-                            channel.crypter.Prepare(channel.algId, channel.kId, channel.mi);
+                            channel.Crypter.Prepare(channel.algId, channel.kId, channel.mi);
 
                             encrypted = true;
                         }
@@ -1776,7 +1781,7 @@ namespace dvmconsole
                     }
 
                     if (channel.mi != null)
-                        channel.crypter.Prepare(channel.algId, channel.kId, channel.mi);
+                        channel.Crypter.Prepare(channel.algId, channel.kId, channel.mi);
 
                     slot.RxRFS = e.SrcId;
                     slot.RxType = e.FrameType;

@@ -121,13 +121,13 @@ namespace dvmconsole
                     if (cpgChannel.GetKeyId() == 0 || cpgChannel.GetAlgoId() == 0)
                         continue;
 
-                    if (channelBox.crypter == null)
+                    if (channelBox.Crypter == null)
                     {
                         Trace.WriteLine($"Crypter is null for channel {channelBox.ChannelName}");
                         continue;
                     }
 
-                    bool hasKey = channelBox.crypter.HasKey(cpgChannel.GetKeyId());
+                    bool hasKey = channelBox.Crypter.HasKey(cpgChannel.GetKeyId());
 
                     KeyStatusItems.Add(new KeyStatusItem
                     {

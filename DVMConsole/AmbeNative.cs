@@ -13,7 +13,6 @@
 
 using System.Runtime.InteropServices;
 
-#if WIN32
 namespace dvmconsole
 {
     /// <summary>
@@ -449,4 +448,3 @@ namespace dvmconsole
         private static extern uint ambe_voice_enc([Out] IntPtr codeword, [In] short bitSteal, [In] IntPtr samples, [In] short sampleLength, [In] ushort cmode, [In] short n, [In] short unk, [In] IntPtr state);
     } // public class AmbeVocoder
 }
-#endif

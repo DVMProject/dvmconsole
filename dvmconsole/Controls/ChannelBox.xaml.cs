@@ -13,6 +13,9 @@
 */
 
 using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -65,16 +68,15 @@ namespace dvmconsole.Controls
 
         public List<byte[]> chunkedPcm = new List<byte[]>();
 
-#if WIN32
-        public AmbeVocoder extFullRateVocoder;
-        public AmbeVocoder extHalfRateVocoder;
-#endif
-        public MBEEncoder encoder;
-        public MBEDecoder decoder;
+        public bool ExternalVocoderEnabled = false;
+        public AmbeVocoder ExtFullRateVocoder = null;
+        public AmbeVocoder ExtHalfRateVocoder = null;
+        public MBEEncoder Encoder = null;
+        public MBEDecoder Decoder = null;
 
-        public MBEToneDetector toneDetector = new MBEToneDetector();
+        public MBEToneDetector ToneDetector = new MBEToneDetector();
 
-        public P25Crypto crypter = new P25Crypto();
+        public P25Crypto Crypter = new P25Crypto();
 
         /*
         ** Properties
@@ -267,15 +269,21 @@ namespace dvmconsole.Controls
         public ChannelBox(SelectedChannelsManager selectedChannelsManager, AudioManager audioManager, string channelName, string systemName, string dstId)
         {
             InitializeComponent();
+
             DataContext = this;
+
             this.selectedChannelsManager = selectedChannelsManager;
             this.audioManager = audioManager;
+
             flashingBackgroundManager = new FlashingBackgroundManager(this);
+
             ChannelName = channelName;
             DstId = dstId;
             SystemName = $"System: {systemName}";
             LastSrcId = $"Last ID: {LastSrcId}";
+
             UpdateBackground();
+
             MouseLeftButtonDown += ChannelBox_MouseLeftButtonDown;
 
             grayGradient = new LinearGradientBrush
@@ -314,6 +322,20 @@ namespace dvmconsole.Controls
                 PttButton.IsEnabled = false;
                 PageSelectButton.IsEnabled = false;
                 ChannelMarkerBtn.IsEnabled = false;
+            }
+
+            // initialize external AMBE vocoder
+            string codeBase = Assembly.GetExecutingAssembly().CodeBase;
+            UriBuilder uri = new UriBuilder(codeBase);
+            string path = Uri.UnescapeDataString(uri.Path);
+
+            // if the assembly executing directory contains the external DVSI USB-3000 interface DLL
+            // setup the external vocoder code
+            if (File.Exists(Path.Combine(new string[] { Path.GetDirectoryName(path), "AMBE.DLL" })))
+            {
+                ExternalVocoderEnabled = true;
+                ExtFullRateVocoder = new AmbeVocoder();
+                ExtHalfRateVocoder = new AmbeVocoder(false);
             }
         }
 
