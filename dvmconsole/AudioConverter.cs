@@ -1,8 +1,4 @@
 ﻿// SPDX-License-Identifier: AGPL-3.0-only
-
-
-using System.Diagnostics;
-
 /**
 * Digital Voice Modem - Desktop Dispatch Console
 * AGPLv3 Open Source. Use is subject to license terms.
