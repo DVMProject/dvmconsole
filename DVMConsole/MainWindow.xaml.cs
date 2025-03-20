@@ -1175,8 +1175,7 @@ namespace dvmconsole
                 if (!channel.IsSelected)
                 {
                     channel.IsSelected = true;
-
-                    channel.Background = channel.IsSelected ? (Brush)new BrushConverter().ConvertFrom("#FF0B004B") : Brushes.Gray;
+                    channel.Background = channel.IsSelected ? ChannelBox.SELECTED_COLOR : ChannelBox.DESELECTED_COLOR;
 
                     if (channel.IsSelected)
                         selectedChannelsManager.AddSelectedChannel(channel);
@@ -1630,9 +1629,9 @@ namespace dvmconsole
                             channel.LastSrcId = "Last: " + alias;
 
                         if (channel.algId != P25Defines.P25_ALGO_UNENCRYPT)
-                            channel.Background = (Brush)new BrushConverter().ConvertFrom("#ffdeaf0a");
+                            channel.Background = ChannelBox.RX_ENC_COLOR;
                         else
-                            channel.Background = (Brush)new BrushConverter().ConvertFrom("#FF00BC48");
+                            channel.Background = ChannelBox.RX_COLOR;
                     }
 
                     // Is the call over?
@@ -1641,7 +1640,7 @@ namespace dvmconsole
                         channel.IsReceiving = false;
                         TimeSpan callDuration = pktTime - slot.RxStart;
                         Console.WriteLine($"({system.Name}) P25D: Traffic *CALL END       * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} DUR {callDuration} [STREAM ID {e.StreamId}]");
-                        channel.Background = (Brush)new BrushConverter().ConvertFrom("#FF0B004B");
+                        channel.Background = ChannelBox.SELECTED_COLOR;
                         callHistoryWindow.ChannelUnkeyed(cpgChannel.Name, (int)e.SrcId);
                         return;
                     }

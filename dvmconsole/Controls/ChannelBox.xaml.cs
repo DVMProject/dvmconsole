@@ -27,9 +27,13 @@ namespace dvmconsole.Controls
     /// </summary>
     public partial class ChannelBox : UserControl, INotifyPropertyChanged
     {
-        private readonly static Brush DESELECTED_COLOR = Brushes.Gray;
-        private readonly static Brush SELECTED_COLOR = (Brush)new BrushConverter().ConvertFrom("#FF0B004B");
-        private readonly static Brush PLYBK_SELECTED_COLOR = (Brush)new BrushConverter().ConvertFrom("#FFC90000");
+        public readonly static Brush DESELECTED_COLOR = Brushes.Gray;
+        public readonly static Brush SELECTED_COLOR = (Brush)new BrushConverter().ConvertFrom("#FF0B004B");
+        public readonly static Brush PLYBK_SELECTED_COLOR = (Brush)new BrushConverter().ConvertFrom("#FFC90000");
+
+        public readonly static Brush RX_COLOR = (Brush)new BrushConverter().ConvertFrom("#FF00BC48");
+        public readonly static Brush RX_ENC_COLOR = (Brush)new BrushConverter().ConvertFrom("#FFDEAF0A");
+
 
         private readonly SelectedChannelsManager selectedChannelsManager;
         private readonly AudioManager audioManager;
@@ -88,6 +92,15 @@ namespace dvmconsole.Controls
         /// 
         /// </summary>
         public string DstId { get; set; }
+
+        /// <summary>
+        /// Gets or sets the <see cref="Brush"/> that fills the area between the bounds of the control border.
+        /// </summary>
+        public new Brush Background
+        {
+            get => ControlBorder.Background;
+            set => ControlBorder.Background = value;
+        }
 
         /*
         ** Events
