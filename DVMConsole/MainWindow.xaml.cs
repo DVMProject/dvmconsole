@@ -9,6 +9,7 @@
 *
 *   Copyright (C) 2024-2025 Caleb, K4PHP
 *   Copyright (C) 2025 J. Dean
+*   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
 *
 */
 
@@ -221,8 +222,8 @@ namespace dvmconsole
                     }
 
                     systemStatusBox.MouseLeftButtonDown += SystemStatusBox_MouseLeftButtonDown;
+                    systemStatusBox.MouseLeftButtonUp += SystemStatusBox_MouseLeftButtonUp;
                     systemStatusBox.MouseMove += SystemStatusBox_MouseMove;
-                    systemStatusBox.MouseRightButtonDown += SystemStatusBox_MouseRightButtonDown;
 
                     ChannelsCanvas.Children.Add(systemStatusBox);
 
@@ -302,8 +303,8 @@ namespace dvmconsole
                         channelBox.HoldChannelButtonClicked += ChannelBox_HoldChannelButtonClicked;
 
                         channelBox.MouseLeftButtonDown += ChannelBox_MouseLeftButtonDown;
+                        channelBox.MouseLeftButtonUp += ChannelBox_MouseLeftButtonUp;
                         channelBox.MouseMove += ChannelBox_MouseMove;
-                        channelBox.MouseRightButtonDown += ChannelBox_MouseRightButtonDown;
                         ChannelsCanvas.Children.Add(channelBox);
 
                         offsetX += 225;
@@ -359,8 +360,8 @@ namespace dvmconsole
             playbackChannelBox.HoldChannelButtonClicked += ChannelBox_HoldChannelButtonClicked;
 
             playbackChannelBox.MouseLeftButtonDown += ChannelBox_MouseLeftButtonDown;
+            playbackChannelBox.MouseLeftButtonUp += ChannelBox_MouseLeftButtonUp;
             playbackChannelBox.MouseMove += ChannelBox_MouseMove;
-            playbackChannelBox.MouseRightButtonDown += ChannelBox_MouseRightButtonDown;
             ChannelsCanvas.Children.Add(playbackChannelBox);
 
             //offsetX += 225;
@@ -828,6 +829,21 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
+        private void ChannelBox_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (!isEditMode || !isDragging || draggedElement == null)
+                return;
+
+            isDragging = false;
+            draggedElement.ReleaseMouseCapture();
+            draggedElement = null;
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void ChannelBox_MouseMove(object sender, MouseEventArgs e)
         {
             if (!isEditMode || !isDragging || draggedElement == null) 
@@ -859,38 +875,16 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void ChannelBox_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
-        {
-            if (!isEditMode || !isDragging || draggedElement == null) 
-                return;
-
-            isDragging = false;
-            draggedElement.ReleaseMouseCapture();
-            draggedElement = null;
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
         private void SystemStatusBox_MouseLeftButtonDown(object sender, MouseButtonEventArgs e) => ChannelBox_MouseLeftButtonDown(sender, e);
-        
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void SystemStatusBox_MouseMove(object sender, MouseEventArgs e) => ChannelBox_MouseMove(sender, e);
 
         /// <summary>
         /// 
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void SystemStatusBox_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
+        private void SystemStatusBox_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            if (!isEditMode) 
+            if (!isEditMode)
                 return;
 
             if (sender is SystemStatusBox systemStatusBox)
@@ -899,11 +893,18 @@ namespace dvmconsole
                 double y = Canvas.GetTop(systemStatusBox);
                 settingsManager.SystemStatusPositions[systemStatusBox.SystemName] = new ChannelPosition { X = x, Y = y };
 
-                ChannelBox_MouseRightButtonDown(sender, e);
+                ChannelBox_MouseLeftButtonUp(sender, e);
 
                 AdjustCanvasHeight();
             }
         }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void SystemStatusBox_MouseMove(object sender, MouseEventArgs e) => ChannelBox_MouseMove(sender, e);
 
         /// <summary>
         /// 
