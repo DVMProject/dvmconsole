@@ -1,10 +1,10 @@
 ﻿// SPDX-License-Identifier: AGPL-3.0-only
 /**
-* Digital Voice Modem - DVMConsole
+* Digital Voice Modem - Desktop Dispatch Console
 * AGPLv3 Open Source. Use is subject to license terms.
 * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 *
-* @package DVM / DVM Console
+* @package DVM / Desktop Dispatch Console
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
 *   Copyright (C) 2023 Bryan Biedenkapp, N2PLL
@@ -16,7 +16,7 @@ using System.Net;
 
 using fnecore;
 
-namespace DVMConsole
+namespace dvmconsole
 {
     /// <summary>
     /// Implements a peer FNE router system.
@@ -113,4 +113,4 @@ namespace DVMConsole
             /* stub */
         }
     } // public class PeerSystem
-} // namespace rc2_dvm
+} // namespace dvmconsole

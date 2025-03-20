@@ -3,14 +3,14 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.8.34330.188
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DVMConsole", "DVMConsole\DVMConsole.csproj", "{710D1FA8-2E0D-42CB-9174-FCD9EB7A718F}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "dvmconsole", "DVMConsole\dvmconsole.csproj", "{710D1FA8-2E0D-42CB-9174-FCD9EB7A718F}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{B5A7CF60-CCDE-4B2B-85C1-86AE3A19FB31}"
 	ProjectSection(SolutionItems) = preProject
 		.editorconfig = .editorconfig
 	EndProjectSection
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "fnecore", "fnecore\fnecore.csproj", "{1F06ECB1-9928-1430-63F4-2E01522A0510}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "fnecore", "fnecore\fnecore.csproj", "{1F06ECB1-9928-1430-63F4-2E01522A0510}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

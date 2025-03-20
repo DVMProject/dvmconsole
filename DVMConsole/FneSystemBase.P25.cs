@@ -15,8 +15,31 @@
 using fnecore;
 using fnecore.P25;
 
-namespace DVMConsole
+namespace dvmconsole
 {
+    /// <summary>
+    /// 
+    /// </summary>
+    public class CryptoParams
+    {
+        /*
+        ** Properties
+        */
+
+        /// <summary>
+        /// Message Indicator
+        /// </summary>
+        public byte[] MI { get; set; } = new byte[P25Defines.P25_MI_LENGTH];
+        /// <summary>
+        /// Algorithm ID.
+        /// </summary>
+        public byte AlgId { get; set; } = P25Defines.P25_ALGO_UNENCRYPT;
+        /// <summary>
+        /// Key ID.
+        /// </summary>
+        public ushort KeyId { get; set; }
+    } // public class CryptoParams
+
     /// <summary>
     /// Implements a FNE system base.
     /// </summary>
@@ -55,11 +78,20 @@ namespace DVMConsole
             return;
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="duid"></param>
+        /// <param name="callData"></param>
+        /// <param name="data"></param>
+        /// <param name="algId"></param>
+        /// <param name="kId"></param>
+        /// <param name="mi"></param>
         public void CreateNewP25MessageHdr(byte duid, RemoteCallData callData, ref byte[] data, byte algId = 0, ushort kId = 0, byte[] mi = null)
         {
             CreateP25MessageHdr(duid, callData, ref data);
 
-            // if an mi is present, this is an encrypted header
+            // if an MI is present, this is an encrypted header
             if (mi != null)
             {
                 data[14U] |= 0x08;                                                          // Control bit
@@ -329,25 +361,25 @@ namespace DVMConsole
                     break;
                 case P25DFSI.P25_DFSI_LDU2_VOICE12:
                     {
-                        dfsiFrame[1U] = cryptoParams.Mi[0];                                 // Message Indicator
-                        dfsiFrame[2U] = cryptoParams.Mi[1];
-                        dfsiFrame[3U] = cryptoParams.Mi[2];
+                        dfsiFrame[1U] = cryptoParams.MI[0];                                 // Message Indicator
+                        dfsiFrame[2U] = cryptoParams.MI[1];
+                        dfsiFrame[3U] = cryptoParams.MI[2];
                         Buffer.BlockCopy(imbe, 0, dfsiFrame, 5, IMBE_BUF_LEN);              // IMBE
                     }
                     break;
                 case P25DFSI.P25_DFSI_LDU2_VOICE13:
                     {
-                        dfsiFrame[1U] = cryptoParams.Mi[3];                                 // Message Indicator
-                        dfsiFrame[2U] = cryptoParams.Mi[4];
-                        dfsiFrame[3U] = cryptoParams.Mi[5];
+                        dfsiFrame[1U] = cryptoParams.MI[3];                                 // Message Indicator
+                        dfsiFrame[2U] = cryptoParams.MI[4];
+                        dfsiFrame[3U] = cryptoParams.MI[5];
                         Buffer.BlockCopy(imbe, 0, dfsiFrame, 5, IMBE_BUF_LEN);              // IMBE
                     }
                     break;
                 case P25DFSI.P25_DFSI_LDU2_VOICE14:
                     {
-                        dfsiFrame[1U] = cryptoParams.Mi[6];                                 // Message Indicator
-                        dfsiFrame[2U] = cryptoParams.Mi[7];
-                        dfsiFrame[3U] = cryptoParams.Mi[8];
+                        dfsiFrame[1U] = cryptoParams.MI[6];                                 // Message Indicator
+                        dfsiFrame[2U] = cryptoParams.MI[7];
+                        dfsiFrame[3U] = cryptoParams.MI[8];
                         Buffer.BlockCopy(imbe, 0, dfsiFrame, 5, IMBE_BUF_LEN);              // IMBE
                     }
                     break;
@@ -468,14 +500,4 @@ namespace DVMConsole
             }
         }
     } // public abstract partial class FneSystemBase : fnecore.FneSystemBase
-
-    /// <summary>
-    /// 
-    /// </summary>
-    public class CryptoParams
-    {
-        public byte[] Mi { get; set; } = new byte[P25Defines.P25_MI_LENGTH];
-        public byte AlgId { get; set; } = P25Defines.P25_ALGO_UNENCRYPT;
-        public ushort KeyId { get; set; }
-    }
-}
+} // namespace dvmconsole

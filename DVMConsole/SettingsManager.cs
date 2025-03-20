@@ -1,10 +1,10 @@
 ﻿// SPDX-License-Identifier: AGPL-3.0-only
 /**
-* Digital Voice Modem - DVMConsole
+* Digital Voice Modem - Desktop Dispatch Console
 * AGPLv3 Open Source. Use is subject to license terms.
 * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 *
-* @package DVM / DVM Console
+* @package DVM / Desktop Dispatch Console
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
 *   Copyright (C) 2024-2025 Caleb, K4PHP
@@ -12,26 +12,68 @@
 */
 
 using System.IO;
+
 using Newtonsoft.Json;
 
-namespace DVMConsole
+namespace dvmconsole
 {
+    /// <summary>
+    /// 
+    /// </summary>
     public class SettingsManager
     {
         private const string SettingsFilePath = "UserSettings.json";
 
+        /*
+        ** Properties
+        */
+
+        /// <summary>
+        /// 
+        /// </summary>
         public bool ShowSystemStatus { get; set; } = true;
+        /// <summary>
+        /// 
+        /// </summary>
         public bool ShowChannels { get; set; } = true;
+        /// <summary>
+        /// 
+        /// </summary>
         public bool ShowAlertTones { get; set; } = true;
 
+        /// <summary>
+        /// 
+        /// </summary>
         public string LastCodeplugPath { get; set; } = null;
 
+        /// <summary>
+        /// 
+        /// </summary>
         public Dictionary<string, ChannelPosition> ChannelPositions { get; set; } = new Dictionary<string, ChannelPosition>();
+        /// <summary>
+        /// 
+        /// </summary>
         public Dictionary<string, ChannelPosition> SystemStatusPositions { get; set; } = new Dictionary<string, ChannelPosition>();
+        /// <summary>
+        /// 
+        /// </summary>
         public List<string> AlertToneFilePaths { get; set; } = new List<string>();
+        /// <summary>
+        /// 
+        /// </summary>
         public Dictionary<string, ChannelPosition> AlertTonePositions { get; set; } = new Dictionary<string, ChannelPosition>();
+        /// <summary>
+        /// 
+        /// </summary>
         public Dictionary<string, int> ChannelOutputDevices { get; set; } = new Dictionary<string, int>();
 
+        /*
+        ** Methods
+        */
+
+        /// <summary>
+        /// 
+        /// </summary>
         public void LoadSettings()
         {
             if (!File.Exists(SettingsFilePath)) return;
@@ -60,6 +102,10 @@ namespace DVMConsole
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="newFilePath"></param>
         public void UpdateAlertTonePaths(string newFilePath)
         {
             if (!AlertToneFilePaths.Contains(newFilePath))
@@ -69,30 +115,56 @@ namespace DVMConsole
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="alertFileName"></param>
+        /// <param name="x"></param>
+        /// <param name="y"></param>
         public void UpdateAlertTonePosition(string alertFileName, double x, double y)
         {
             AlertTonePositions[alertFileName] = new ChannelPosition { X = x, Y = y };
             SaveSettings();
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="channelName"></param>
+        /// <param name="x"></param>
+        /// <param name="y"></param>
         public void UpdateChannelPosition(string channelName, double x, double y)
         {
             ChannelPositions[channelName] = new ChannelPosition { X = x, Y = y };
             SaveSettings();
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="systemName"></param>
+        /// <param name="x"></param>
+        /// <param name="y"></param>
         public void UpdateSystemStatusPosition(string systemName, double x, double y)
         {
             SystemStatusPositions[systemName] = new ChannelPosition { X = x, Y = y };
             SaveSettings();
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="channelName"></param>
+        /// <param name="deviceIndex"></param>
         public void UpdateChannelOutputDevice(string channelName, int deviceIndex)
         {
             ChannelOutputDevices[channelName] = deviceIndex;
             SaveSettings();
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
         public void SaveSettings()
         {
             try
@@ -105,5 +177,5 @@ namespace DVMConsole
                 Console.WriteLine($"Error saving settings: {ex.Message}");
             }
         }
-    }
-}
+    } // public class SettingsManager
+} // namespace dvmconsole

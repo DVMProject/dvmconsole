@@ -1,8 +1,8 @@
-﻿<Window x:Class="DVMConsole.MainWindow"
+﻿<Window x:Class="dvmconsole.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:local="clr-namespace:DVMConsole.Controls"
-        Title="DVMConsole" Height="600" Width="1000" Background="#FFF2F2F2">
+        xmlns:local="clr-namespace:dvmconsole.Controls"
+        Title="Digital Voice Modem - Desktop Dispatch Console" Height="600" Width="1000" Background="#FFF2F2F2">
     <Grid Background="#FFF2F2F2">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="497*"/>

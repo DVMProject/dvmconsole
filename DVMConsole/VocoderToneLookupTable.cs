@@ -1,4 +1,17 @@
-﻿namespace DVMConsole
+﻿// SPDX-License-Identifier: AGPL-3.0-only
+/**
+* Digital Voice Modem - Desktop Dispatch Console
+* AGPLv3 Open Source. Use is subject to license terms.
+* DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+*
+* @package DVM / Desktop Dispatch Console
+* @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
+*
+*   Copyright (C) 2025 Patrick McDonnell, W3AXL
+*
+*/
+
+namespace dvmconsole
 {
     /// <summary>
     /// From https://github.com/W3AXL/rc2-dvm/blob/main/rc2-dvm/Audio.cs
@@ -84,5 +97,5 @@
             { 2469, new byte[] { 0x5, 0x6, 0xFB, 0x63, 0xCD, 0xD9, 0x2B, 0x42, 0xE1, 0xCF, 0x6D } },
             { 2500, new byte[] { 0x5, 0x6, 0xFB, 0x63, 0xCD, 0xD9, 0x2B, 0x42, 0xE1, 0xCF, 0x6B } },
         };
-    }
-}
+    } // public class VocoderToneLookupTable
+} // namespace dvmconsole

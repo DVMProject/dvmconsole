@@ -1,10 +1,10 @@
 ﻿// SPDX-License-Identifier: AGPL-3.0-only
 /**
-* Digital Voice Modem - DVMConsole
+* Digital Voice Modem - Desktop Dispatch Console
 * AGPLv3 Open Source. Use is subject to license terms.
 * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 *
-* @package DVM / DVM Console
+* @package DVM / Desktop Dispatch Console
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
 *   Copyright (C) 2024-2025 Caleb, K4PHP
@@ -13,27 +13,31 @@
 
 using NAudio.Wave;
 
-namespace DVMConsole
+namespace dvmconsole
 {
     /// <summary>
     /// 
     /// </summary>
     public class ToneGenerator
     {
-        private readonly int _sampleRate = 8000;
-        private readonly int _bitsPerSample = 16;
-        private readonly int _channels = 1;
-        private WaveOutEvent _waveOut;
-        private BufferedWaveProvider _waveProvider;
+        private readonly int sampleRate = 8000;
+        private readonly int bitsPerSample = 16;
+        private readonly int channels = 1;
+        private WaveOutEvent waveOut;
+        private BufferedWaveProvider waveProvider;
+
+        /*
+        ** Methods
+        */
 
         /// <summary>
-        /// Creates an instance of <see cref="ToneGenerator"/>
+        /// Initializes a new instance of the <see cref="ToneGenerator"/> class.
         /// </summary>
         public ToneGenerator()
         {
-            _waveOut = new WaveOutEvent();
-            _waveProvider = new BufferedWaveProvider(new WaveFormat(_sampleRate, _bitsPerSample, _channels));
-            _waveOut.Init(_waveProvider);
+            waveOut = new WaveOutEvent();
+            waveProvider = new BufferedWaveProvider(new WaveFormat(sampleRate, bitsPerSample, channels));
+            waveOut.Init(waveProvider);
         }
 
         /// <summary>
@@ -44,12 +48,12 @@ namespace DVMConsole
         /// <returns>PCM data as a byte array</returns>
         public byte[] GenerateTone(double frequency, double durationSeconds)
         {
-            int sampleCount = (int)(_sampleRate * durationSeconds);
-            byte[] buffer = new byte[sampleCount * (_bitsPerSample / 8)];
+            int sampleCount = (int)(sampleRate * durationSeconds);
+            byte[] buffer = new byte[sampleCount * (bitsPerSample / 8)];
 
             for (int i = 0; i < sampleCount; i++)
             {
-                double time = (double)i / _sampleRate;
+                double time = (double)i / sampleRate;
                 short sampleValue = (short)(Math.Sin(2 * Math.PI * frequency * time) * short.MaxValue);
 
                 buffer[i * 2] = (byte)(sampleValue & 0xFF);
@@ -68,10 +72,10 @@ namespace DVMConsole
         {
             byte[] toneData = GenerateTone(frequency, durationSeconds);
 
-            _waveProvider.ClearBuffer();
-            _waveProvider.AddSamples(toneData, 0, toneData.Length);
+            waveProvider.ClearBuffer();
+            waveProvider.AddSamples(toneData, 0, toneData.Length);
 
-            _waveOut.Play();
+            waveOut.Play();
         }
 
         /// <summary>
@@ -79,7 +83,7 @@ namespace DVMConsole
         /// </summary>
         public void StopTone()
         {
-            _waveOut.Stop();
+            waveOut.Stop();
         }
 
         /// <summary>
@@ -87,7 +91,7 @@ namespace DVMConsole
         /// </summary>
         public void Dispose()
         {
-            _waveOut.Dispose();
+            waveOut.Dispose();
         }
-    }
-}
+    } // public class ToneGenerator
+} // namespace dvmconsole

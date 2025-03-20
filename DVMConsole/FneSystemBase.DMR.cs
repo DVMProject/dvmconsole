@@ -11,12 +11,12 @@
 *
 */
 
-using fnecore.DMR;
 using fnecore;
+using fnecore.DMR;
 
 using NAudio.Wave;
 
-namespace DVMConsole
+namespace dvmconsole
 {
     /// <summary>
     /// Implements a FNE system base.
@@ -113,4 +113,4 @@ namespace DVMConsole
             return;
         }
     } // public abstract partial class FneSystemBase : fnecore.FneSystemBase
-}
+} // namespace dvmconsole

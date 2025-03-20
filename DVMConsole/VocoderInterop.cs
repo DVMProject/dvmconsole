@@ -1,28 +1,58 @@
-﻿// From https://github.com/w3axl/rc2-dvm
+﻿// SPDX-License-Identifier: AGPL-3.0-only
+/**
+* Digital Voice Modem - Desktop Dispatch Console
+* AGPLv3 Open Source. Use is subject to license terms.
+* DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+*
+* @package DVM / Desktop Dispatch Console
+* @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
+*
+*   Copyright (C) 2025 Patrick McDonnell, W3AXL
+*
+*/
 
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Tasks;
-using fnecore;
 
-namespace DVMConsole
+namespace dvmconsole
 {
+    /// <summary>
+    /// 
+    /// </summary>
     public enum MBE_MODE
     {
         DMR_AMBE,    //! DMR AMBE
         IMBE_88BIT,  //! 88-bit IMBE (P25)
-    }
+    } // public enum MBE_MODE
 
     /// <summary>
-    /// Wrapper class for the c++ dvmvocoder encoder library
+    /// Wrapper class for the C++ dvmvocoder encoder library.
     /// </summary>
     /// Using info from https://stackoverflow.com/a/315064/1842613
     public class MBEEncoder
     {
+        private IntPtr encoder;
+
+        /*
+        ** Methods
+        */
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="MBEEncoder"/> class.
+        /// </summary>
+        /// <param name="mode">Vocoder Mode (DMR or P25)</param>
+        public MBEEncoder(MBE_MODE mode)
+        {
+            encoder = MBEEncoder_Create(mode);
+        }
+
+        /// <summary>
+        /// Finalizes a instance of the <see cref="MBEEncoder"/> class.
+        /// </summary>
+        ~MBEEncoder()
+        {
+            MBEEncoder_Delete(encoder);
+        }
+
         /// <summary>
         /// Create a new MBEEncoder
         /// </summary>
@@ -55,28 +85,6 @@ namespace DVMConsole
         public static extern void MBEEncoder_Delete(IntPtr pEncoder);
 
         /// <summary>
-        /// Pointer to the encoder instance
-        /// </summary>
-        private IntPtr encoder { get; set; }
-
-        /// <summary>
-        /// Create a new MBEEncoder instance
-        /// </summary>
-        /// <param name="mode">Vocoder Mode (DMR or P25)</param>
-        public MBEEncoder(MBE_MODE mode)
-        {
-            encoder = MBEEncoder_Create(mode);
-        }
-
-        /// <summary>
-        /// Private class destructor properly deletes interop instance
-        /// </summary>
-        ~MBEEncoder()
-        {
-            MBEEncoder_Delete(encoder);
-        }
-
-        /// <summary>
         /// Encode PCM16 samples to MBE codeword
         /// </summary>
         /// <param name="samples"></param>
@@ -86,17 +94,45 @@ namespace DVMConsole
             MBEEncoder_Encode(encoder, samples, codeword);
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="bits"></param>
+        /// <param name="codeword"></param>
         public void encodeBits([In] char[] bits, [Out] byte[] codeword)
         {
             MBEEncoder_EncodeBits(encoder, bits, codeword);
         }
-    }
+    } // public class MBEEncoder
 
     /// <summary>
-    /// Wrapper class for the c++ dvmvocoder decoder library
+    /// Wrapper class for the C++ dvmvocoder decoder library.
     /// </summary>
     public class MBEDecoder
     {
+        private IntPtr decoder;
+
+        /*
+        ** Methods
+        */
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="MBEDecoder"/> class.
+        /// </summary>
+        /// <param name="mode">Vocoder Mode (DMR or P25)</param>
+        public MBEDecoder(MBE_MODE mode)
+        {
+            decoder = MBEDecoder_Create(mode);
+        }
+
+        /// <summary>
+        /// Finalizes a instance of the <see cref="MBEDecoder"/> class.
+        /// </summary>
+        ~MBEDecoder()
+        {
+            MBEDecoder_Delete(decoder);
+        }
+
         /// <summary>
         /// Create a new MBEDecoder
         /// </summary>
@@ -131,28 +167,6 @@ namespace DVMConsole
         public static extern void MBEDecoder_Delete(IntPtr pDecoder);
 
         /// <summary>
-        /// Pointer to the decoder instance
-        /// </summary>
-        private IntPtr decoder { get; set; }
-
-        /// <summary>
-        /// Create a new MBEDecoder instance
-        /// </summary>
-        /// <param name="mode">Vocoder Mode (DMR or P25)</param>
-        public MBEDecoder(MBE_MODE mode)
-        {
-            decoder = MBEDecoder_Create(mode);
-        }
-
-        /// <summary>
-        /// Private class destructor properly deletes interop instance
-        /// </summary>
-        ~MBEDecoder()
-        {
-            MBEDecoder_Delete(decoder);
-        }
-
-        /// <summary>
         /// Decode MBE codeword to PCM16 samples
         /// </summary>
         /// <param name="samples"></param>
@@ -172,8 +186,11 @@ namespace DVMConsole
         {
             return MBEDecoder_DecodeBits(decoder, codeword, bits);
         }
-    }
+    } // public class MBEDecoder
 
+    /// <summary>
+    /// 
+    /// </summary>
     public static class MBEToneGenerator
     {
         /// <summary>
@@ -183,7 +200,7 @@ namespace DVMConsole
         /// <param name="tone_amplitude"></param>
         /// <param name="codeword"></param>
         /// <exception cref="ArgumentOutOfRangeException"></exception>
-        public static void AmbeEncodeSingleTone(int tone_freq_hz, char tone_amplitude, [Out] byte[] codeword)
+        public static void AMBEEncodeSingleTone(int tone_freq_hz, char tone_amplitude, [Out] byte[] codeword)
         {
             // U bit vectors
             // u0 and u1 are 12 bits
@@ -197,15 +214,11 @@ namespace DVMConsole
 
             // Validate tone index
             if (tone_idx < 5 || tone_idx > 122)
-            {
                 throw new ArgumentOutOfRangeException($"Tone index for frequency out of range!");
-            }
 
             // Validate amplitude value
             if (tone_amplitude > 127)
-            {
                 throw new ArgumentOutOfRangeException("Tone amplitude must be between 0 and 127!");
-            }
 
             // Make sure tone index only has 7 bits (it should but we make sure :) )
             tone_idx &= 0b01111111;
@@ -258,8 +271,11 @@ namespace DVMConsole
             byte[] tone_codeword = VocoderToneLookupTable.IMBEToneFrames[nearest];
             Array.Copy(tone_codeword, codeword, tone_codeword.Length);
         }
-    }
+    } // public static class MBEToneGenerator
 
+    /// <summary>
+    /// 
+    /// </summary>
     public class MBEInterleaver
     {
         public const int PCM_SAMPLES = 160;
@@ -273,6 +289,14 @@ namespace DVMConsole
         private MBEEncoder encoder;
         private MBEDecoder decoder;
 
+        /*
+        ** Methods
+        */
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="MBEInterleaver"/> class.
+        /// </summary>
+        /// <param name="mode"></param>
         public MBEInterleaver(MBE_MODE mode)
         {
             this.mode = mode;
@@ -280,13 +304,19 @@ namespace DVMConsole
             decoder = new MBEDecoder(this.mode);
         }
 
-        public Int32 Decode([In] byte[] codeword, [Out] byte[] mbeBits)
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="codeword"></param>
+        /// <param name="mbeBits"></param>
+        /// <returns></returns>
+        /// <exception cref="NullReferenceException"></exception>
+        /// <exception cref="ArgumentOutOfRangeException"></exception>
+        public int Decode([In] byte[] codeword, [Out] byte[] mbeBits)
         {
             // Input validation
             if (codeword == null)
-            {
                 throw new NullReferenceException("Input MBE codeword is null!");
-            }
 
             char[] bits = null;
 
@@ -294,24 +324,18 @@ namespace DVMConsole
             if (mode == MBE_MODE.DMR_AMBE)
             {
                 if (codeword.Length != AMBE_CODEWORD_SAMPLES)
-                {
                     throw new ArgumentOutOfRangeException($"AMBE codeword length is != {AMBE_CODEWORD_SAMPLES}");
-                }
                 bits = new char[AMBE_CODEWORD_BITS];
             }
             else if (mode == MBE_MODE.IMBE_88BIT)
             {
                 if (codeword.Length != IMBE_CODEWORD_SAMPLES)
-                {
                     throw new ArgumentOutOfRangeException($"IMBE codeword length is != {IMBE_CODEWORD_SAMPLES}");
-                }
                 bits = new char[IMBE_CODEWORD_BITS];
             }
 
             if (bits == null)
-            {
                 throw new NullReferenceException("Failed to initialize decoder");
-            }
 
             // Decode
             int errs = decoder.decodeBits(codeword, bits);
@@ -334,12 +358,18 @@ namespace DVMConsole
             return errs;
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="mbeBits"></param>
+        /// <param name="codeword"></param>
+        /// <exception cref="NullReferenceException"></exception>
+        /// <exception cref="ArgumentOutOfRangeException"></exception>
+        /// <exception cref="ArgumentException"></exception>
         public void Encode([In] byte[] mbeBits, [Out] byte[] codeword)
         {
             if (mbeBits == null)
-            {
                 throw new NullReferenceException("Input MBE bit array is null!");
-            }
 
             char[] bits = null;
 
@@ -347,34 +377,30 @@ namespace DVMConsole
             if (mode == MBE_MODE.DMR_AMBE)
             {
                 if (mbeBits.Length != AMBE_CODEWORD_BITS)
-                {
                     throw new ArgumentOutOfRangeException($"AMBE codeword bit length is != {AMBE_CODEWORD_BITS}");
-                }
                 bits = new char[AMBE_CODEWORD_BITS];
                 Array.Copy(mbeBits, bits, AMBE_CODEWORD_BITS);
             }
             else if (mode == MBE_MODE.IMBE_88BIT)
             {
                 if (mbeBits.Length != IMBE_CODEWORD_BITS)
-                {
                     throw new ArgumentOutOfRangeException($"IMBE codeword bit length is != {AMBE_CODEWORD_BITS}");
-                }
                 bits = new char[IMBE_CODEWORD_BITS];
                 Array.Copy(mbeBits, bits, IMBE_CODEWORD_BITS);
             }
 
             if (bits == null)
-            {
                 throw new ArgumentException("Bit array did not get set up properly!");
-            }
 
             // Encode samples
             if (mode == MBE_MODE.DMR_AMBE)
             {
                 // Create output array
                 byte[] codewords = new byte[AMBE_CODEWORD_SAMPLES];
+                
                 // Encode
                 encoder.encodeBits(bits, codewords);
+                
                 // Copy
                 codeword = new byte[AMBE_CODEWORD_SAMPLES];
                 Array.Copy(codewords, codeword, IMBE_CODEWORD_SAMPLES);
@@ -383,12 +409,14 @@ namespace DVMConsole
             {
                 // Create output array
                 byte[] codewords = new byte[IMBE_CODEWORD_SAMPLES];
+                
                 // Encode
                 encoder.encodeBits(bits, codewords);
+                
                 // Copy
                 codeword = new byte[IMBE_CODEWORD_SAMPLES];
                 Array.Copy(codewords, codeword, IMBE_CODEWORD_SAMPLES);
             }
         }
-    }
-}
+    } // public class MBEInterleaver
+} // namespace dvmconsole

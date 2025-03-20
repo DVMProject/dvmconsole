@@ -1,10 +1,10 @@
 ﻿// SPDX-License-Identifier: AGPL-3.0-only
 /**
-* Digital Voice Modem - DVMConsole
+* Digital Voice Modem - Desktop Dispatch Console
 * AGPLv3 Open Source. Use is subject to license terms.
 * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 *
-* @package DVM / DVM Console
+* @package DVM / Desktop Dispatch Console
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
 *   Copyright (C) 2025 Caleb, K4PHP
@@ -14,23 +14,27 @@
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 
-namespace DVMConsole
+namespace dvmconsole
 {
     /// <summary>
-    /// Class for managing audio streams
+    /// Class for managing audio streams.
     /// </summary>
     public class AudioManager
     {
-        private Dictionary<string, (WaveOutEvent waveOut, MixingSampleProvider mixer, BufferedWaveProvider buffer, GainSampleProvider gainProvider)> _talkgroupProviders;
-        private SettingsManager _settingsManager;
+        private Dictionary<string, (WaveOutEvent waveOut, MixingSampleProvider mixer, BufferedWaveProvider buffer, GainSampleProvider gainProvider)> talkgroupProviders;
+        private SettingsManager settingsManager;
+
+        /*
+        ** Methods
+        */
 
         /// <summary>
-        /// Creates an instance of <see cref="AudioManager"/>
+        /// Creates an instance of <see cref="AudioManager"/> class.
         /// </summary>
         public AudioManager(SettingsManager settingsManager)
         {
-            _settingsManager = settingsManager;
-            _talkgroupProviders = new Dictionary<string, (WaveOutEvent, MixingSampleProvider, BufferedWaveProvider, GainSampleProvider)>();
+            this.settingsManager = settingsManager;
+            talkgroupProviders = new Dictionary<string, (WaveOutEvent, MixingSampleProvider, BufferedWaveProvider, GainSampleProvider)>();
         }
 
         /// <summary>
@@ -40,10 +44,10 @@ namespace DVMConsole
         /// <param name="audioData"></param>
         public void AddTalkgroupStream(string talkgroupId, byte[] audioData)
         {
-            if (!_talkgroupProviders.ContainsKey(talkgroupId))
+            if (!talkgroupProviders.ContainsKey(talkgroupId))
                 AddTalkgroupStream(talkgroupId);
 
-            _talkgroupProviders[talkgroupId].buffer.AddSamples(audioData, 0, audioData.Length);
+            talkgroupProviders[talkgroupId].buffer.AddSamples(audioData, 0, audioData.Length);
         }
 
         /// <summary>
@@ -52,34 +56,19 @@ namespace DVMConsole
         /// <param name="talkgroupId"></param>
         private void AddTalkgroupStream(string talkgroupId)
         {
-            int deviceIndex = _settingsManager.ChannelOutputDevices.ContainsKey(talkgroupId) ? _settingsManager.ChannelOutputDevices[talkgroupId] : 0;
+            int deviceIndex = settingsManager.ChannelOutputDevices.ContainsKey(talkgroupId) ? settingsManager.ChannelOutputDevices[talkgroupId] : 0;
 
-            var waveOut = new WaveOutEvent
-            {
-                DeviceNumber = deviceIndex
-            };
-
-            var bufferProvider = new BufferedWaveProvider(new WaveFormat(8000, 16, 1))
-            {
-                DiscardOnBufferOverflow = true
-            };
-
-            var gainProvider = new GainSampleProvider(bufferProvider.ToSampleProvider())
-            {
-                Gain = 1.0f
-            };
-
-            var mixer = new MixingSampleProvider(WaveFormat.CreateIeeeFloatWaveFormat(8000, 1))
-            {
-                ReadFully = true
-            };
+            var waveOut = new WaveOutEvent { DeviceNumber = deviceIndex };
+            var bufferProvider = new BufferedWaveProvider(new WaveFormat(8000, 16, 1)) { DiscardOnBufferOverflow = true };
+            var gainProvider = new GainSampleProvider(bufferProvider.ToSampleProvider()) { Gain = 1.0f };
+            var mixer = new MixingSampleProvider(WaveFormat.CreateIeeeFloatWaveFormat(8000, 1)) { ReadFully = true };
 
             mixer.AddMixerInput(gainProvider);
 
             waveOut.Init(mixer);
             waveOut.Play();
 
-            _talkgroupProviders[talkgroupId] = (waveOut, mixer, bufferProvider, gainProvider);
+            talkgroupProviders[talkgroupId] = (waveOut, mixer, bufferProvider, gainProvider);
         }
 
         /// <summary>
@@ -87,14 +76,12 @@ namespace DVMConsole
         /// </summary>
         public void SetTalkgroupVolume(string talkgroupId, float volume)
         {
-            if (_talkgroupProviders.ContainsKey(talkgroupId))
-            {
-                _talkgroupProviders[talkgroupId].gainProvider.Gain = volume;
-            }
+            if (talkgroupProviders.ContainsKey(talkgroupId))
+                talkgroupProviders[talkgroupId].gainProvider.Gain = volume;
             else
             {
                 AddTalkgroupStream(talkgroupId);
-                _talkgroupProviders[talkgroupId].gainProvider.Gain = volume;
+                talkgroupProviders[talkgroupId].gainProvider.Gain = volume;
             }
         }
 
@@ -105,13 +92,13 @@ namespace DVMConsole
         /// <param name="deviceIndex"></param>
         public void SetTalkgroupOutputDevice(string talkgroupId, int deviceIndex)
         {
-            if (_talkgroupProviders.ContainsKey(talkgroupId))
+            if (talkgroupProviders.ContainsKey(talkgroupId))
             {
-                _talkgroupProviders[talkgroupId].waveOut.Stop();
-                _talkgroupProviders.Remove(talkgroupId);
+                talkgroupProviders[talkgroupId].waveOut.Stop();
+                talkgroupProviders.Remove(talkgroupId);
             }
 
-            _settingsManager.UpdateChannelOutputDevice(talkgroupId, deviceIndex);
+            settingsManager.UpdateChannelOutputDevice(talkgroupId, deviceIndex);
             AddTalkgroupStream(talkgroupId);
         }
 
@@ -120,8 +107,8 @@ namespace DVMConsole
         /// </summary>
         public void Stop()
         {
-            foreach (var provider in _talkgroupProviders.Values)
+            foreach (var provider in talkgroupProviders.Values)
                 provider.waveOut.Stop();
         }
-    }
-}
+    } // public class AudioManager
+} // namespace dvmconsole

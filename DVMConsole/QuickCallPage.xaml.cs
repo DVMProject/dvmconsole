@@ -1,26 +1,19 @@
-﻿/*
-* WhackerLink - DVMConsole
+﻿// SPDX-License-Identifier: AGPL-3.0-only
+/**
+* Digital Voice Modem - Desktop Dispatch Console
+* AGPLv3 Open Source. Use is subject to license terms.
+* DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 3 of the License, or
-* (at your option) any later version.
+* @package DVM / Desktop Dispatch Console
+* @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU General Public License for more details.
+*   Copyright (C) 2024 Caleb, K4PHP
 *
-* You should have received a copy of the GNU General Public License
-* along with this program.  If not, see <http://www.gnu.org/licenses/>.
-* 
-* Copyright (C) 2024 Caleb, K4PHP
-* 
 */
 
 using System.Windows;
 
-namespace DVMConsole
+namespace dvmconsole
 {
     /// <summary>
     /// Interaction logic for QuickCallPage.xaml
@@ -30,11 +23,23 @@ namespace DVMConsole
         public string ToneA;
         public string ToneB;
 
+        /*
+        ** Methods
+        */
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="QuickCallPage"/> class.
+        /// </summary>
         public QuickCallPage()
         {
             InitializeComponent();
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void SendButton_Click(object sender, RoutedEventArgs e)
         {
             ToneA = ToneAText.Text;
@@ -43,5 +48,5 @@ namespace DVMConsole
             DialogResult = true;
             Close();
         }
-    }
-}
+    } // public partial class QuickCallPage : Window
+} // namespace dvmconsole

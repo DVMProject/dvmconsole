@@ -1,4 +1,4 @@
-﻿<UserControl x:Class="DVMConsole.Controls.AlertTone"
+﻿<UserControl x:Class="dvmconsole.Controls.AlertTone"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Height="55" Width="105"
@@ -26,9 +26,6 @@
             </Button.Background>
             <Image Height="40" Width="63" Source="/Assets/page.png" Margin="0,-8,0,0"/>
         </Button>
-        <TextBox HorizontalAlignment="Center" FontWeight="Bold" FontSize="10" TextWrapping="Wrap" Text="{Binding AlertFileName}" TextAlignment="Center" VerticalAlignment="Top" Width="100" Background="{x:Null}" BorderThickness="0,0,0,0" Height="24" Margin="0,4,0,0" Grid.RowSpan="2" TextChanged="TextBox_TextChanged" Foreground="White"/>
-
+        <TextBox HorizontalAlignment="Center" FontWeight="Bold" FontSize="10" TextWrapping="Wrap" Text="{Binding AlertFileName}" TextAlignment="Center" VerticalAlignment="Top" Width="100" Background="{x:Null}" BorderThickness="0,0,0,0" Height="24" Margin="0,4,0,0" Grid.RowSpan="2" Foreground="White"/>
     </Grid>
-
 </UserControl>
-

@@ -1,15 +1,24 @@
-﻿// From github.com/w3axl/rc2-dvm
+﻿// SPDX-License-Identifier: AGPL-3.0-only
+/**
+* Digital Voice Modem - Desktop Dispatch Console
+* AGPLv3 Open Source. Use is subject to license terms.
+* DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+*
+* @package DVM / Desktop Dispatch Console
+* @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
+*
+*   Copyright (C) 2025 Patrick McDonnell, W3AXL
+*
+*/
 
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using NWaves.Signals;
 using NWaves.Transforms;
 
-namespace DVMConsole
+namespace dvmconsole
 {
+    /// <summary>
+    /// 
+    /// </summary>
     public class MBEToneDetector
     {
         // Samplerate is 8000 Hz
@@ -40,6 +49,10 @@ namespace DVMConsole
 
         // The STFT (short-time fourier transform) operator
         private Stft stft;
+
+        /*
+        ** Methods
+        */
 
         /// <summary>
         /// Create a pitch detector which reports the running average of pitch for a sequence of samples
@@ -123,5 +136,5 @@ namespace DVMConsole
             }
             return 0;
         }
-    }
-}
+    } // public class MBEToneDetector
+} // namespace dvmconsole

@@ -11,8 +11,10 @@
 *
 */
 
+using System.Runtime.InteropServices;
+
 #if WIN32
-namespace DVMConsole
+namespace dvmconsole
 {
     /// <summary>
     /// Implements P/Invoke to callback into external AMBE encoder/decoder library.

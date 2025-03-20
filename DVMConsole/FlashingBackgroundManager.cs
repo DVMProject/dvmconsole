@@ -1,10 +1,10 @@
 ﻿// SPDX-License-Identifier: AGPL-3.0-only
 /**
-* Digital Voice Modem - DVMConsole
+* Digital Voice Modem - Desktop Dispatch Console
 * AGPLv3 Open Source. Use is subject to license terms.
 * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 *
-* @package DVM / DVM Console
+* @package DVM / Desktop Dispatch Console
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
 *   Copyright (C) 2025 Caleb, K4PHP
@@ -16,96 +16,125 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 
-namespace DVMConsole
+namespace dvmconsole
 {
+    /// <summary>
+    /// 
+    /// </summary>
     public class FlashingBackgroundManager
     {
-        private readonly Control _control;
-        private readonly Canvas _canvas;
-        private readonly UserControl _userControl;
-        private readonly Window _mainWindow;
-        private readonly DispatcherTimer _timer;
-        private Brush _originalControlBackground;
-        private Brush _originalCanvasBackground;
-        private Brush _originalUserControlBackground;
-        private Brush _originalMainWindowBackground;
-        private bool _isFlashing;
+        private readonly Control control;
+        private readonly Canvas canvas;
+        private readonly UserControl userControl;
+        private readonly Window mainWindow;
+        private readonly DispatcherTimer timer;
+        
+        private Brush originalControlBackground;
+        private Brush originalCanvasBackground;
+        private Brush originalUserControlBackground;
+        private Brush originalMainWindowBackground;
+        
+        private bool isFlashing;
 
+        /*
+        ** Methods
+        */
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="FlashingBackgroundManager"/> class.
+        /// </summary>
+        /// <param name="control"></param>
+        /// <param name="canvas"></param>
+        /// <param name="userControl"></param>
+        /// <param name="mainWindow"></param>
+        /// <param name="intervalMilliseconds"></param>
+        /// <exception cref="ArgumentException"></exception>
         public FlashingBackgroundManager(Control control = null, Canvas canvas = null, UserControl userControl = null, Window mainWindow = null, int intervalMilliseconds = 450)
         {
-            _control = control;
-            _canvas = canvas;
-            _userControl = userControl;
-            _mainWindow = mainWindow;
+            this.control = control;
+            this.canvas = canvas;
+            this.userControl = userControl;
+            this.mainWindow = mainWindow;
 
-            if (_control == null && _canvas == null && _userControl == null && _mainWindow == null)
+            if (this.control == null && this.canvas == null && this.userControl == null && this.mainWindow == null)
                 throw new ArgumentException("At least one of control, canvas, userControl, or mainWindow must be provided.");
 
-            _timer = new DispatcherTimer
+            timer = new DispatcherTimer
             {
                 Interval = TimeSpan.FromMilliseconds(intervalMilliseconds)
             };
-            _timer.Tick += OnTimerTick;
+            timer.Tick += OnTimerTick;
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
         public void Start()
         {
-            if (_isFlashing)
+            if (isFlashing)
                 return;
 
-            if (_control != null)
-                _originalControlBackground = _control.Background;
+            if (control != null)
+                originalControlBackground = control.Background;
 
-            if (_canvas != null)
-                _originalCanvasBackground = _canvas.Background;
+            if (canvas != null)
+                originalCanvasBackground = canvas.Background;
 
-            if (_userControl != null)
-                _originalUserControlBackground = _userControl.Background;
+            if (userControl != null)
+                originalUserControlBackground = userControl.Background;
 
-            if (_mainWindow != null)
-                _originalMainWindowBackground = _mainWindow.Background;
+            if (mainWindow != null)
+                originalMainWindowBackground = mainWindow.Background;
 
-            _isFlashing = true;
-            _timer.Start();
+            isFlashing = true;
+            timer.Start();
         }
-
+        
+        /// <summary>
+        /// 
+        /// </summary>
         public void Stop()
         {
-            if (!_isFlashing)
+            if (!isFlashing)
                 return;
 
-            _timer.Stop();
+            timer.Stop();
 
-            if (_control != null)
-                _control.Background = _originalControlBackground;
+            if (control != null)
+                control.Background = originalControlBackground;
 
-            if (_canvas != null)
-                _canvas.Background = _originalCanvasBackground;
+            if (canvas != null)
+                canvas.Background = originalCanvasBackground;
 
-            if (_userControl != null)
-                _userControl.Background = _originalUserControlBackground;
+            if (userControl != null)
+                userControl.Background = originalUserControlBackground;
 
-            if (_mainWindow != null && _originalMainWindowBackground != null)
-                _mainWindow.Background = _originalMainWindowBackground;
+            if (mainWindow != null && originalMainWindowBackground != null)
+                mainWindow.Background = originalMainWindowBackground;
 
-            _isFlashing = false;
+            isFlashing = false;
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void OnTimerTick(object sender, EventArgs e)
         {
             Brush flashingColor = Brushes.Red;
 
-            if (_control != null)
-                _control.Background = _control.Background == Brushes.DarkRed ? _originalControlBackground : Brushes.DarkRed;
+            if (control != null)
+                control.Background = control.Background == Brushes.DarkRed ? originalControlBackground : Brushes.DarkRed;
 
-            if (_canvas != null)
-                _canvas.Background = _canvas.Background == flashingColor ? _originalCanvasBackground : flashingColor;
+            if (canvas != null)
+                canvas.Background = canvas.Background == flashingColor ? originalCanvasBackground : flashingColor;
 
-            if (_userControl != null)
-                _userControl.Background = _userControl.Background == Brushes.DarkRed ? _originalUserControlBackground : Brushes.DarkRed;
+            if (userControl != null)
+                userControl.Background = userControl.Background == Brushes.DarkRed ? originalUserControlBackground : Brushes.DarkRed;
 
-            if (_mainWindow != null)
-                _mainWindow.Background = _mainWindow.Background == flashingColor ? _originalMainWindowBackground : flashingColor;
+            if (mainWindow != null)
+                mainWindow.Background = mainWindow.Background == flashingColor ? originalMainWindowBackground : flashingColor;
         }
-    }
-}
+    } // public class FlashingBackgroundManager
+} // namespace dvmconsole

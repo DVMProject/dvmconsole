@@ -1,51 +1,104 @@
 ﻿// SPDX-License-Identifier: AGPL-3.0-only
 /**
-* Digital Voice Modem - DVMConsole
+* Digital Voice Modem - Desktop Dispatch Console
 * AGPLv3 Open Source. Use is subject to license terms.
 * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 *
-* @package DVM / DVM Console
+* @package DVM / Desktop Dispatch Console
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
 *   Copyright (C) 2025 Caleb, K4PHP
 *
 */
 
-// TODO: Move to fnecore
-
-using System;
-using System.Collections.Generic;
 using System.Security.Cryptography;
-using System.Linq;
 
-namespace DVMConsole
+using fnecore.P25;
+
+namespace dvmconsole
 {
+    /// <summary>
+    /// 
+    /// </summary>
     public class P25Crypto
     {
-        private ProtocolType protocol;
+        public const int IMBE_BUF_LEN = 11;
+
         private byte algId;
         private ushort keyId;
+
         private byte[] messageIndicator = new byte[9];
+
         private Dictionary<ushort, KeyInfo> keys = new Dictionary<ushort, KeyInfo>();
+
         private byte[] aesKeystream = new byte[240]; // AES buffer
         private byte[] adpKeystream = new byte[469]; // ADP buffer
-        private int aesPosition;
-        private int adpPosition;
 
+        private int ksPosition;
+
+        /*
+        ** Class
+        */
+
+        /// <summary>
+        /// 
+        /// </summary>
+        private class KeyInfo
+        {
+            /*
+            ** Properties
+            */
+
+            /// <summary>
+            /// 
+            /// </summary>
+            public byte AlgId { get; }
+            /// <summary>
+            /// 
+            /// </summary>
+            public byte[] Key { get; }
+
+            /// <summary>
+            /// Initializes a new instance of the <see cref="KeyInfo"/> class.
+            /// </summary>
+            /// <param name="algid"></param>
+            /// <param name="key"></param>
+            public KeyInfo(byte algid, byte[] key)
+            {
+                AlgId = algid;
+                Key = key;
+            }
+        } // private class KeyInfo
+
+        /*
+        ** Methods
+        */
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="P25Crypto"/> class.
+        /// </summary>
         public P25Crypto()
         {
-            this.protocol = ProtocolType.Unknown;
-            this.algId = 0x80;
+            this.algId = P25Defines.P25_ALGO_UNENCRYPT;
             this.keyId = 0;
-            this.aesPosition = 0;
-            this.adpPosition = 0;
+
+            this.ksPosition = 0;
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
         public void Reset()
         {
             keys.Clear();
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="keyid"></param>
+        /// <param name="algid"></param>
+        /// <param name="key"></param>
         public void AddKey(ushort keyid, byte algid, byte[] key)
         {
             if (keyid == 0 || algid == 0x80)
@@ -54,58 +107,90 @@ namespace DVMConsole
             keys[keyid] = new KeyInfo(algid, key);
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="keyId"></param>
+        /// <returns></returns>
         public bool HasKey(ushort keyId)
         {
             return keys.ContainsKey(keyId);
         }
 
-        public bool Prepare(byte algid, ushort keyid, ProtocolType protocol, byte[] MI)
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="algid"></param>
+        /// <param name="keyid"></param>
+        /// <param name="protocol"></param>
+        /// <param name="MI"></param>
+        /// <returns></returns>
+        public bool Prepare(byte algid, ushort keyid, byte[] MI)
         {
             this.algId = algid;
             this.keyId = keyid;
-            this.protocol = protocol;
+
             Array.Copy(MI, this.messageIndicator, Math.Min(MI.Length, this.messageIndicator.Length));
 
             if (!keys.ContainsKey(keyid))
                 return false;
 
-            if (algid == 0x84) // AES-256
+            this.ksPosition = 0;
+
+            if (algid == P25Defines.P25_ALGO_AES)
             {
-                this.aesPosition = 0;
-                GenerateAesKeystream();
+                GenerateAESKeystream();
                 return true;
             }
-            else if (algid == 0xAA) // ADP (RC4)
+            else if (algid == P25Defines.P25_ALGO_ARC4)
             {
-                this.adpPosition = 0;
-                GenerateAdpKeystream();
+                GenerateARC4Keystream();
                 return true;
             }
 
             return false;
         }
 
-        public bool Process(byte[] PCW, FrameType frameType, int voiceSubframe)
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="imbe"></param>
+        /// <param name="duid"></param>
+        /// <returns></returns>
+        public bool Process(byte[] imbe, P25DUID duid)
         {
             if (!keys.ContainsKey(keyId))
                 return false;
 
             return algId switch
             {
-                0x84 => AesProcess(PCW, frameType, voiceSubframe),
-                0xAA => AdpProcess(PCW, frameType, voiceSubframe),
+                P25Defines.P25_ALGO_AES => AESProcess(imbe, duid),
+                P25Defines.P25_ALGO_ARC4 => ARC4Process(imbe, duid),
                 _ => false
             };
         }
 
         /// <summary>
-        /// Create ADP key stream
+        /// 
         /// </summary>
-        private void GenerateAdpKeystream()
+        /// <param name="a"></param>
+        /// <param name="i1"></param>
+        /// <param name="i2"></param>
+        private void Swap(byte[] a, int i1, int i2)
+        {
+            byte temp = a[i1];
+            a[i1] = a[i2];
+            a[i2] = temp;
+        }
+
+        /// <summary>
+        /// Create ARC4 keystream.
+        /// </summary>
+        private void GenerateARC4Keystream()
         {
             byte[] adpKey = new byte[13];
-            byte[] S = new byte[256];
-            byte[] K = new byte[256];
+            byte[] permutation = new byte[256];
+            byte[] key = new byte[256];
 
             if (!keys.ContainsKey(keyId))
                 return;
@@ -127,141 +212,46 @@ namespace DVMConsole
                 adpKey[i] = messageIndicator[i - 5];
             }
 
+            // generate ARC4 keystream
+            // initialize state variable
             for (i = 0; i < 256; ++i)
             {
-                K[i] = adpKey[i % 13];
-                S[i] = (byte)i;
+                key[i] = adpKey[i % 13];
+                permutation[i] = (byte)i;
             }
 
+            // randomize, using key
             for (i = 0; i < 256; ++i)
             {
-                j = (j + S[i] + K[i]) & 0xFF;
-                Swap(S, i, j);
+                j = (j + permutation[i] + key[i]) & 0xFF;
+                Swap(permutation, i, j);
             }
 
+            // perform RC4 transformation
             i = j = 0;
             for (k = 0; k < 469; ++k)
             {
                 i = (i + 1) & 0xFF;
-                j = (j + S[i]) & 0xFF;
-                Swap(S, i, j);
-                adpKeystream[k] = S[(S[i] + S[j]) & 0xFF];
+                j = (j + permutation[i]) & 0xFF;
+
+                // swap permutation[i] and permutation[j]
+                Swap(permutation, i, j);
+
+                // transform byte
+                adpKeystream[k] = permutation[(permutation[i] + permutation[j]) & 0xFF];
             }
         }
 
         /// <summary>
-        /// Preform a swap
+        /// Create AES keystream.
         /// </summary>
-        /// <param name="S"></param>
-        /// <param name="i"></param>
-        /// <param name="j"></param>
-        private void Swap(byte[] S, int i, int j)
-        {
-            byte temp = S[i];
-            S[i] = S[j];
-            S[j] = temp;
-        }
-
-        /// <summary>
-        /// Process AES256
-        /// </summary>
-        /// <param name="PCW"></param>
-        /// <param name="frameType"></param>
-        /// <param name="voiceSubframe"></param>
-        /// <returns></returns>
-        private bool AesProcess(byte[] PCW, FrameType frameType, int voiceSubframe)
-        {
-            int offset = 16;
-
-            switch (frameType)
-            {
-                case FrameType.LDU1: offset += 0; break;
-                case FrameType.LDU2: offset += 101; break;
-                case FrameType.V4_0: offset += 7 * voiceSubframe; break;
-                case FrameType.V4_1: offset += 7 * (voiceSubframe + 4); break;
-                case FrameType.V4_2: offset += 7 * (voiceSubframe + 8); break;
-                case FrameType.V4_3: offset += 7 * (voiceSubframe + 12); break;
-                case FrameType.V2: offset += 7 * (voiceSubframe + 16); break;
-                default: return false;
-            }
-
-            if (protocol == ProtocolType.P25Phase1)
-            {
-                offset += (aesPosition * 11) + 11 + (aesPosition < 8 ? 0 : 2);
-                aesPosition = (aesPosition + 1) % 9;
-
-                for (int j = 0; j < 11; ++j)
-                {
-                    PCW[j] ^= aesKeystream[j + offset];
-                }
-            }
-            else if (protocol == ProtocolType.P25Phase2)
-            {
-                for (int j = 0; j < 7; ++j)
-                {
-                    PCW[j] ^= aesKeystream[j + offset];
-                }
-                PCW[6] &= 0x80;
-            }
-
-            return true;
-        }
-
-        /// <summary>
-        /// Process ADP
-        /// </summary>
-        /// <param name="PCW"></param>
-        /// <param name="frameType"></param>
-        /// <param name="voiceSubframe"></param>
-        /// <returns></returns>
-        private bool AdpProcess(byte[] PCW, FrameType frameType, int voiceSubframe)
-        {
-            int offset = 256;
-
-            switch (frameType)
-            {
-                case FrameType.LDU1: offset = 0; break;
-                case FrameType.LDU2: offset = 101; break;
-                case FrameType.V4_0: offset += 7 * voiceSubframe; break;
-                case FrameType.V4_1: offset += 7 * (voiceSubframe + 4); break;
-                case FrameType.V4_2: offset += 7 * (voiceSubframe + 8); break;
-                case FrameType.V4_3: offset += 7 * (voiceSubframe + 12); break;
-                case FrameType.V2: offset += 7 * (voiceSubframe + 16); break;
-                default: return false;
-            }
-
-            if (protocol == ProtocolType.P25Phase1)
-            {
-                offset += (adpPosition * 11) + 267 + (adpPosition < 8 ? 0 : 2);
-                adpPosition = (adpPosition + 1) % 9;
-
-                for (int j = 0; j < 11; ++j)
-                {
-                    PCW[j] ^= adpKeystream[j + offset];
-                }
-            }
-            else if (protocol == ProtocolType.P25Phase2)
-            {
-                for (int j = 0; j < 7; ++j)
-                {
-                    PCW[j] ^= adpKeystream[j + offset];
-                }
-                PCW[6] &= 0x80;
-            }
-
-            return true;
-        }
-
-        /// <summary>
-        /// Create AES key stream
-        /// </summary>
-        private void GenerateAesKeystream()
+        private void GenerateAESKeystream()
         {
             if (!keys.ContainsKey(keyId))
                 return;
 
             byte[] key = keys[keyId].Key;
-            byte[] iv = ExpandMiTo128(messageIndicator);
+            byte[] iv = ExpandMIToIV(messageIndicator);
 
             using (var aes = Aes.Create())
             {
@@ -285,6 +275,48 @@ namespace DVMConsole
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Helper to process IMBE audio using AES-256.
+        /// </summary>
+        /// <param name="imbe"></param>
+        /// <param name="duid"></param>
+        /// <returns></returns>
+        private bool AESProcess(byte[] imbe, P25DUID duid)
+        {
+            int offset = 16;
+            if (duid == P25DUID.LDU2)
+                offset += 101;
+
+            offset += (ksPosition * IMBE_BUF_LEN) + IMBE_BUF_LEN + (ksPosition < 8 ? 0 : 2);
+            ksPosition = (ksPosition + 1) % 9;
+
+            for (int j = 0; j < IMBE_BUF_LEN; ++j)
+                imbe[j] ^= aesKeystream[j + offset];
+
+            return true;
+        }
+
+        /// <summary>
+        /// Helper to process IMBE audio using ARC4.
+        /// </summary>
+        /// <param name="imbe"></param>
+        /// <param name="duid"></param>
+        /// <returns></returns>
+        private bool ARC4Process(byte[] imbe, P25DUID duid)
+        {
+            int offset = 256;
+            if (duid != P25DUID.LDU2)
+                offset += 101;
+
+            offset += (ksPosition * IMBE_BUF_LEN) + 267 + (ksPosition < 8 ? 0 : 2);
+            ksPosition = (ksPosition + 1) % 9;
+
+            for (int j = 0; j < IMBE_BUF_LEN; ++j)
+                imbe[j] ^= adpKeystream[j + offset];
+
+            return true;
         }
 
         /// <summary>
@@ -350,7 +382,7 @@ namespace DVMConsole
         /// <param name="mi"></param>
         /// <returns></returns>
         /// <exception cref="ArgumentException"></exception>
-        private static byte[] ExpandMiTo128(byte[] mi)
+        private static byte[] ExpandMIToIV(byte[] mi)
         {
             if (mi == null || mi.Length < 8)
                 throw new ArgumentException("MI must be at least 8 bytes long.");
@@ -360,16 +392,12 @@ namespace DVMConsole
             // Copy first 64 bits of MI into LFSR
             ulong lfsr = 0;
             for (int i = 0; i < 8; i++)
-            {
                 lfsr = (lfsr << 8) | mi[i];
-            }
 
             // Use LFSR routine to compute the expansion
             ulong overflow = 0;
             for (int i = 0; i < 64; i++)
-            {
                 overflow = (overflow << 1) | StepP25Lfsr(ref lfsr);
-            }
 
             // Copy expansion and LFSR to IV
             for (int i = 7; i >= 0; i--)
@@ -377,6 +405,7 @@ namespace DVMConsole
                 iv[i] = (byte)(overflow & 0xFF);
                 overflow >>= 8;
             }
+
             for (int i = 15; i >= 8; i--)
             {
                 iv[i] = (byte)(lfsr & 0xFF);
@@ -385,37 +414,5 @@ namespace DVMConsole
 
             return iv;
         }
-
-
-        private class KeyInfo
-        {
-            public byte AlgId { get; }
-            public byte[] Key { get; }
-
-            public KeyInfo(byte algid, byte[] key)
-            {
-                AlgId = algid;
-                Key = key;
-            }
-        }
-
-        public enum ProtocolType
-        {
-            Unknown = 0,
-            P25Phase1,
-            P25Phase2
-        }
-
-        public enum FrameType
-        {
-            Unknown = 0,
-            LDU1,
-            LDU2,
-            V2,
-            V4_0,
-            V4_1,
-            V4_2,
-            V4_3
-        }
-    }
-}
+    } // public class P25Crypto
+} // namespace dvmconsole

@@ -9,6 +9,9 @@
     <Platforms>AnyCPU;x64;x86</Platforms>
     <Configurations>Debug;Release;WIN32</Configurations>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Copyright>Copyright (c) 2025 Caleb, K4PHP and DVMProject (https://github.com/dvmproject) Authors.</Copyright>
+    <PlatformTarget>x86</PlatformTarget>
+    <PackageLicenseExpression>AGPL-3.0-only</PackageLicenseExpression>
   </PropertyGroup>
 
   <ItemGroup>
@@ -28,7 +31,6 @@
     <None Remove="Assets\pttselect.png" />
     <None Remove="Assets\whackerlink-logo.png" />
     <None Remove="Assets\WhackerLinkLogoV2.png" />
-    <None Remove="Assets\WhackerLinkLogoV4.png" />
     <None Remove="clearemerg.png" />
     <None Remove="connection.png" />
     <None Remove="page.png" />
@@ -94,9 +96,6 @@
     <Content Include="Assets\pttselect.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
-    <Content Include="Assets\WhackerLinkLogoV4.png">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
   </ItemGroup>
 
   <ItemGroup>
@@ -121,7 +120,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Page Update="ChannelBox.xaml">
+    <Page Update="Controls\ChannelBox.xaml">
       <CopyToOutputDirectory></CopyToOutputDirectory>
     </Page>
   </ItemGroup>

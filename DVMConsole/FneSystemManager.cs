@@ -1,31 +1,35 @@
 ﻿// SPDX-License-Identifier: AGPL-3.0-only
 /**
-* Digital Voice Modem - DVMConsole
+* Digital Voice Modem - Desktop Dispatch Console
 * AGPLv3 Open Source. Use is subject to license terms.
 * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 *
-* @package DVM / DVM Console
+* @package DVM / Desktop Dispatch Console
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
 *   Copyright (C) 2025 Caleb, K4PHP
 *
 */
 
-namespace DVMConsole
+namespace dvmconsole
 {
     /// <summary>
-    /// WhackerLink peer/client websocket manager for having multiple systems
+    /// 
     /// </summary>
     public class FneSystemManager
     {
-        private readonly Dictionary<string, PeerSystem> _webSocketHandlers;
+        private readonly Dictionary<string, PeerSystem> peerHandlers;
+
+        /*
+        ** Methods
+        */
 
         /// <summary>
-        /// Creates an instance of <see cref="PeerSystem"/>
+        /// Creates an instance of <see cref="PeerSystem"/> class.
         /// </summary>
         public FneSystemManager()
         {
-            _webSocketHandlers = new Dictionary<string, PeerSystem>();
+            peerHandlers = new Dictionary<string, PeerSystem>();
         }
 
         /// <summary>
@@ -34,10 +38,8 @@ namespace DVMConsole
         /// <param name="systemId"></param>
         public void AddFneSystem(string systemId, Codeplug.System system, MainWindow mainWindow)
         {
-            if (!_webSocketHandlers.ContainsKey(systemId))
-            {
-                _webSocketHandlers[systemId] = new PeerSystem(mainWindow, system);
-            }
+            if (!peerHandlers.ContainsKey(systemId))
+                peerHandlers[systemId] = new PeerSystem(mainWindow, system);
         }
 
         /// <summary>
@@ -48,10 +50,9 @@ namespace DVMConsole
         /// <exception cref="KeyNotFoundException"></exception>
         public PeerSystem GetFneSystem(string systemId)
         {
-            if (_webSocketHandlers.TryGetValue(systemId, out var handler))
-            {
+            if (peerHandlers.TryGetValue(systemId, out var handler))
                 return handler;
-            }
+
             throw new KeyNotFoundException($"WebSocketHandler for system '{systemId}' not found.");
         }
 
@@ -61,10 +62,10 @@ namespace DVMConsole
         /// <param name="systemId"></param>
         public void RemoveFneSystem(string systemId)
         {
-            if (_webSocketHandlers.TryGetValue(systemId, out var handler))
+            if (peerHandlers.TryGetValue(systemId, out var handler))
             {
                 handler.peer.Stop();
-                _webSocketHandlers.Remove(systemId);
+                peerHandlers.Remove(systemId);
             }
         }
 
@@ -75,7 +76,7 @@ namespace DVMConsole
         /// <returns></returns>
         public bool HasFneSystem(string systemId)
         {
-            return _webSocketHandlers.ContainsKey(systemId);
+            return peerHandlers.ContainsKey(systemId);
         }
 
         /// <summary>
@@ -83,11 +84,10 @@ namespace DVMConsole
         /// </summary>
         public void ClearAll()
         {
-            foreach (var handler in _webSocketHandlers.Values)
-            {
+            foreach (var handler in peerHandlers.Values)
                 handler.peer.Stop();
-            }
-            _webSocketHandlers.Clear();
+
+            peerHandlers.Clear();
         }
-    }
-}
+    } // public class FneSystemManager
+} // namespace dvmconsole

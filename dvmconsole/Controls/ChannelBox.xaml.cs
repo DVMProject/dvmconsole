@@ -1,10 +1,10 @@
 ﻿// SPDX-License-Identifier: AGPL-3.0-only
 /**
-* Digital Voice Modem - DVMConsole
+* Digital Voice Modem - Desktop Dispatch Console
 * AGPLv3 Open Source. Use is subject to license terms.
 * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 *
-* @package DVM / DVM Console
+* @package DVM / Desktop Dispatch Console
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
 *   Copyright (C) 2025 Caleb, K4PHP
@@ -12,38 +12,36 @@
 */
 
 using System.ComponentModel;
-using System.Security.Cryptography;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+
 using fnecore.P25;
 
-namespace DVMConsole.Controls
+namespace dvmconsole.Controls
 {
+    /// <summary>
+    /// 
+    /// </summary>
     public partial class ChannelBox : UserControl, INotifyPropertyChanged
     {
-        private readonly SelectedChannelsManager _selectedChannelsManager;
-        private readonly AudioManager _audioManager;
+        private readonly SelectedChannelsManager selectedChannelsManager;
+        private readonly AudioManager audioManager;
 
-        private bool _pttState;
-        private bool _pageState;
-        private bool _holdState;
-        private bool _emergency;
-        private string _lastSrcId = "0";
-        private double _volume = 1.0;
+        private bool pttState;
+        private bool pageState;
+        private bool holdState;
+        private bool emergency;
+        private string lastSrcId = "0";
+        private double volume = 1.0;
+        private bool isSelected;
 
         internal LinearGradientBrush grayGradient;
         internal LinearGradientBrush redGradient;
         internal LinearGradientBrush orangeGradient;
 
-        public FlashingBackgroundManager _flashingBackgroundManager;
-
-        public event EventHandler<ChannelBox> PTTButtonClicked;
-        public event EventHandler<ChannelBox> PageButtonClicked;
-        public event EventHandler<ChannelBox> HoldChannelButtonClicked;
-
-        public event PropertyChangedEventHandler PropertyChanged;
+        public FlashingBackgroundManager flashingBackgroundManager;
 
         public byte[] netLDU1 = new byte[9 * 25];
         public byte[] netLDU2 = new byte[9 * 25];
@@ -58,10 +56,6 @@ namespace DVMConsole.Controls
 
         public List<byte[]> chunkedPcm = new List<byte[]>();
 
-        public string ChannelName { get; set; }
-        public string SystemName { get; set; }
-        public string DstId { get; set; }
-
 #if WIN32
         public AmbeVocoder extFullRateVocoder;
         public AmbeVocoder extHalfRateVocoder;
@@ -73,111 +67,196 @@ namespace DVMConsole.Controls
 
         public P25Crypto crypter = new P25Crypto();
 
+        /*
+        ** Properties
+        */
+
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ChannelName { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string SystemName { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string DstId { get; set; }
+
+        /*
+        ** Events
+        */
+
+        /// <summary>
+        /// 
+        /// </summary>
+        public event EventHandler<ChannelBox> PTTButtonClicked;
+        /// <summary>
+        /// 
+        /// </summary>
+        public event EventHandler<ChannelBox> PageButtonClicked;
+        /// <summary>
+        /// 
+        /// </summary>
+        public event EventHandler<ChannelBox> HoldChannelButtonClicked;
+        /// <summary>
+        /// 
+        /// </summary>
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        /// <summary>
+        /// 
+        /// </summary>
         public bool IsReceiving { get; set; } = false;
+        /// <summary>
+        /// 
+        /// </summary>
         public bool IsReceivingEncrypted { get; set; } = false;
 
+        /// <summary>
+        /// 
+        /// </summary>
         public string LastSrcId
         {
-            get => _lastSrcId;
+            get => lastSrcId;
             set
             {
-                if (_lastSrcId != value)
+                if (lastSrcId != value)
                 {
-                    _lastSrcId = value;
+                    lastSrcId = value;
                     OnPropertyChanged(nameof(LastSrcId));
                 }
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
         public bool PttState
         {
-            get => _pttState;
+            get => pttState;
             set
             {
-                _pttState = value;
+                pttState = value;
                 UpdatePTTColor();
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
         public bool PageState
         {
-            get => _pageState;
+            get => pageState;
             set
             {
-                _pageState = value;
+                pageState = value;
                 UpdatePageColor();
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
         public bool HoldState
         {
-            get => _holdState;
+            get => holdState;
             set
             {
-                _holdState = value;
+                holdState = value;
                 UpdateHoldColor();
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
         public bool Emergency
         {
-            get => _emergency;
+            get => emergency;
             set
             {
-                _emergency = value;
+                emergency = value;
 
                 Dispatcher.Invoke(() =>
                 {
                     if (value)
-                        _flashingBackgroundManager.Start();
+                        flashingBackgroundManager.Start();
                     else
-                        _flashingBackgroundManager.Stop();
+                        flashingBackgroundManager.Stop();
                 });
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
         public string VoiceChannel { get; set; }
 
+        /// <summary>
+        /// 
+        /// </summary>
         public bool IsEditMode { get; set; }
 
-        private bool _isSelected;
+        /// <summary>
+        /// 
+        /// </summary>
         public bool IsSelected
         {
-            get => _isSelected;
+            get => isSelected;
             set
             {
-                _isSelected = value;
+                isSelected = value;
                 UpdateBackground();
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
         public double Volume
         {
-            get => _volume;
+            get => volume;
             set
             {
-                if (_volume != value)
+                if (volume != value)
                 {
-                    _volume = value;
+                    volume = value;
                     OnPropertyChanged(nameof(Volume));
-                    _audioManager.SetTalkgroupVolume(DstId, (float)value);
+                    audioManager.SetTalkgroupVolume(DstId, (float)value);
                 }
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
         public uint txStreamId { get; internal set; }
 
+        /*
+        ** Methods
+        */
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ChannelBox"/> class.
+        /// </summary>
+        /// <param name="selectedChannelsManager"></param>
+        /// <param name="audioManager"></param>
+        /// <param name="channelName"></param>
+        /// <param name="systemName"></param>
+        /// <param name="dstId"></param>
         public ChannelBox(SelectedChannelsManager selectedChannelsManager, AudioManager audioManager, string channelName, string systemName, string dstId)
         {
             InitializeComponent();
             DataContext = this;
-            _selectedChannelsManager = selectedChannelsManager;
-            _audioManager = audioManager;
-            _flashingBackgroundManager = new FlashingBackgroundManager(this);
+            this.selectedChannelsManager = selectedChannelsManager;
+            this.audioManager = audioManager;
+            flashingBackgroundManager = new FlashingBackgroundManager(this);
             ChannelName = channelName;
             DstId = dstId;
             SystemName = $"System: {systemName}";
-            LastSrcId = $"Last SRC: {LastSrcId}";
+            LastSrcId = $"Last ID: {LastSrcId}";
             UpdateBackground();
             MouseLeftButtonDown += ChannelBox_MouseLeftButtonDown;
 
@@ -220,26 +299,32 @@ namespace DVMConsole.Controls
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void ChannelBox_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (IsEditMode) return;
+            if (IsEditMode) 
+                return;
 
             IsSelected = !IsSelected;
             Background = IsSelected ? (Brush)new BrushConverter().ConvertFrom("#FF0B004B") : Brushes.Gray;
 
             if (IsSelected)
-            {
-                _selectedChannelsManager.AddSelectedChannel(this);
-            }
+                selectedChannelsManager.AddSelectedChannel(this);
             else
-            {
-                _selectedChannelsManager.RemoveSelectedChannel(this);
-            }
+                selectedChannelsManager.RemoveSelectedChannel(this);
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
         private void UpdatePTTColor()
         {
-            if (IsEditMode) return;
+            if (IsEditMode) 
+                return;
 
             if (PttState)
                 PttButton.Background = redGradient;
@@ -247,9 +332,13 @@ namespace DVMConsole.Controls
                 PttButton.Background = grayGradient;
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
         private void UpdatePageColor()
         {
-            if (IsEditMode) return;
+            if (IsEditMode) 
+                return;
 
             if (PageState)
                 PageSelectButton.Background = orangeGradient;
@@ -259,7 +348,8 @@ namespace DVMConsole.Controls
 
         private void UpdateHoldColor()
         {
-            if (IsEditMode) return;
+            if (IsEditMode) 
+                return;
 
             if (HoldState)
                 ChannelMarkerBtn.Background = orangeGradient;
@@ -267,6 +357,9 @@ namespace DVMConsole.Controls
                 ChannelMarkerBtn.Background = grayGradient;
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
         private void UpdateBackground()
         {
             if (SystemName == MainWindow.PLAYBACKSYS || ChannelName == MainWindow.PLAYBACKCHNAME || DstId == MainWindow.PLAYBACKTG)
@@ -278,9 +371,15 @@ namespace DVMConsole.Controls
             Background = IsSelected ? (Brush)new BrushConverter().ConvertFrom("#FF0B004B") : Brushes.DarkGray;
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private async void PTTButton_Click(object sender, RoutedEventArgs e)
         {
-            if (!IsSelected) return;
+            if (!IsSelected) 
+                return;
 
             if (PttState)
                 await Task.Delay(500);
@@ -290,44 +389,77 @@ namespace DVMConsole.Controls
             PTTButtonClicked.Invoke(sender, this);
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void PageSelectButton_Click(object sender, RoutedEventArgs e)
         {
-            if (!IsSelected) return;
+            if (!IsSelected) 
+                return;
 
             PageState = !PageState;
             PageButtonClicked.Invoke(sender, this);
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void VolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             Volume = e.NewValue;
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="propertyName"></param>
         protected virtual void OnPropertyChanged(string propertyName)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void ChannelMarkerBtn_Click(object sender, RoutedEventArgs e)
         {
-            if (!IsSelected) return;
+            if (!IsSelected) 
+                return;
 
             HoldState = !HoldState;
             HoldChannelButtonClicked.Invoke(sender, this);
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void PttButton_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
         {
-            if (!IsSelected || PttState) return;
+            if (!IsSelected || PttState) 
+                return;
 
             ((Button)sender).Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF3FA0FF"));
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void PttButton_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
         {
-            if (!IsSelected || PttState) return;
+            if (!IsSelected || PttState) 
+                return;
 
             ((Button)sender).Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFDDDDDD"));
         }
-    }
-}
+    } // public partial class ChannelBox : UserControl, INotifyPropertyChanged
+} // namespace dvmconsole.Controls

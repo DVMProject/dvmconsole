@@ -13,7 +13,7 @@
 
 using NAudio.Wave;
 
-namespace DVMConsole
+namespace dvmconsole
 {
     /// <summary>
     /// 
@@ -67,5 +67,5 @@ namespace DVMConsole
         {
             return ToBytes(format, ToSamples(format, ms));
         }
-    } // public class SamplesToMS
-} // namespace dvmbridge
+    } // public class SampleTimeConvert
+} // namespace dvmconsole

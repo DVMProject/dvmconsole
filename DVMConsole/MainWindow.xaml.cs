@@ -1,10 +1,10 @@
 ﻿// SPDX-License-Identifier: AGPL-3.0-only
 /**
-* Digital Voice Modem - DVMConsole
+* Digital Voice Modem - Desktop Dispatch Console
 * AGPLv3 Open Source. Use is subject to license terms.
 * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 *
-* @package DVM / DVM Console
+* @package DVM / Desktop Dispatch Console
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
 *   Copyright (C) 2024-2025 Caleb, K4PHP
@@ -12,46 +12,73 @@
 *
 */
 
-using Microsoft.Win32;
-using System;
-using System.Timers;
+using System.Diagnostics;
 using System.IO;
+using System.Timers;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
+
+using Microsoft.Win32;
+
+using NAudio.Wave;
+using NWaves.Signals;
+
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
-using DVMConsole.Controls;
-using System.Windows.Media;
-using NAudio.Wave;
-using fnecore.P25;
-using fnecore;
-using Constants = fnecore.Constants;
-using fnecore.P25.LC.TSBK;
-using NWaves.Signals;
-using static DVMConsole.P25Crypto;
 
-namespace DVMConsole
+using dvmconsole.Controls;
+using static dvmconsole.P25Crypto;
+
+using Constants = fnecore.Constants;
+using fnecore;
+using fnecore.P25;
+using fnecore.P25.LC.TSBK;
+
+
+namespace dvmconsole
 {
+    /// <summary>
+    /// 
+    /// </summary>
+    public class ChannelPosition
+    {
+        /*
+        ** Properties
+        */
+
+        /// <summary>
+        /// 
+        /// </summary>
+        public double X { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public double Y { get; set; }
+    } // public class ChannelPosition
+
+    /// <summary>
+    /// Interaction logic for MainWindow.xaml.
+    /// </summary>
     public partial class MainWindow : Window
     {
-        public Codeplug Codeplug { get; set; }
         private bool isEditMode = false;
 
         private bool globalPttState = false;
 
         private const int GridSize = 5;
 
-        private UIElement _draggedElement;
-        private Point _startPoint;
-        private double _offsetX;
-        private double _offsetY;
-        private bool _isDragging;
+        private UIElement draggedElement;
+        private Point startPoint;
+        private double offsetX;
+        private double offsetY;
+        private bool isDragging;
 
-        private SettingsManager _settingsManager = new SettingsManager();
-        private SelectedChannelsManager _selectedChannelsManager;
-        private FlashingBackgroundManager _flashingManager;
-        private WaveFilePlaybackManager _emergencyAlertPlayback;
+        private SettingsManager settingsManager = new SettingsManager();
+        private SelectedChannelsManager selectedChannelsManager;
+        private FlashingBackgroundManager flashingManager;
+        private WaveFilePlaybackManager emergencyAlertPlayback;
 
         private ChannelBox playbackChannelBox;
 
@@ -61,45 +88,60 @@ namespace DVMConsole
         public static string PLAYBACKSYS = "LOCPLAYBACKSYS";
         public static string PLAYBACKCHNAME = "PLAYBACK";
 
-        private readonly WaveInEvent _waveIn;
-        private readonly AudioManager _audioManager;
+        private readonly WaveInEvent waveIn;
+        private readonly AudioManager audioManager;
 
-        private static System.Timers.Timer _channelHoldTimer;
+        private static System.Timers.Timer channelHoldTimer;
 
         private Dictionary<string, SlotStatus> systemStatuses = new Dictionary<string, SlotStatus>();
-        private FneSystemManager _fneSystemManager = new FneSystemManager();
+        private FneSystemManager fneSystemManager = new FneSystemManager();
 
+        /*
+        ** Properties
+        */
+
+        /// <summary>
+        /// 
+        /// </summary>
+        public Codeplug Codeplug { get; set; }
+
+        /*
+        ** Methods
+        */
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="MainWindow"/> class.
+        /// </summary>
         public MainWindow()
         {
-#if !DEBUG
-            ConsoleNative.ShowConsole();
-#endif
             InitializeComponent();
-            _settingsManager.LoadSettings();
-            _selectedChannelsManager = new SelectedChannelsManager();
-            _flashingManager = new FlashingBackgroundManager(null, ChannelsCanvas, null, this);
-            _emergencyAlertPlayback = new WaveFilePlaybackManager(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "emergency.wav"));
+            settingsManager.LoadSettings();
+            selectedChannelsManager = new SelectedChannelsManager();
+            flashingManager = new FlashingBackgroundManager(null, ChannelsCanvas, null, this);
+            emergencyAlertPlayback = new WaveFilePlaybackManager(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "emergency.wav"));
 
-            _channelHoldTimer = new System.Timers.Timer(10000);
-            _channelHoldTimer.Elapsed += OnHoldTimerElapsed;
-            _channelHoldTimer.AutoReset = true;
-            _channelHoldTimer.Enabled = true;
+            channelHoldTimer = new System.Timers.Timer(10000);
+            channelHoldTimer.Elapsed += OnHoldTimerElapsed;
+            channelHoldTimer.AutoReset = true;
+            channelHoldTimer.Enabled = true;
 
-            _waveIn = new WaveInEvent
-            {
-                WaveFormat = new WaveFormat(8000, 16, 1)
-            };
-            _waveIn.DataAvailable += WaveIn_DataAvailable;
-            _waveIn.RecordingStopped += WaveIn_RecordingStopped;
+            waveIn = new WaveInEvent { WaveFormat = new WaveFormat(8000, 16, 1) };
+            waveIn.DataAvailable += WaveIn_DataAvailable;
+            waveIn.RecordingStopped += WaveIn_RecordingStopped;
 
-            _waveIn.StartRecording();
+            waveIn.StartRecording();
 
-            _audioManager = new AudioManager(_settingsManager);
+            audioManager = new AudioManager(settingsManager);
 
-            _selectedChannelsManager.SelectedChannelsChanged += SelectedChannelsChanged;
+            selectedChannelsManager.SelectedChannelsChanged += SelectedChannelsChanged;
             Loaded += MainWindow_Loaded;
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void OpenCodeplug_Click(object sender, RoutedEventArgs e)
         {
             OpenFileDialog openFileDialog = new OpenFileDialog
@@ -107,21 +149,31 @@ namespace DVMConsole
                 Filter = "Codeplug Files (*.yml)|*.yml|All Files (*.*)|*.*",
                 Title = "Open Codeplug"
             };
+
             if (openFileDialog.ShowDialog() == true)
             {
                 LoadCodeplug(openFileDialog.FileName);
 
-                _settingsManager.LastCodeplugPath = openFileDialog.FileName;
-                _settingsManager.SaveSettings();
+                settingsManager.LastCodeplugPath = openFileDialog.FileName;
+                settingsManager.SaveSettings();
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void ResetSettings_Click(object sender, RoutedEventArgs e)
         {
             if (File.Exists("UserSettings.json"))
                 File.Delete("UserSettings.json");
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="filePath"></param>
         private void LoadCodeplug(string filePath)
         {
             try
@@ -142,6 +194,9 @@ namespace DVMConsole
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
         private void GenerateChannelWidgets()
         {
             ChannelsCanvas.Children.Clear();
@@ -154,7 +209,7 @@ namespace DVMConsole
                 {
                     var systemStatusBox = new SystemStatusBox(system.Name, system.Address, system.Port);
 
-                    if (_settingsManager.SystemStatusPositions.TryGetValue(system.Name, out var position))
+                    if (settingsManager.SystemStatusPositions.TryGetValue(system.Name, out var position))
                     {
                         Canvas.SetLeft(systemStatusBox, position.X);
                         Canvas.SetTop(systemStatusBox, position.Y);
@@ -181,9 +236,9 @@ namespace DVMConsole
                     if (File.Exists(system.AliasPath))
                         system.RidAlias = AliasTools.LoadAliases(system.AliasPath);
 
-                    _fneSystemManager.AddFneSystem(system.Name, system, this);
+                    fneSystemManager.AddFneSystem(system.Name, system, this);
 
-                    PeerSystem peer = _fneSystemManager.GetFneSystem(system.Name);
+                    PeerSystem peer = fneSystemManager.GetFneSystem(system.Name);
 
                     peer.peer.PeerConnected += (sender, response) =>
                     {
@@ -213,25 +268,25 @@ namespace DVMConsole
                         peer.Start();
                     });
 
-                    if (!_settingsManager.ShowSystemStatus)
+                    if (!settingsManager.ShowSystemStatus)
                         systemStatusBox.Visibility = Visibility.Collapsed;
 
                 }
             }
 
-            if (_settingsManager.ShowChannels && Codeplug != null)
+            if (settingsManager.ShowChannels && Codeplug != null)
             {
                 foreach (var zone in Codeplug.Zones)
                 {
                     foreach (var channel in zone.Channels)
                     {
-                        var channelBox = new ChannelBox(_selectedChannelsManager, _audioManager, channel.Name, channel.System, channel.Tgid);
+                        var channelBox = new ChannelBox(selectedChannelsManager, audioManager, channel.Name, channel.System, channel.Tgid);
 
                         //channelBox.crypter.AddKey(channel.GetKeyId(), channel.GetAlgoId(), channel.GetEncryptionKey());
 
                         systemStatuses.Add(channel.Name, new SlotStatus());
 
-                        if (_settingsManager.ChannelPositions.TryGetValue(channel.Name, out var position))
+                        if (settingsManager.ChannelPositions.TryGetValue(channel.Name, out var position))
                         {
                             Canvas.SetLeft(channelBox, position.X);
                             Canvas.SetTop(channelBox, position.Y);
@@ -262,18 +317,14 @@ namespace DVMConsole
                 }
             }
 
-            if (_settingsManager.ShowAlertTones && Codeplug != null)
+            if (settingsManager.ShowAlertTones && Codeplug != null)
             {
-                foreach (var alertPath in _settingsManager.AlertToneFilePaths)
+                foreach (var alertPath in settingsManager.AlertToneFilePaths)
                 {
-                    var alertTone = new AlertTone(alertPath)
-                    {
-                        IsEditMode = isEditMode
-                    };
-
+                    var alertTone = new AlertTone(alertPath) { IsEditMode = isEditMode };
                     alertTone.OnAlertTone += SendAlertTone;
 
-                    if (_settingsManager.AlertTonePositions.TryGetValue(alertPath, out var position))
+                    if (settingsManager.AlertTonePositions.TryGetValue(alertPath, out var position))
                     {
                         Canvas.SetLeft(alertTone, position.X);
                         Canvas.SetTop(alertTone, position.Y);
@@ -290,9 +341,9 @@ namespace DVMConsole
                 }
             }
 
-            playbackChannelBox = new ChannelBox(_selectedChannelsManager, _audioManager, PLAYBACKCHNAME, PLAYBACKSYS, PLAYBACKTG);
+            playbackChannelBox = new ChannelBox(selectedChannelsManager, audioManager, PLAYBACKCHNAME, PLAYBACKSYS, PLAYBACKTG);
 
-            if (_settingsManager.ChannelPositions.TryGetValue(PLAYBACKCHNAME, out var pos))
+            if (settingsManager.ChannelPositions.TryGetValue(PLAYBACKCHNAME, out var pos))
             {
                 Canvas.SetLeft(playbackChannelBox, pos.X);
                 Canvas.SetTop(playbackChannelBox, pos.Y);
@@ -323,16 +374,26 @@ namespace DVMConsole
             AdjustCanvasHeight();
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void WaveIn_RecordingStopped(object sender, EventArgs e)
         {
             /* stub */
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void WaveIn_DataAvailable(object sender, WaveInEventArgs e)
         {
             bool isAnyTgOn = false;
 
-            foreach (ChannelBox channel in _selectedChannelsManager.GetSelectedChannels())
+            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
             {
                 if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
                 {
@@ -345,7 +406,7 @@ namespace DVMConsole
 
                 Task.Run(() =>
                 {
-                    PeerSystem handler = _fneSystemManager.GetFneSystem(system.Name);
+                    PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
 
                     if (channel.IsSelected && channel.PttState)
                     {
@@ -358,25 +419,24 @@ namespace DVMConsole
                         foreach (byte[] chunk in channel.chunkedPcm)
                         {
                             if (chunk.Length == samples)
-                            {
                                 P25EncodeAudioFrame(chunk, handler, channel, cpgChannel, system);
-                            }
                             else
-                            {
-                                Console.WriteLine("bad sample length: " + chunk.Length);
-                            }
+                                Trace.WriteLine("bad sample length: " + chunk.Length);
                         }
                     }
                 });
             }
 
             if (isAnyTgOn && playbackChannelBox.IsSelected)
-                _audioManager.AddTalkgroupStream(PLAYBACKTG, e.Buffer);
+                audioManager.AddTalkgroupStream(PLAYBACKTG, e.Buffer);
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
         private void SelectedChannelsChanged()
         {
-            foreach (ChannelBox channel in _selectedChannelsManager.GetSelectedChannels())
+            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
             {
                 if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
                     continue;
@@ -384,7 +444,7 @@ namespace DVMConsole
                 Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
                 Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
 
-                PeerSystem fne = _fneSystemManager.GetFneSystem(system.Name);
+                PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
 
                 if (channel.IsSelected)
                 {
@@ -396,27 +456,37 @@ namespace DVMConsole
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void AudioSettings_Click(object sender, RoutedEventArgs e)
         {
             List<Codeplug.Channel> channels = Codeplug?.Zones.SelectMany(z => z.Channels).ToList() ?? new List<Codeplug.Channel>();
 
-            AudioSettingsWindow audioSettingsWindow = new AudioSettingsWindow(_settingsManager, _audioManager, channels);
+            AudioSettingsWindow audioSettingsWindow = new AudioSettingsWindow(settingsManager, audioManager, channels);
             audioSettingsWindow.ShowDialog();
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void P25Page_Click(object sender, RoutedEventArgs e)
         {
             DigitalPageWindow pageWindow = new DigitalPageWindow(Codeplug.Systems);
             pageWindow.Owner = this;
             if (pageWindow.ShowDialog() == true)
             {
-                PeerSystem handler = _fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
-                IOSP_CALL_ALRT callAlert = new IOSP_CALL_ALRT(UInt32.Parse(pageWindow.DstId), UInt32.Parse(pageWindow.RadioSystem.Rid));
+                PeerSystem handler = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
+                IOSP_CALL_ALRT callAlert = new IOSP_CALL_ALRT(uint.Parse(pageWindow.DstId), uint.Parse(pageWindow.RadioSystem.Rid));
 
                 RemoteCallData callData = new RemoteCallData
                 {
-                    SrcId = UInt32.Parse(pageWindow.RadioSystem.Rid),
-                    DstId = UInt32.Parse(pageWindow.DstId),
+                    SrcId = uint.Parse(pageWindow.RadioSystem.Rid),
+                    DstId = uint.Parse(pageWindow.DstId),
                     LCO = P25Defines.TSBK_IOSP_CALL_ALRT
                 };
 
@@ -431,17 +501,22 @@ namespace DVMConsole
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private async void ManualPage_Click(object sender, RoutedEventArgs e)
         {
             QuickCallPage pageWindow = new QuickCallPage();
             pageWindow.Owner = this;
             if (pageWindow.ShowDialog() == true)
             {
-                foreach (ChannelBox channel in _selectedChannelsManager.GetSelectedChannels())
+                foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
                 {
                     Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
                     Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                    PeerSystem handler = _fneSystemManager.GetFneSystem(system.Name);
+                    PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
 
                     if (channel.PageState)
                     {
@@ -464,7 +539,7 @@ namespace DVMConsole
                         Task.Run(() =>
                         {
                             //_waveProvider.ClearBuffer();
-                            _audioManager.AddTalkgroupStream(cpgChannel.Tgid, combinedAudio);
+                            audioManager.AddTalkgroupStream(cpgChannel.Tgid, combinedAudio);
                         });
 
                         await Task.Run(() =>
@@ -478,16 +553,14 @@ namespace DVMConsole
                                 Buffer.BlockCopy(combinedAudio, offset, chunk, 0, size);
 
                                 if (chunk.Length == 320)
-                                {
                                     P25EncodeAudioFrame(chunk, handler, channel, cpgChannel, system);
-                                }
                             }
                         });
 
                         double totalDurationMs = (toneADuration + toneBDuration) * 1000 + 750;
                         await Task.Delay((int)totalDurationMs  + 4000);
 
-                        handler.SendP25TDU(UInt32.Parse(system.Rid), UInt32.Parse(cpgChannel.Tgid), false);
+                        handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
 
                         Dispatcher.Invoke(() =>
                         {
@@ -499,25 +572,34 @@ namespace DVMConsole
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="e"></param>
         private void SendAlertTone(AlertTone e)
         {
             Task.Run(() => SendAlertTone(e.AlertFilePath));
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="filePath"></param>
+        /// <param name="forHold"></param>
         private void SendAlertTone(string filePath, bool forHold = false)
         {
             if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
             {
                 try
                 {
-                    foreach (ChannelBox channel in _selectedChannelsManager.GetSelectedChannels())
+                    foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
                     {
                         if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
                             continue;
 
                         Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
                         Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                        PeerSystem handler = _fneSystemManager.GetFneSystem(system.Name);
+                        PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
 
                         if (channel.PageState || (forHold && channel.HoldState))
                         {
@@ -554,7 +636,7 @@ namespace DVMConsole
 
                                 Task.Run(() =>
                                 {
-                                    _audioManager.AddTalkgroupStream(cpgChannel.Tgid, pcmData);
+                                    audioManager.AddTalkgroupStream(cpgChannel.Tgid, pcmData);
                                 });
 
                                 DateTime startTime = DateTime.UtcNow;
@@ -565,31 +647,27 @@ namespace DVMConsole
                                     byte[] chunk = new byte[chunkSize];
                                     Buffer.BlockCopy(pcmData, offset, chunk, 0, chunkSize);
 
-                                    PeerSystem handler = _fneSystemManager.GetFneSystem(system.Name);
+                                    PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
 
                                     channel.chunkedPcm = AudioConverter.SplitToChunks(chunk);
 
                                     foreach (byte[] smallchunk in channel.chunkedPcm)
                                     {
                                         if (smallchunk.Length == 320)
-                                        {
                                             P25EncodeAudioFrame(smallchunk, handler, channel, cpgChannel, system);
-                                        }
                                     }
 
                                     DateTime nextPacketTime = startTime.AddMilliseconds((i + 1) * 100);
                                     TimeSpan waitTime = nextPacketTime - DateTime.UtcNow;
 
                                     if (waitTime.TotalMilliseconds > 0)
-                                    {
                                         await Task.Delay(waitTime);
-                                    }
                                 }
 
                                 double totalDurationMs = ((double)pcmData.Length / 16000) + 250;
                                 await Task.Delay((int)totalDurationMs + 3000);
 
-                                handler.SendP25TDU(UInt32.Parse(system.Rid), UInt32.Parse(cpgChannel.Tgid), false);
+                                handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
 
                                 Dispatcher.Invoke(() =>
                                 {
@@ -613,26 +691,36 @@ namespace DVMConsole
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void SelectWidgets_Click(object sender, RoutedEventArgs e)
         {
             WidgetSelectionWindow widgetSelectionWindow = new WidgetSelectionWindow();
             widgetSelectionWindow.Owner = this;
             if (widgetSelectionWindow.ShowDialog() == true)
             {
-                _settingsManager.ShowSystemStatus = widgetSelectionWindow.ShowSystemStatus;
-                _settingsManager.ShowChannels = widgetSelectionWindow.ShowChannels;
-                _settingsManager.ShowAlertTones = widgetSelectionWindow.ShowAlertTones;
+                settingsManager.ShowSystemStatus = widgetSelectionWindow.ShowSystemStatus;
+                settingsManager.ShowChannels = widgetSelectionWindow.ShowChannels;
+                settingsManager.ShowAlertTones = widgetSelectionWindow.ShowAlertTones;
 
                 GenerateChannelWidgets();
-                _settingsManager.SaveSettings();
+                settingsManager.SaveSettings();
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="dstId"></param>
+        /// <param name="srcId"></param>
         private void HandleEmergency(string dstId, string srcId)
         {
             bool forUs = false;
 
-            foreach (ChannelBox channel in _selectedChannelsManager.GetSelectedChannels())
+            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
             {
                 Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
                 Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
@@ -649,18 +737,28 @@ namespace DVMConsole
             {
                 Dispatcher.Invoke(() =>
                 {
-                    _flashingManager.Start();
-                    _emergencyAlertPlayback.Start();
+                    flashingManager.Start();
+                    emergencyAlertPlayback.Start();
                 });
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void ChannelBox_HoldChannelButtonClicked(object sender, ChannelBox e)
         {
             if (e.SystemName == PLAYBACKSYS || e.ChannelName == PLAYBACKCHNAME || e.DstId == PLAYBACKTG)
                 return;
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void ChannelBox_PageButtonClicked(object sender, ChannelBox e)
         {
             if (e.SystemName == PLAYBACKSYS || e.ChannelName == PLAYBACKCHNAME || e.DstId == PLAYBACKTG)
@@ -668,18 +766,19 @@ namespace DVMConsole
 
             Codeplug.System system = Codeplug.GetSystemForChannel(e.ChannelName);
             Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(e.ChannelName);
-            PeerSystem handler = _fneSystemManager.GetFneSystem(system.Name);
+            PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
 
             if (e.PageState)
-            {
-                handler.SendP25TDU(UInt32.Parse(system.Rid), UInt32.Parse(cpgChannel.Tgid), true);
-            }
+                handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
             else
-            {
-                handler.SendP25TDU(UInt32.Parse(system.Rid), UInt32.Parse(cpgChannel.Tgid), false);
-            }
+                handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void ChannelBox_PTTButtonClicked(object sender, ChannelBox e)
         {
             if (e.SystemName == PLAYBACKSYS || e.ChannelName == PLAYBACKCHNAME || e.DstId == PLAYBACKTG)
@@ -687,89 +786,118 @@ namespace DVMConsole
 
             Codeplug.System system = Codeplug.GetSystemForChannel(e.ChannelName);
             Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(e.ChannelName);
-            PeerSystem handler = _fneSystemManager.GetFneSystem(system.Name);
+            PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
 
             if (!e.IsSelected)
                 return;
 
             FneUtils.Memset(e.mi, 0x00, P25Defines.P25_MI_LENGTH);
 
-            uint srcId = UInt32.Parse(system.Rid);
-            uint dstId = UInt32.Parse(cpgChannel.Tgid);
+            uint srcId = uint.Parse(system.Rid);
+            uint dstId = uint.Parse(cpgChannel.Tgid);
 
             if (e.PttState)
             {
                 e.txStreamId = handler.NewStreamId();
-
                 handler.SendP25TDU(srcId, dstId, true);
             }
             else
-            {
                 handler.SendP25TDU(srcId, dstId, false);
-            }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void ChannelBox_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             if (!isEditMode || !(sender is UIElement element)) return;
 
-            _draggedElement = element;
-            _startPoint = e.GetPosition(ChannelsCanvas);
-            _offsetX = _startPoint.X - Canvas.GetLeft(_draggedElement);
-            _offsetY = _startPoint.Y - Canvas.GetTop(_draggedElement);
-            _isDragging = true;
+            draggedElement = element;
+            startPoint = e.GetPosition(ChannelsCanvas);
+            offsetX = startPoint.X - Canvas.GetLeft(draggedElement);
+            offsetY = startPoint.Y - Canvas.GetTop(draggedElement);
+            isDragging = true;
 
             element.CaptureMouse();
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void ChannelBox_MouseMove(object sender, MouseEventArgs e)
         {
-            if (!isEditMode || !_isDragging || _draggedElement == null) return;
+            if (!isEditMode || !isDragging || draggedElement == null) 
+                return;
 
             Point currentPosition = e.GetPosition(ChannelsCanvas);
 
             // Calculate the new position with snapping to the grid
-            double newLeft = Math.Round((currentPosition.X - _offsetX) / GridSize) * GridSize;
-            double newTop = Math.Round((currentPosition.Y - _offsetY) / GridSize) * GridSize;
+            double newLeft = Math.Round((currentPosition.X - offsetX) / GridSize) * GridSize;
+            double newTop = Math.Round((currentPosition.Y - offsetY) / GridSize) * GridSize;
 
             // Ensure the box stays within canvas bounds
-            newLeft = Math.Max(0, Math.Min(newLeft, ChannelsCanvas.ActualWidth - _draggedElement.RenderSize.Width));
-            newTop = Math.Max(0, Math.Min(newTop, ChannelsCanvas.ActualHeight - _draggedElement.RenderSize.Height));
+            newLeft = Math.Max(0, Math.Min(newLeft, ChannelsCanvas.ActualWidth - draggedElement.RenderSize.Width));
+            newTop = Math.Max(0, Math.Min(newTop, ChannelsCanvas.ActualHeight - draggedElement.RenderSize.Height));
 
             // Apply snapped position
-            Canvas.SetLeft(_draggedElement, newLeft);
-            Canvas.SetTop(_draggedElement, newTop);
+            Canvas.SetLeft(draggedElement, newLeft);
+            Canvas.SetTop(draggedElement, newTop);
 
             // Save the new position if it's a ChannelBox
-            if (_draggedElement is ChannelBox channelBox)
-            {
-                _settingsManager.UpdateChannelPosition(channelBox.ChannelName, newLeft, newTop);
-            }
+            if (draggedElement is ChannelBox channelBox)
+                settingsManager.UpdateChannelPosition(channelBox.ChannelName, newLeft, newTop);
 
             AdjustCanvasHeight();
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void ChannelBox_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (!isEditMode || !_isDragging || _draggedElement == null) return;
+            if (!isEditMode || !isDragging || draggedElement == null) 
+                return;
 
-            _isDragging = false;
-            _draggedElement.ReleaseMouseCapture();
-            _draggedElement = null;
+            isDragging = false;
+            draggedElement.ReleaseMouseCapture();
+            draggedElement = null;
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void SystemStatusBox_MouseLeftButtonDown(object sender, MouseButtonEventArgs e) => ChannelBox_MouseLeftButtonDown(sender, e);
+        
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void SystemStatusBox_MouseMove(object sender, MouseEventArgs e) => ChannelBox_MouseMove(sender, e);
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void SystemStatusBox_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (!isEditMode) return;
+            if (!isEditMode) 
+                return;
 
             if (sender is SystemStatusBox systemStatusBox)
             {
                 double x = Canvas.GetLeft(systemStatusBox);
                 double y = Canvas.GetTop(systemStatusBox);
-                _settingsManager.SystemStatusPositions[systemStatusBox.SystemName] = new ChannelPosition { X = x, Y = y };
+                settingsManager.SystemStatusPositions[systemStatusBox.SystemName] = new ChannelPosition { X = x, Y = y };
 
                 ChannelBox_MouseRightButtonDown(sender, e);
 
@@ -777,6 +905,11 @@ namespace DVMConsole
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void ToggleEditMode_Click(object sender, RoutedEventArgs e)
         {
             isEditMode = !isEditMode;
@@ -785,22 +918,26 @@ namespace DVMConsole
             UpdateEditModeForWidgets();
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
         private void UpdateEditModeForWidgets()
         {
             foreach (var child in ChannelsCanvas.Children)
             {
                 if (child is AlertTone alertTone)
-                {
                     alertTone.IsEditMode = isEditMode;
-                }
 
                 if (child is ChannelBox channelBox)
-                {
                     channelBox.IsEditMode = isEditMode;
-                }
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void AddAlertTone_Click(object sender, RoutedEventArgs e)
         {
             OpenFileDialog openFileDialog = new OpenFileDialog
@@ -812,14 +949,11 @@ namespace DVMConsole
             if (openFileDialog.ShowDialog() == true)
             {
                 string alertFilePath = openFileDialog.FileName;
-                var alertTone = new AlertTone(alertFilePath)
-                {
-                    IsEditMode = isEditMode
-                };
+                var alertTone = new AlertTone(alertFilePath) { IsEditMode = isEditMode };
 
                 alertTone.OnAlertTone += SendAlertTone;
 
-                if (_settingsManager.AlertTonePositions.TryGetValue(alertFilePath, out var position))
+                if (settingsManager.AlertTonePositions.TryGetValue(alertFilePath, out var position))
                 {
                     Canvas.SetLeft(alertTone, position.X);
                     Canvas.SetTop(alertTone, position.Y);
@@ -833,12 +967,17 @@ namespace DVMConsole
                 alertTone.MouseRightButtonUp += AlertTone_MouseRightButtonUp;
 
                 ChannelsCanvas.Children.Add(alertTone);
-                _settingsManager.UpdateAlertTonePaths(alertFilePath);
+                settingsManager.UpdateAlertTonePaths(alertFilePath);
 
                 AdjustCanvasHeight();
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void AlertTone_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
         {
             if (!isEditMode) return;
@@ -847,12 +986,15 @@ namespace DVMConsole
             {
                 double x = Canvas.GetLeft(alertTone);
                 double y = Canvas.GetTop(alertTone);
-                _settingsManager.UpdateAlertTonePosition(alertTone.AlertFilePath, x, y);
+                settingsManager.UpdateAlertTonePosition(alertTone.AlertFilePath, x, y);
 
                 AdjustCanvasHeight();
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
         private void AdjustCanvasHeight()
         {
             double maxBottom = 0;
@@ -861,40 +1003,44 @@ namespace DVMConsole
             {
                 double childBottom = Canvas.GetTop(child) + child.RenderSize.Height;
                 if (childBottom > maxBottom)
-                {
                     maxBottom = childBottom;
-                }
             }
 
             ChannelsCanvas.Height = maxBottom + 150;
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
-            if (!string.IsNullOrEmpty(_settingsManager.LastCodeplugPath) && File.Exists(_settingsManager.LastCodeplugPath))
-            {
-                LoadCodeplug(_settingsManager.LastCodeplugPath);
-            }
+            if (!string.IsNullOrEmpty(settingsManager.LastCodeplugPath) && File.Exists(settingsManager.LastCodeplugPath))
+                LoadCodeplug(settingsManager.LastCodeplugPath);
             else
-            {
                 GenerateChannelWidgets();
-            }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private async void OnHoldTimerElapsed(object sender, ElapsedEventArgs e)
         {
-            foreach (ChannelBox channel in _selectedChannelsManager.GetSelectedChannels())
+            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
             {
                 if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
                     continue;
 
                 Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
                 Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                PeerSystem handler = _fneSystemManager.GetFneSystem(system.Name);
+                PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
 
                 if (channel.HoldState && !channel.IsReceiving && !channel.PttState && !channel.PageState)
                 {
-                    handler.SendP25TDU(UInt32.Parse(system.Rid), UInt32.Parse(cpgChannel.Tgid), true);
+                    handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
                     await Task.Delay(1000);
 
                     SendAlertTone("hold.wav", true);
@@ -902,24 +1048,36 @@ namespace DVMConsole
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="e"></param>
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
-            _settingsManager.SaveSettings();
+            settingsManager.SaveSettings();
             base.OnClosing(e);
             Application.Current.Shutdown();
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void ClearEmergency_Click(object sender, RoutedEventArgs e)
         {
-            _emergencyAlertPlayback.Stop();
-            _flashingManager.Stop();
+            emergencyAlertPlayback.Stop();
+            flashingManager.Stop();
 
-            foreach (ChannelBox channel in _selectedChannelsManager.GetSelectedChannels())
-            {
+            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
                 channel.Emergency = false;
-            }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void btnAlert1_Click(object sender, RoutedEventArgs e)
         {
             Dispatcher.Invoke(() => {
@@ -927,6 +1085,11 @@ namespace DVMConsole
             });
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void btnAlert2_Click(object sender, RoutedEventArgs e)
         {
             Dispatcher.Invoke(() =>
@@ -935,6 +1098,11 @@ namespace DVMConsole
             });
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void btnAlert3_Click(object sender, RoutedEventArgs e)
         {
             Dispatcher.Invoke(() =>
@@ -943,6 +1111,11 @@ namespace DVMConsole
             });
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private async void btnGlobalPtt_Click(object sender, RoutedEventArgs e)
         {
             if (globalPttState)
@@ -950,14 +1123,14 @@ namespace DVMConsole
 
             globalPttState = !globalPttState;
 
-            foreach (ChannelBox channel in _selectedChannelsManager.GetSelectedChannels())
+            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
             {
                 if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
                     continue;
 
                 Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
                 Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                PeerSystem handler = _fneSystemManager.GetFneSystem(system.Name);
+                PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
 
                 channel.txStreamId = handler.NewStreamId();
 
@@ -969,7 +1142,7 @@ namespace DVMConsole
                         channel.PttState = true;
                     });
 
-                    handler.SendP25TDU(UInt32.Parse(system.Rid), UInt32.Parse(cpgChannel.Tgid), true);
+                    handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
                 }
                 else
                 {
@@ -979,11 +1152,16 @@ namespace DVMConsole
                         channel.PttState = false;
                     });
 
-                    handler.SendP25TDU(UInt32.Parse(system.Rid), UInt32.Parse(cpgChannel.Tgid), false);
+                    handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
                 }
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void SelectAll_Click(object sender, RoutedEventArgs e)
         {
             foreach (ChannelBox channel in ChannelsCanvas.Children.OfType<ChannelBox>())
@@ -1001,13 +1179,9 @@ namespace DVMConsole
                     channel.Background = channel.IsSelected ? (Brush)new BrushConverter().ConvertFrom("#FF0B004B") : Brushes.Gray;
 
                     if (channel.IsSelected)
-                    {
-                        _selectedChannelsManager.AddSelectedChannel(channel);
-                    }
+                        selectedChannelsManager.AddSelectedChannel(channel);
                     else
-                    {
-                        _selectedChannelsManager.RemoveSelectedChannel(channel);
-                    }
+                        selectedChannelsManager.RemoveSelectedChannel(channel);
                 }
             }
         }
@@ -1065,6 +1239,7 @@ namespace DVMConsole
             {
                 tone = channel.toneDetector.Detect(signal);
             }
+
             if (tone > 0)
             {
                 MBEToneGenerator.IMBEEncodeSingleTone((ushort)tone, imbe);
@@ -1101,17 +1276,17 @@ namespace DVMConsole
                         }
                     }
 
-                    channel.crypter.Prepare(cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), ProtocolType.P25Phase1, channel.mi);
+                    channel.crypter.Prepare(cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
                 }
 
                 // crypto time
-                channel.crypter.Process(imbe, channel.p25N < 9U ? P25Crypto.FrameType.LDU1 : P25Crypto.FrameType.LDU2, 0);
+                channel.crypter.Process(imbe, channel.p25N < 9U ? P25DUID.LDU1 : P25DUID.LDU2);
 
                 // last block of LDU2, prepare a new MI
                 if (channel.p25N == 17U)
                 {
                     P25Crypto.CycleP25Lfsr(channel.mi);
-                    channel.crypter.Prepare(cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), ProtocolType.P25Phase1, channel.mi);
+                    channel.crypter.Prepare(cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
                 }
             }
 
@@ -1177,8 +1352,8 @@ namespace DVMConsole
                     break;
             }
 
-            uint srcId = UInt32.Parse(system.Rid);
-            uint dstId = UInt32.Parse(cpgChannel.Tgid);
+            uint srcId = uint.Parse(system.Rid);
+            uint dstId = uint.Parse(cpgChannel.Tgid);
 
             FnePeer peer = handler.peer;
             RemoteCallData callData = new RemoteCallData()
@@ -1219,7 +1394,7 @@ namespace DVMConsole
 
                 byte[] payload = new byte[200];
                 handler.CreateNewP25MessageHdr((byte)P25DUID.LDU2, callData, ref payload, cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
-                handler.CreateP25LDU2Message(channel.netLDU2, ref payload, new CryptoParams { AlgId = cpgChannel.GetAlgoId(), KeyId = cpgChannel.GetKeyId(), Mi = channel.mi });
+                handler.CreateP25LDU2Message(channel.netLDU2, ref payload, new CryptoParams { AlgId = cpgChannel.GetAlgoId(), KeyId = cpgChannel.GetKeyId(), MI = channel.mi });
 
                 peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_P25), payload, pktSeq, channel.txStreamId);
             }
@@ -1233,7 +1408,7 @@ namespace DVMConsole
         /// </summary>
         /// <param name="ldu"></param>
         /// <param name="e"></param>
-        private void P25DecodeAudioFrame(byte[] ldu, P25DataReceivedEvent e, PeerSystem system, ChannelBox channel, bool emergency = false, P25Crypto.FrameType frameType = P25Crypto.FrameType.LDU1)
+        private void P25DecodeAudioFrame(byte[] ldu, P25DataReceivedEvent e, PeerSystem system, ChannelBox channel, bool emergency = false, P25DUID duid = P25DUID.LDU1)
         {
             try
             {
@@ -1276,7 +1451,7 @@ namespace DVMConsole
 
                     short[] samples = new short[FneSystemBase.MBE_SAMPLES_LENGTH];
 
-                    channel.crypter.Process(imbe, frameType, n);
+                    channel.crypter.Process(imbe, duid);
 
 #if WIN32
                     if (channel.extFullRateVocoder == null)
@@ -1311,7 +1486,7 @@ namespace DVMConsole
                             pcmIdx += 2;
                         }
 
-                        _audioManager.AddTalkgroupStream(e.DstId.ToString(), pcmData);
+                        audioManager.AddTalkgroupStream(e.DstId.ToString(), pcmData);
                     }
                 }
             }
@@ -1345,11 +1520,11 @@ namespace DVMConsole
 
                 Dispatcher.Invoke(() =>
                 {
-                    foreach (ChannelBox channel in _selectedChannelsManager.GetSelectedChannels())
+                    foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
                     {
                         Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
                         Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                        PeerSystem handler = _fneSystemManager.GetFneSystem(system.Name);
+                        PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
 
                         if (cpgChannel.GetKeyId() != 0 && cpgChannel.GetAlgoId() != 0)
                             channel.crypter.AddKey(key.KeyId, e.KmmKey.KeysetItem.AlgId, key.GetKey());
@@ -1358,6 +1533,11 @@ namespace DVMConsole
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void KeyStatus_Click(object sender, RoutedEventArgs e)
         {
             KeyStatusWindow keyStatus = new KeyStatusWindow(Codeplug, this);
@@ -1382,7 +1562,7 @@ namespace DVMConsole
 
             Dispatcher.Invoke(() =>
             {
-                foreach (ChannelBox channel in _selectedChannelsManager.GetSelectedChannels())
+                foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
                 {
                     Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
                     Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
@@ -1390,7 +1570,7 @@ namespace DVMConsole
                     bool isEmergency = false;
                     bool encrypted = false;
 
-                    PeerSystem handler = _fneSystemManager.GetFneSystem(system.Name);
+                    PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
 
                     if (!channel.IsEnabled)
                         continue;
@@ -1399,14 +1579,10 @@ namespace DVMConsole
                         continue;
 
                     if (!systemStatuses.ContainsKey(cpgChannel.Name))
-                    {
                         systemStatuses[cpgChannel.Name] = new SlotStatus();
-                    }
 
                     if (channel.decoder == null)
-                    {
                         channel.decoder = new MBEDecoder(MBE_MODE.IMBE_88BIT);
-                    }
 
                     SlotStatus slot = systemStatuses[cpgChannel.Name];
 
@@ -1422,7 +1598,7 @@ namespace DVMConsole
                             channel.kId = (ushort)((e.Data[182] << 8) | e.Data[183]);
                             Array.Copy(e.Data, 184, channel.mi, 0, P25Defines.P25_MI_LENGTH);
 
-                            channel.crypter.Prepare(channel.algId, channel.kId, P25Crypto.ProtocolType.P25Phase1, channel.mi);
+                            channel.crypter.Prepare(channel.algId, channel.kId, channel.mi);
 
                             encrypted = true;
                         }
@@ -1593,14 +1769,14 @@ namespace DVMConsole
                                         Array.Copy(newMI, channel.mi, P25Defines.P25_MI_LENGTH);
 
                                     // decode 9 IMBE codewords into PCM samples
-                                    P25DecodeAudioFrame(channel.netLDU2, e, handler, channel, isEmergency, P25Crypto.FrameType.LDU2);
+                                    P25DecodeAudioFrame(channel.netLDU2, e, handler, channel, isEmergency, P25DUID.LDU2);
                                 }
                             }
                             break;
                     }
 
                     if (channel.mi != null)
-                        channel.crypter.Prepare(channel.algId, channel.kId, P25Crypto.ProtocolType.P25Phase1, channel.mi);
+                        channel.crypter.Prepare(channel.algId, channel.kId, channel.mi);
 
                     slot.RxRFS = e.SrcId;
                     slot.RxType = e.FrameType;
@@ -1612,9 +1788,14 @@ namespace DVMConsole
             });
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void CallHist_Click(object sender, RoutedEventArgs e)
         {
             callHistoryWindow.Show();
         }
-    }
-}
+    } // public partial class MainWindow : Window
+} // namespace dvmconsole

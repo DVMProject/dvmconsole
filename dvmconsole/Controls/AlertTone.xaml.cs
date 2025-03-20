@@ -1,51 +1,71 @@
-﻿/*
-* WhackerLink - DVMConsole
+﻿// SPDX-License-Identifier: AGPL-3.0-only
+/**
+* Digital Voice Modem - Desktop Dispatch Console
+* AGPLv3 Open Source. Use is subject to license terms.
+* DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 3 of the License, or
-* (at your option) any later version.
+* @package DVM / Desktop Dispatch Console
+* @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU General Public License for more details.
+*   Copyright (C) 2025 Caleb, K4PHP
 *
-* You should have received a copy of the GNU General Public License
-* along with this program.  If not, see <http://www.gnu.org/licenses/>.
-* 
-* Copyright (C) 2024 Caleb, K4PHP
-* 
 */
 
-using System.Media;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 
-namespace DVMConsole.Controls
+namespace dvmconsole.Controls
 {
+    /// <summary>
+    /// 
+    /// </summary>
     public partial class AlertTone : UserControl
     {
-        public event Action<AlertTone> OnAlertTone;
+        private Point startPoint;
+        private bool isDragging;
 
         public static readonly DependencyProperty AlertFileNameProperty =
             DependencyProperty.Register("AlertFileName", typeof(string), typeof(AlertTone), new PropertyMetadata(string.Empty));
 
+        /*
+        ** Properties
+        */
+
+        /// <summary>
+        /// 
+        /// </summary>
         public string AlertFileName
         {
             get => (string)GetValue(AlertFileNameProperty);
             set => SetValue(AlertFileNameProperty, value);
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
         public string AlertFilePath { get; set; }
 
-        private Point _startPoint;
-        private bool _isDragging;
-
+        /// <summary>
+        /// 
+        /// </summary>
         public bool IsEditMode { get; set; }
 
+        /*
+        ** Events
+        */
+
+        public event Action<AlertTone> OnAlertTone;
+
+        /*
+        ** Methods
+        */
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="AlertTone"/> class.
+        /// </summary>
+        /// <param name="alertFilePath"></param>
         public AlertTone(string alertFilePath)
         {
             InitializeComponent();
@@ -57,29 +77,44 @@ namespace DVMConsole.Controls
             this.MouseRightButtonDown += AlertTone_MouseRightButtonDown;
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void PlayAlert_Click(object sender, RoutedEventArgs e)
         {
             OnAlertTone.Invoke(this);
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void AlertTone_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             if (!IsEditMode) return;
 
-            _startPoint = e.GetPosition(this);
-            _isDragging = true;
+            startPoint = e.GetPosition(this);
+            isDragging = true;
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void AlertTone_MouseMove(object sender, MouseEventArgs e)
         {
-            if (_isDragging && IsEditMode)
+            if (isDragging && IsEditMode)
             {
                 var parentCanvas = VisualTreeHelper.GetParent(this) as Canvas;
                 if (parentCanvas != null)
                 {
                     Point mousePos = e.GetPosition(parentCanvas);
-                    double newLeft = mousePos.X - _startPoint.X;
-                    double newTop = mousePos.Y - _startPoint.Y;
+                    double newLeft = mousePos.X - startPoint.X;
+                    double newTop = mousePos.Y - startPoint.Y;
 
                     Canvas.SetLeft(this, Math.Max(0, newLeft));
                     Canvas.SetTop(this, Math.Max(0, newTop));
@@ -87,11 +122,16 @@ namespace DVMConsole.Controls
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void AlertTone_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (!IsEditMode || !_isDragging) return;
+            if (!IsEditMode || !isDragging) return;
 
-            _isDragging = false;
+            isDragging = false;
 
             var parentCanvas = VisualTreeHelper.GetParent(this) as Canvas;
             if (parentCanvas != null)
@@ -102,10 +142,5 @@ namespace DVMConsole.Controls
 
             ReleaseMouseCapture();
         }
-
-        private void TextBox_TextChanged(object sender, TextChangedEventArgs e)
-        {
-
-        }
-    }
-}
+    } // public partial class AlertTone : UserControl
+} // namespace dvmconsole.Controls
