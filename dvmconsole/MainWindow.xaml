@@ -52,7 +52,7 @@
         </ScrollViewer>
 
         <!-- Application Banner -->
-        <Image HorizontalAlignment="Left" Height="50" Grid.Row="1" VerticalAlignment="Center" Width="231" Source="/Assets/DvmLogo.png" Stretch="UniformToFill" Margin="5,0,0,0" RenderTransformOrigin="0.5,0.5">
+        <Image Height="50" Grid.Row="1" VerticalAlignment="Center" Source="/Assets/DvmLogo.png" Stretch="UniformToFill" Margin="0,0,634,0" RenderTransformOrigin="0.5,0.5" HorizontalAlignment="Right" Width="231">
             <Image.RenderTransform>
                 <TransformGroup>
                     <ScaleTransform/>

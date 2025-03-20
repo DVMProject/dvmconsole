@@ -30,7 +30,6 @@ using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
 using dvmconsole.Controls;
-using static dvmconsole.P25Crypto;
 
 using Constants = fnecore.Constants;
 using fnecore;
