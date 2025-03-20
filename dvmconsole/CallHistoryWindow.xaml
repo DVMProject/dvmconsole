@@ -4,7 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:dvmconsole"
-        mc:Ignorable="d" Icon="/Assets/history.png"
+        mc:Ignorable="d" Icon="/dvmconsole;component/Assets/history.png"
         Title="Call History" Height="450" Width="351" WindowStartupLocation="CenterOwner">
     <Grid>
         <DataGrid ItemsSource="{Binding CallHistory}" AutoGenerateColumns="False" IsReadOnly="True" Margin="10">

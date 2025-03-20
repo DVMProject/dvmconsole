@@ -4,7 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:dvmconsole"
-        mc:Ignorable="d" Icon="/Assets/page.png"
+        mc:Ignorable="d" Icon="/dvmconsole;component/Assets/page.png"
         Title="Page Subscriber" Height="141" Width="330" WindowStartupLocation="CenterOwner">
     <Grid>
         <Button Name="SendPageButton" HorizontalAlignment="Left" Margin="108,66,0,0" VerticalAlignment="Top" Click="SendPageButton_Click" Width="120" Height="24">

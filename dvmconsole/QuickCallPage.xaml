@@ -4,7 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:dvmconsole"
-        mc:Ignorable="d" Icon="/Assets/page.png"
+        mc:Ignorable="d" Icon="/dvmconsole;component/Assets/page.png"
         Title="QuickCall II Page" Height="146" Width="330" WindowStartupLocation="CenterOwner">
     <Grid>
         <Button HorizontalAlignment="Left" Margin="111,66,0,0" Name="SendButton" VerticalAlignment="Top" Click="SendButton_Click" Width="120" Height="24">

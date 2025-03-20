@@ -1,6 +1,6 @@
 ﻿<Window x:Class="dvmconsole.WidgetSelectionWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Icon="/dvmconsole;component/Assets/select.png"
         Title="Select Widgets" Height="200" Width="300" WindowStartupLocation="CenterOwner">
     <StackPanel Margin="20">
         <TextBlock Text="Select Widgets to Display:" FontWeight="Bold" Margin="0,0,0,10" />

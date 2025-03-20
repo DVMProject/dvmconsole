@@ -86,7 +86,7 @@
                             <Setter Property="CornerRadius" Value="2"/>
                         </Style>
                     </Button.Resources>
-                    <Image Source="/Assets/pageselect.png" Width="39" Height="39" Margin="1.5,2,0,0"/>
+                    <Image Source="/dvmconsole;component/Assets/pageselect.png" Width="39" Height="39" Margin="1.5,2,0,0"/>
                 </Button>
                 <Button Width="40" Height="40" x:Name="ChannelMarkerBtn" Click="ChannelMarkerBtn_Click" BorderThickness="0,0,0,0" Margin="5,0,0,0"
                         ToolTip="Channel Marker">
@@ -95,7 +95,7 @@
                             <Setter Property="CornerRadius" Value="2"/>
                         </Style>
                     </Button.Resources>
-                    <Image Source="/Assets/channelmarker.png" Width="36" Height="40"/>
+                    <Image Source="/dvmconsole;component/Assets/channelmarker.png" Width="36" Height="40"/>
                 </Button>
             </StackPanel>
             <Button x:Name="PttButton" Click="PTTButton_Click" HorizontalAlignment="Left" Width="42" Margin="41,1,0,4" Grid.ColumnSpan="2" BorderThickness="0,0,0,0" BorderBrush="#FFC1C1C1" UseLayoutRounding="False" Grid.RowSpan="2" Background="#FFEEA400"
@@ -105,7 +105,7 @@
                         <Setter Property="CornerRadius" Value="2"/>
                     </Style>
                 </Button.Resources>
-                <Image Source="/Assets/instantptt.png" Width="39" Height="40" Stretch="Fill" Margin="0,0,0,1"/>
+                <Image Source="/dvmconsole;component/Assets/instantptt.png" Width="39" Height="40" Stretch="Fill" Margin="0,0,0,1"/>
             </Button>
         </Grid>
     </Border>

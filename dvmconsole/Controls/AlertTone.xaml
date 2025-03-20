@@ -24,7 +24,7 @@
                     <GradientStop Color="#FFE3E3E3" Offset="0.517"/>
                 </LinearGradientBrush>
             </Button.Background>
-            <Image Height="40" Width="63" Source="/Assets/page.png" Margin="0,-8,0,0"/>
+            <Image Height="40" Width="63" Source="/dvmconsole;component/Assets/page.png" Margin="0,-8,0,0"/>
         </Button>
         <TextBox HorizontalAlignment="Center" FontWeight="Bold" FontSize="10" TextWrapping="Wrap" Text="{Binding AlertFileName}" TextAlignment="Center" VerticalAlignment="Top" Width="100" Background="{x:Null}" BorderThickness="0,0,0,0" Height="24" Margin="0,4,0,0" Grid.RowSpan="2" Foreground="White"/>
     </Grid>

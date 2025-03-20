@@ -2,7 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:dvmconsole.Controls"
-        Title="Digital Voice Modem - Desktop Dispatch Console" Height="600" Width="875" Background="#FFF2F2F2" Icon="/Assets/AppIcon.ico">
+        Title="Digital Voice Modem - Desktop Dispatch Console" Height="600" Width="875" Background="#FFF2F2F2" 
+        Icon="/dvmconsole;component/Assets/AppIcon.ico">
     <Grid Background="#FFF2F2F2">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="497*"/>
@@ -56,13 +57,13 @@
         <ScrollViewer x:Name="canvasScrollViewer" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" Grid.Row="2" Grid.ColumnSpan="2">
             <Canvas x:Name="channelsCanvas" VerticalAlignment="Top">
                 <Canvas.Background>
-                    <ImageBrush x:Name="channelsCanvasBg" ImageSource="/Assets/bg_main_hd.png" Stretch="UniformToFill" />
+                    <ImageBrush x:Name="channelsCanvasBg" ImageSource="/dvmconsole;component/Assets/bg_main_hd.png" Stretch="UniformToFill" />
                 </Canvas.Background>
             </Canvas>
         </ScrollViewer>
 
         <!-- Application Banner -->
-        <Image Height="50" Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Left" Source="/Assets/DvmLogo.png" Stretch="UniformToFill" Margin="5,0,0,0" RenderTransformOrigin="0.5,0.5" Width="224">
+        <Image Height="50" Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Left" Source="/dvmconsole;component/Assets/logo.png" Stretch="UniformToFill" Margin="5,0,0,0" RenderTransformOrigin="0.5,0.5" Width="224">
             <Image.RenderTransform>
                 <TransformGroup>
                     <ScaleTransform/>
@@ -87,7 +88,7 @@
                     <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
                 </LinearGradientBrush>
             </Button.Background>
-            <Image HorizontalAlignment="Left" Width="41" Source="/Assets/config2.png" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.598" Height="46"/>
+            <Image HorizontalAlignment="Left" Width="41" Source="/dvmconsole;component/Assets/config.png" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.598" Height="46"/>
         </Button>
 
         <!-- Global PTT -->
@@ -104,7 +105,7 @@
                     <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
                 </LinearGradientBrush>
             </Button.Background>
-            <Image HorizontalAlignment="Center" Width="62" Source="/Assets/instantptt.png" IsHitTestVisible="False" Height="45" >
+            <Image HorizontalAlignment="Center" Width="62" Source="/dvmconsole;component/Assets/instantptt.png" IsHitTestVisible="False" Height="45" >
                 <Image.OpacityMask>
                     <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
                         <GradientStop Color="Black"/>
@@ -129,7 +130,7 @@
                 </LinearGradientBrush>
             </Button.Background>
             <StackPanel>
-                <Image HorizontalAlignment="Center" Width="37" Source="/Assets/alerttone2.png" IsHitTestVisible="False" Height="34"/>
+                <Image HorizontalAlignment="Center" Width="37" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" Height="34"/>
                 <TextBlock TextAlignment="Center">1</TextBlock>
             </StackPanel>
         </Button>
@@ -147,7 +148,7 @@
                 </LinearGradientBrush>
             </Button.Background>
             <StackPanel>
-                <Image HorizontalAlignment="Center" Width="37" Source="/Assets/alerttone2.png" IsHitTestVisible="False" Height="34"/>
+                <Image HorizontalAlignment="Center" Width="37" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" Height="34"/>
                 <TextBlock TextAlignment="Center">2</TextBlock>
             </StackPanel>
         </Button>
@@ -165,7 +166,7 @@
                 </LinearGradientBrush>
             </Button.Background>
             <StackPanel>
-                <Image HorizontalAlignment="Center" Width="37" Source="/Assets/alerttone2.png" IsHitTestVisible="False" Height="34"/>
+                <Image HorizontalAlignment="Center" Width="37" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" Height="34"/>
                 <TextBlock TextAlignment="Center">3</TextBlock>
             </StackPanel>
         </Button>
@@ -184,7 +185,7 @@
                     <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
                 </LinearGradientBrush>
             </Button.Background>
-            <Image HorizontalAlignment="Left" Width="38" Source="/Assets/page.png" IsHitTestVisible="False" Height="46"/>
+            <Image HorizontalAlignment="Left" Width="38" Source="/dvmconsole;component/Assets/page.png" IsHitTestVisible="False" Height="46"/>
         </Button>
 
         <!-- Clear Emergency (disabled) -->
@@ -202,7 +203,7 @@
                     <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
                 </LinearGradientBrush>
             </Button.Background>
-            <Image HorizontalAlignment="Left" Width="37" Source="/Assets/clearemerg.png" IsHitTestVisible="False" Height="46"/>
+            <Image HorizontalAlignment="Left" Width="37" Source="/dvmconsole;component/Assets/clearemerg.png" IsHitTestVisible="False" Height="46"/>
         </Button>
 
         <!-- Select/Unselect All -->
@@ -219,7 +220,7 @@
                     <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
                 </LinearGradientBrush>
             </Button.Background>
-            <Image HorizontalAlignment="Left" Width="41" Source="/Assets/select.png" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.598" Height="46"/>
+            <Image HorizontalAlignment="Left" Width="41" Source="/dvmconsole;component/Assets/select.png" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.598" Height="46"/>
         </Button>
 
         <!-- Encryption Key Information -->
@@ -236,7 +237,7 @@
                     <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
                 </LinearGradientBrush>
             </Button.Background>
-            <Image HorizontalAlignment="Left" Width="41" Source="/Assets/key.png" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.598" Height="46"/>
+            <Image HorizontalAlignment="Left" Width="41" Source="/dvmconsole;component/Assets/key.png" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.598" Height="46"/>
         </Button>
 
         <!-- Call History -->
@@ -253,7 +254,7 @@
                     <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
                 </LinearGradientBrush>
             </Button.Background>
-            <Image HorizontalAlignment="Left" Width="41" Source="/Assets/history.png" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.598" Height="46"/>
+            <Image HorizontalAlignment="Left" Width="41" Source="/dvmconsole;component/Assets/history.png" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.598" Height="46"/>
         </Button>
 
         <!-- Audio Settings -->
@@ -270,7 +271,7 @@
                     <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
                 </LinearGradientBrush>
             </Button.Background>
-            <Image HorizontalAlignment="Left" Width="42" Source="/Assets/audio.png" IsHitTestVisible="False" Height="46"/>
+            <Image HorizontalAlignment="Left" Width="42" Source="/dvmconsole;component/Assets/audio.png" IsHitTestVisible="False" Height="46"/>
         </Button>
     </Grid>
 </Window>
