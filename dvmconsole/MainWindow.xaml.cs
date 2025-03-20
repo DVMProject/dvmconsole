@@ -329,7 +329,14 @@ namespace dvmconsole
 
                     Task.Run(() =>
                     {
-                        peer.Start();
+                        try
+                        {
+                            peer.Start();
+                        }
+                        catch (Exception e)
+                        {
+                            MessageBox.Show($"Fatal error while connecting to server. {e.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                        }
                     });
 
                     if (!settingsManager.ShowSystemStatus)
