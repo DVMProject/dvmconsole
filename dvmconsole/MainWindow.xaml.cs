@@ -245,8 +245,7 @@ namespace dvmconsole
 
                     peer.peer.PeerConnected += (sender, response) =>
                     {
-                        Console.WriteLine("FNE Peer connected");
-
+                        Trace.WriteLine("FNE Peer connected");
                         Dispatcher.Invoke(() =>
                         {
                             systemStatusBox.Background = (Brush)new BrushConverter().ConvertFrom("#FF00BC48");
@@ -257,8 +256,7 @@ namespace dvmconsole
 
                     peer.peer.PeerDisconnected += (response) =>
                     {
-                        Console.WriteLine("FNE Peer disconnected");
-
+                        Trace.WriteLine("FNE Peer disconnected");
                         Dispatcher.Invoke(() =>
                         {
                             systemStatusBox.Background = new SolidColorBrush(Colors.DarkRed);
@@ -500,7 +498,7 @@ namespace dvmconsole
 
                 handler.SendP25TSBK(callData, tsbk);
 
-                Console.WriteLine("sent page");
+                Trace.WriteLine("Transmitted Page");
             }
         }
 
@@ -1243,7 +1241,7 @@ namespace dvmconsole
             if (tone > 0)
             {
                 MBEToneGenerator.IMBEEncodeSingleTone((ushort)tone, imbe);
-                Console.WriteLine($"({system.Name}) P25D: {tone} HZ TONE DETECT");
+                Trace.WriteLine($"({system.Name}) P25D: {tone} HZ TONE DETECT");
             }
             else
             {
@@ -1376,7 +1374,7 @@ namespace dvmconsole
                 else
                     pktSeq = peer.pktSeq();
 
-                //Console.WriteLine($"({channel.SystemName}) P25D: Traffic *VOICE FRAME    * PEER {handler.PeerId} SRC_ID {srcId} TGID {dstId} [STREAM ID {channel.txStreamId}]");
+                //Trace.WriteLine($"({channel.SystemName}) P25D: Traffic *VOICE FRAME    * PEER {handler.PeerId} SRC_ID {srcId} TGID {dstId} [STREAM ID {channel.txStreamId}]");
 
                 byte[] payload = new byte[200];
                 handler.CreateNewP25MessageHdr((byte)P25DUID.LDU1, callData, ref payload, cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
@@ -1394,7 +1392,7 @@ namespace dvmconsole
                 else
                     pktSeq = peer.pktSeq();
 
-                //Console.WriteLine($"({channel.SystemName}) P25D: Traffic *VOICE FRAME    * PEER {handler.PeerId} SRC_ID {srcId} TGID {dstId} [STREAM ID {channel.txStreamId}]");
+                //Trace.WriteLine($"({channel.SystemName}) P25D: Traffic *VOICE FRAME    * PEER {handler.PeerId} SRC_ID {srcId} TGID {dstId} [STREAM ID {channel.txStreamId}]");
 
                 byte[] payload = new byte[200];
                 handler.CreateNewP25MessageHdr((byte)P25DUID.LDU2, callData, ref payload, cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
@@ -1480,7 +1478,7 @@ namespace dvmconsole
                     {
                         //Log.Logger.Debug($"({Config.Name}) P25D: Traffic *VOICE FRAME    * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} VC{n} ERRS {errs} [STREAM ID {e.StreamId}]");
                         //Log.Logger.Debug($"IMBE {FneUtils.HexDump(imbe)}");
-                        //Console.WriteLine($"SAMPLE BUFFER {FneUtils.HexDump(samples)}");
+                        //Trace.WriteLine($"SAMPLE BUFFER {FneUtils.HexDump(samples)}");
 
                         int pcmIdx = 0;
                         byte[] pcmData = new byte[samples.Length * 2];
@@ -1497,7 +1495,7 @@ namespace dvmconsole
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Audio Decode Exception: {ex.Message}");
+                Trace.WriteLine($"Audio Decode Exception: {ex.Message}");
             }
         }
 
@@ -1507,21 +1505,21 @@ namespace dvmconsole
         /// <param name="e"></param>
         public void KeyResponseReceived(KeyResponseEvent e)
         {
-            //Console.WriteLine($"Message ID: {e.KmmKey.MessageId}");
-            //Console.WriteLine($"Decrypt Info Format: {e.KmmKey.DecryptInfoFmt}");
-            //Console.WriteLine($"Algorithm ID: {e.KmmKey.AlgId}");
-            //Console.WriteLine($"Key ID: {e.KmmKey.KeyId}");
-            //Console.WriteLine($"Keyset ID: {e.KmmKey.KeysetItem.KeysetId}");
-            //Console.WriteLine($"Keyset Alg ID: {e.KmmKey.KeysetItem.AlgId}");
-            //Console.WriteLine($"Keyset Key Length: {e.KmmKey.KeysetItem.KeyLength}");
-            //Console.WriteLine($"Number of Keys: {e.KmmKey.KeysetItem.Keys.Count}");
+            //Trace.WriteLine($"Message ID: {e.KmmKey.MessageId}");
+            //Trace.WriteLine($"Decrypt Info Format: {e.KmmKey.DecryptInfoFmt}");
+            //Trace.WriteLine($"Algorithm ID: {e.KmmKey.AlgId}");
+            //Trace.WriteLine($"Key ID: {e.KmmKey.KeyId}");
+            //Trace.WriteLine($"Keyset ID: {e.KmmKey.KeysetItem.KeysetId}");
+            //Trace.WriteLine($"Keyset Alg ID: {e.KmmKey.KeysetItem.AlgId}");
+            //Trace.WriteLine($"Keyset Key Length: {e.KmmKey.KeysetItem.KeyLength}");
+            //Trace.WriteLine($"Number of Keys: {e.KmmKey.KeysetItem.Keys.Count}");
 
             foreach (var key in e.KmmKey.KeysetItem.Keys)
             {
-                //Console.WriteLine($"  Key Format: {key.KeyFormat}");
-                //Console.WriteLine($"  SLN: {key.Sln}");
-                //Console.WriteLine($"  Key ID: {key.KeyId}");
-                //Console.WriteLine($"  Key Data: {BitConverter.ToString(key.GetKey())}");
+                //Trace.WriteLine($"  Key Format: {key.KeyFormat}");
+                //Trace.WriteLine($"  SLN: {key.Sln}");
+                //Trace.WriteLine($"  Key ID: {key.KeyId}");
+                //Trace.WriteLine($"  Key Data: {BitConverter.ToString(key.GetKey())}");
 
                 Dispatcher.Invoke(() =>
                 {

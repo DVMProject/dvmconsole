@@ -12,6 +12,8 @@
 *
 */
 
+using System.Diagnostics;
+
 using fnecore;
 using fnecore.DMR;
 using fnecore.P25.kmm;
@@ -132,20 +134,20 @@ namespace dvmconsole
                 switch (level)
                 {
                     case LogLevel.WARNING:
-                        Console.WriteLine(message);
+                        Trace.WriteLine(message);
                         break;
                     case LogLevel.ERROR:
-                        Console.WriteLine(message);
+                        Trace.WriteLine(message);
                         break;
                     case LogLevel.DEBUG:
-                        Console.WriteLine(message);
+                        Trace.WriteLine(message);
                         break;
                     case LogLevel.FATAL:
-                        Console.WriteLine(message);
+                        Trace.WriteLine(message);
                         break;
                     case LogLevel.INFO:
                     default:
-                        Console.WriteLine(message);
+                        Trace.WriteLine(message);
                         break;
                 }
             };
@@ -194,8 +196,6 @@ namespace dvmconsole
         protected override void KeyResponse(object sender, KeyResponseEvent e)
         {
             byte[] payload = e.Data.Skip(11).ToArray();
-
-            //Console.WriteLine(FneUtils.HexDump(payload));
             if (e.MessageId == (byte)KmmMessageType.MODIFY_KEY_CMD)
                 mainWindow.KeyResponseReceived(e);
         }

@@ -1,4 +1,8 @@
 ﻿// SPDX-License-Identifier: AGPL-3.0-only
+
+
+using System.Diagnostics;
+
 /**
 * Digital Voice Modem - Desktop Dispatch Console
 * AGPLv3 Open Source. Use is subject to license terms.
@@ -10,6 +14,8 @@
 *   Copyright (C) 2025 Caleb, K4PHP
 *
 */
+
+using System.Diagnostics;
 
 namespace dvmconsole
 {
@@ -32,7 +38,7 @@ namespace dvmconsole
 
             if (audioData.Length != OgLength)
             {
-                Console.WriteLine($"Invalid PCM length: {audioData.Length}, expected: {OgLength}");
+                Trace.WriteLine($"Invalid PCM length: {audioData.Length}, expected: {OgLength}");
                 return chunks;
             }
 
@@ -55,7 +61,7 @@ namespace dvmconsole
         {
             if (chunks.Count * ExepcetedLength != OgLength)
             {
-                Console.WriteLine($"Invalid number of chunks: {chunks.Count}, expected total length: {OgLength}");
+                Trace.WriteLine($"Invalid number of chunks: {chunks.Count}, expected total length: {OgLength}");
                 return null;
             }
 

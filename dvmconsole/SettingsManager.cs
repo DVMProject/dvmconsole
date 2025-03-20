@@ -11,6 +11,7 @@
 *
 */
 
+using System.Diagnostics;
 using System.IO;
 
 using Newtonsoft.Json;
@@ -98,7 +99,7 @@ namespace dvmconsole
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error loading settings: {ex.Message}");
+                Trace.WriteLine($"Error loading settings: {ex.Message}");
             }
         }
 
@@ -174,7 +175,7 @@ namespace dvmconsole
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error saving settings: {ex.Message}");
+                Trace.WriteLine($"Error saving settings: {ex.Message}");
             }
         }
     } // public class SettingsManager
