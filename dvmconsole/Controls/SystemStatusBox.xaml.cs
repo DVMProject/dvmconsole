@@ -83,6 +83,8 @@ namespace dvmconsole.Controls
         {
             InitializeComponent();
             DataContext = this;
+
+            Background = ChannelBox.DARK_GRAY_GRADIENT;
         }
         /// <summary>
         /// Initializes a new instance of the <see cref="SystemStatusBox"/> class.

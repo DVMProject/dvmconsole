@@ -30,13 +30,12 @@ namespace dvmconsole.Controls
     /// </summary>
     public partial class ChannelBox : UserControl, INotifyPropertyChanged
     {
-        public readonly static Brush DESELECTED_COLOR = Brushes.Gray;
-        public readonly static Brush SELECTED_COLOR = (Brush)new BrushConverter().ConvertFrom("#FF0B004B");
-        public readonly static Brush PLYBK_SELECTED_COLOR = (Brush)new BrushConverter().ConvertFrom("#FFC90000");
-
-        public readonly static Brush RX_COLOR = (Brush)new BrushConverter().ConvertFrom("#FF00BC48");
-        public readonly static Brush RX_ENC_COLOR = (Brush)new BrushConverter().ConvertFrom("#FFDEAF0A");
-
+        public readonly static LinearGradientBrush GRAY_GRADIENT;
+        public readonly static LinearGradientBrush DARK_GRAY_GRADIENT;      // Delected/Disconnected Color
+        public readonly static LinearGradientBrush BLUE_GRADIENT;           // Selected Channel Color
+        public readonly static LinearGradientBrush RED_GRADIENT;            // Playback Selected Color
+        public readonly static LinearGradientBrush GREEN_GRADIENT;          // Clear Rx Color
+        public readonly static LinearGradientBrush ORANGE_GRADIENT;         // Encrypted Rx Color
 
         private readonly SelectedChannelsManager selectedChannelsManager;
         private readonly AudioManager audioManager;
@@ -48,10 +47,6 @@ namespace dvmconsole.Controls
         private string lastSrcId = "0";
         private double volume = 1.0;
         private bool isSelected;
-
-        internal LinearGradientBrush grayGradient;
-        internal LinearGradientBrush redGradient;
-        internal LinearGradientBrush orangeGradient;
 
         public FlashingBackgroundManager flashingBackgroundManager;
 
@@ -259,6 +254,66 @@ namespace dvmconsole.Controls
         */
 
         /// <summary>
+        /// Static initialize for the <see cref="ChannelBox" class. />
+        /// </summary>
+        static ChannelBox()
+        {
+            GRAY_GRADIENT = new LinearGradientBrush
+            {
+                StartPoint = new Point(0.5, 0),
+                EndPoint = new Point(0.5, 1)
+            };
+
+            GRAY_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0F0F0F0"), 0.485));
+            GRAY_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0C2C2C2"), 0.517));
+
+            DARK_GRAY_GRADIENT = new LinearGradientBrush
+            {
+                StartPoint = new Point(0.5, 0),
+                EndPoint = new Point(0.5, 1)
+            };
+
+            DARK_GRAY_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0979797"), 0.485));
+            DARK_GRAY_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0686767"), 0.517));
+
+            BLUE_GRADIENT = new LinearGradientBrush
+            {
+                StartPoint = new Point(0.5, 0),
+                EndPoint = new Point(0.5, 1)
+            };
+
+            BLUE_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0150189"), 0.485));
+            BLUE_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F00B004B"), 0.517));
+
+            RED_GRADIENT = new LinearGradientBrush
+            {
+                StartPoint = new Point(0.5, 0),
+                EndPoint = new Point(0.5, 1)
+            };
+
+            RED_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0FF0000"), 0.485));
+            RED_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0C60000"), 0.517));
+
+            GREEN_GRADIENT = new LinearGradientBrush
+            {
+                StartPoint = new Point(0.5, 0),
+                EndPoint = new Point(0.5, 1)
+            };
+
+            GREEN_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F000AF00"), 0.485));
+            GREEN_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0008E00"), 0.517));
+
+            ORANGE_GRADIENT = new LinearGradientBrush
+            {
+                StartPoint = new Point(0.5, 0),
+                EndPoint = new Point(0.5, 1)
+            };
+
+            ORANGE_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0FFAF00"), 0.485));
+            ORANGE_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0C68700"), 0.517));
+        }
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="ChannelBox"/> class.
         /// </summary>
         /// <param name="selectedChannelsManager"></param>
@@ -286,36 +341,9 @@ namespace dvmconsole.Controls
 
             MouseLeftButtonDown += ChannelBox_MouseLeftButtonDown;
 
-            grayGradient = new LinearGradientBrush
-            {
-                StartPoint = new Point(0.5, 0),
-                EndPoint = new Point(0.5, 1)
-            };
-
-            grayGradient.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#FFF0F0F0"), 0.485));
-            grayGradient.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#FFDCDCDC"), 0.517));
-
-            redGradient = new LinearGradientBrush
-            {
-                StartPoint = new Point(0.5, 0),
-                EndPoint = new Point(0.5, 1)
-            };
-
-            redGradient.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#FFFF0000"), 0.485));
-            redGradient.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#FFD50000"), 0.517));
-
-            orangeGradient = new LinearGradientBrush
-            {
-                StartPoint = new Point(0.5, 0),
-                EndPoint = new Point(0.5, 1)
-            };
-
-            orangeGradient.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#FFFFAF00"), 0.485));
-            orangeGradient.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#FFEEA400"), 0.517));
-
-            PttButton.Background = grayGradient;
-            PageSelectButton.Background = grayGradient;
-            ChannelMarkerBtn.Background = grayGradient;
+            PttButton.Background = GRAY_GRADIENT;
+            PageSelectButton.Background = GRAY_GRADIENT;
+            ChannelMarkerBtn.Background = GRAY_GRADIENT;
 
             if (SystemName == MainWindow.PLAYBACKSYS || ChannelName == MainWindow.PLAYBACKCHNAME || DstId == MainWindow.PLAYBACKTG)
             {
@@ -350,7 +378,7 @@ namespace dvmconsole.Controls
                 return;
 
             IsSelected = !IsSelected;
-            ControlBorder.Background = IsSelected ? SELECTED_COLOR : DESELECTED_COLOR;
+            ControlBorder.Background = IsSelected ? BLUE_GRADIENT : DARK_GRAY_GRADIENT;
 
             if (IsSelected)
                 selectedChannelsManager.AddSelectedChannel(this);
@@ -367,9 +395,9 @@ namespace dvmconsole.Controls
                 return;
 
             if (PttState)
-                PttButton.Background = redGradient;
+                PttButton.Background = RED_GRADIENT;
             else
-                PttButton.Background = grayGradient;
+                PttButton.Background = GRAY_GRADIENT;
         }
 
         /// <summary>
@@ -381,9 +409,9 @@ namespace dvmconsole.Controls
                 return;
 
             if (PageState)
-                PageSelectButton.Background = orangeGradient;
+                PageSelectButton.Background = ORANGE_GRADIENT;
             else
-                PageSelectButton.Background = grayGradient;
+                PageSelectButton.Background = GRAY_GRADIENT;
         }
 
         private void UpdateHoldColor()
@@ -392,9 +420,9 @@ namespace dvmconsole.Controls
                 return;
 
             if (HoldState)
-                ChannelMarkerBtn.Background = orangeGradient;
+                ChannelMarkerBtn.Background = ORANGE_GRADIENT;
             else
-                ChannelMarkerBtn.Background = grayGradient;
+                ChannelMarkerBtn.Background = GRAY_GRADIENT;
         }
 
         /// <summary>
@@ -404,11 +432,11 @@ namespace dvmconsole.Controls
         {
             if (SystemName == MainWindow.PLAYBACKSYS || ChannelName == MainWindow.PLAYBACKCHNAME || DstId == MainWindow.PLAYBACKTG)
             {
-                ControlBorder.Background = IsSelected ? PLYBK_SELECTED_COLOR : DESELECTED_COLOR;
+                ControlBorder.Background = IsSelected ? RED_GRADIENT : DARK_GRAY_GRADIENT;
                 return;
             }
 
-            ControlBorder.Background = IsSelected ? SELECTED_COLOR : DESELECTED_COLOR;
+            ControlBorder.Background = IsSelected ? BLUE_GRADIENT : DARK_GRAY_GRADIENT;
         }
 
         /// <summary>

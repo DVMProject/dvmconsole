@@ -36,7 +36,6 @@ using fnecore;
 using fnecore.P25;
 using fnecore.P25.LC.TSBK;
 using fnecore.P25.KMM;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.Window;
 
 namespace dvmconsole
 {
@@ -269,6 +268,8 @@ namespace dvmconsole
             double offsetX = 20;
             double offsetY = 20;
 
+            Cursor = Cursors.Wait;
+
             if (Codeplug != null)
             {
                 foreach (var system in Codeplug.Systems)
@@ -311,18 +312,17 @@ namespace dvmconsole
                         Trace.WriteLine("FNE Peer connected");
                         Dispatcher.Invoke(() =>
                         {
-                            systemStatusBox.Background = (Brush)new BrushConverter().ConvertFrom("#FF00BC48");
+                            systemStatusBox.Background = ChannelBox.GREEN_GRADIENT;
                             systemStatusBox.ConnectionState = "Connected";
                         });
                     };
-
 
                     peer.peer.PeerDisconnected += (response) =>
                     {
                         Trace.WriteLine("FNE Peer disconnected");
                         Dispatcher.Invoke(() =>
                         {
-                            systemStatusBox.Background = new SolidColorBrush(Colors.DarkRed);
+                            systemStatusBox.Background = ChannelBox.RED_GRADIENT;
                             systemStatusBox.ConnectionState = "Disconnected";
                         });
                     };
@@ -431,6 +431,8 @@ namespace dvmconsole
             playbackChannelBox.MouseLeftButtonUp += ChannelBox_MouseLeftButtonUp;
             playbackChannelBox.MouseMove += ChannelBox_MouseMove;
             channelsCanvas.Children.Add(playbackChannelBox);
+
+            Cursor = Cursors.Arrow;
         }
 
         /// <summary>
@@ -715,7 +717,7 @@ namespace dvmconsole
                         Dispatcher.Invoke(() =>
                         {
                             //channel.PageState = false; // TODO: Investigate
-                            channel.PageSelectButton.Background = channel.grayGradient;
+                            channel.PageSelectButton.Background = ChannelBox.GRAY_GRADIENT;
                         });
                     }
                 }
@@ -822,7 +824,7 @@ namespace dvmconsole
                                 Dispatcher.Invoke(() =>
                                 {
                                     if (forHold)
-                                        channel.PttButton.Background = channel.grayGradient;
+                                        channel.PttButton.Background = ChannelBox.GRAY_GRADIENT;
                                     else
                                         channel.PageState = false;
                                 });
@@ -971,6 +973,8 @@ namespace dvmconsole
             offsetY = startPoint.Y - Canvas.GetTop(draggedElement);
             isDragging = true;
 
+            Cursor = Cursors.ScrollAll;
+
             element.CaptureMouse();
         }
 
@@ -983,6 +987,8 @@ namespace dvmconsole
         {
             if (!isEditMode || !isDragging || draggedElement == null)
                 return;
+
+            Cursor = Cursors.Arrow;
 
             isDragging = false;
             draggedElement.ReleaseMouseCapture();
@@ -1374,7 +1380,7 @@ namespace dvmconsole
                 {
                     Dispatcher.Invoke(() =>
                     {
-                        btnGlobalPtt.Background = channel.redGradient;
+                        btnGlobalPtt.Background = ChannelBox.RED_GRADIENT;
                         channel.PttState = true;
                     });
 
@@ -1384,7 +1390,7 @@ namespace dvmconsole
                 {
                     Dispatcher.Invoke(() =>
                     {
-                        btnGlobalPtt.Background = channel.grayGradient;
+                        btnGlobalPtt.Background = ChannelBox.GRAY_GRADIENT;
                         channel.PttState = false;
                     });
 
@@ -1410,7 +1416,7 @@ namespace dvmconsole
                 Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
 
                 channel.IsSelected = selectAll;
-                channel.Background = channel.IsSelected ? ChannelBox.SELECTED_COLOR : ChannelBox.DESELECTED_COLOR;
+                channel.Background = channel.IsSelected ? ChannelBox.BLUE_GRADIENT : ChannelBox.DARK_GRAY_GRADIENT;
 
                 if (channel.IsSelected)
                     selectedChannelsManager.AddSelectedChannel(channel);
@@ -1877,9 +1883,9 @@ namespace dvmconsole
                             channel.LastSrcId = "Last: " + alias;
 
                         if (channel.algId != P25Defines.P25_ALGO_UNENCRYPT)
-                            channel.Background = ChannelBox.RX_ENC_COLOR;
+                            channel.Background = ChannelBox.ORANGE_GRADIENT;
                         else
-                            channel.Background = ChannelBox.RX_COLOR;
+                            channel.Background = ChannelBox.GREEN_GRADIENT;
                     }
 
                     // Is the call over?
@@ -1888,7 +1894,7 @@ namespace dvmconsole
                         channel.IsReceiving = false;
                         TimeSpan callDuration = pktTime - slot.RxStart;
                         Trace.WriteLine($"({system.Name}) P25D: Traffic *CALL END       * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} DUR {callDuration} [STREAM ID {e.StreamId}]");
-                        channel.Background = ChannelBox.SELECTED_COLOR;
+                        channel.Background = ChannelBox.BLUE_GRADIENT;
                         callHistoryWindow.ChannelUnkeyed(cpgChannel.Name, (int)e.SrcId);
                         return;
                     }
