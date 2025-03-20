@@ -85,7 +85,7 @@ namespace dvmconsole
         CallHistoryWindow callHistoryWindow = new CallHistoryWindow();
 
         public static string PLAYBACKTG = "LOCPLAYBACK";
-        public static string PLAYBACKSYS = "LOCPLAYBACKSYS";
+        public static string PLAYBACKSYS = "Local Playback";
         public static string PLAYBACKCHNAME = "PLAYBACK";
 
         private readonly WaveInEvent waveIn;
@@ -258,7 +258,7 @@ namespace dvmconsole
 
                         Dispatcher.Invoke(() =>
                         {
-                            systemStatusBox.Background = new SolidColorBrush(Colors.Red);
+                            systemStatusBox.Background = new SolidColorBrush(Colors.DarkRed);
                             systemStatusBox.ConnectionState = "Disconnected";
                         });
                     };
@@ -1625,7 +1625,7 @@ namespace dvmconsole
                         catch (Exception) { }
 
                         if (string.IsNullOrEmpty(alias))
-                            channel.LastSrcId = "Last SRC: " + e.SrcId;
+                            channel.LastSrcId = "Last ID: " + e.SrcId;
                         else
                             channel.LastSrcId = "Last: " + alias;
 

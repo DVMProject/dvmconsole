@@ -14,6 +14,7 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace dvmconsole.Controls
 {
@@ -51,6 +52,15 @@ namespace dvmconsole.Controls
                     NotifyPropertyChanged();
                 }
             }
+        }
+
+        /// <summary>
+        /// Gets or sets the <see cref="Brush"/> that fills the area between the bounds of the control border.
+        /// </summary>
+        public new Brush Background
+        {
+            get => ControlBorder.Background;
+            set => ControlBorder.Background = value;
         }
 
         /*

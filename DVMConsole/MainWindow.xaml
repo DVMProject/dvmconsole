@@ -25,20 +25,22 @@
 
         <Menu VerticalAlignment="Center" Height="25" Background="White" Grid.ColumnSpan="2">
             <MenuItem Header="File">
-                <MenuItem Header="Open Codeplug" Click="OpenCodeplug_Click"/>
+                <MenuItem Header="_Open Codeplug" Click="OpenCodeplug_Click"/>
             </MenuItem>
             <MenuItem Header="Edit">
-                <MenuItem Header="Audio Settings" Click="AudioSettings_Click" />
-                <MenuItem Header="Enable Edit Mode" Click="ToggleEditMode_Click"/>
-                <MenuItem Header="Select Widgets to Display" Click="SelectWidgets_Click"/>
-                <MenuItem Header="Reset Settings" Click="ResetSettings_Click"/>
+                <MenuItem Header="_Audio Settings" Click="AudioSettings_Click" />
+                <MenuItem Header="_Reset Settings" Click="ResetSettings_Click"/>
+                <Separator />
+                <MenuItem Header="_Enable Edit Mode" Click="ToggleEditMode_Click"/>
+                <Separator />
+                <MenuItem Header="_Select Widgets to Display" Click="SelectWidgets_Click"/>
                 <MenuItem Header="Alerts">
                     <MenuItem Header="Add Alert Tone" Click="AddAlertTone_Click"/>
                 </MenuItem>
             </MenuItem>
             <MenuItem Header="Page">
-                <MenuItem Header="P25 Page" Click="P25Page_Click" />
-                <MenuItem Header="Manual QC2" Click="ManualPage_Click" />
+                <MenuItem Header="P25 _Page" Click="P25Page_Click" />
+                <MenuItem Header="Manual _QC2" Click="ManualPage_Click" />
             </MenuItem>
         </Menu>
 

@@ -8,6 +8,7 @@
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
 *   Copyright (C) 2025 Caleb, K4PHP
+*   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
 *
 */
 
@@ -26,6 +27,10 @@ namespace dvmconsole.Controls
     /// </summary>
     public partial class ChannelBox : UserControl, INotifyPropertyChanged
     {
+        private readonly static Brush DESELECTED_COLOR = Brushes.Gray;
+        private readonly static Brush SELECTED_COLOR = (Brush)new BrushConverter().ConvertFrom("#FF0B004B");
+        private readonly static Brush PLYBK_SELECTED_COLOR = (Brush)new BrushConverter().ConvertFrom("#FFC90000");
+
         private readonly SelectedChannelsManager selectedChannelsManager;
         private readonly AudioManager audioManager;
 
@@ -310,7 +315,7 @@ namespace dvmconsole.Controls
                 return;
 
             IsSelected = !IsSelected;
-            Background = IsSelected ? (Brush)new BrushConverter().ConvertFrom("#FF0B004B") : Brushes.Gray;
+            ControlBorder.Background = IsSelected ? SELECTED_COLOR : DESELECTED_COLOR;
 
             if (IsSelected)
                 selectedChannelsManager.AddSelectedChannel(this);
@@ -364,11 +369,11 @@ namespace dvmconsole.Controls
         {
             if (SystemName == MainWindow.PLAYBACKSYS || ChannelName == MainWindow.PLAYBACKCHNAME || DstId == MainWindow.PLAYBACKTG)
             {
-                Background = IsSelected ? (Brush)new BrushConverter().ConvertFrom("#FFC90000") : Brushes.DarkGray;
+                ControlBorder.Background = IsSelected ? PLYBK_SELECTED_COLOR : DESELECTED_COLOR;
                 return;
             }
 
-            Background = IsSelected ? (Brush)new BrushConverter().ConvertFrom("#FF0B004B") : Brushes.DarkGray;
+            ControlBorder.Background = IsSelected ? SELECTED_COLOR : DESELECTED_COLOR;
         }
 
         /// <summary>
