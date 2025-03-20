@@ -19,6 +19,7 @@
     <None Remove="Assets\alerttone.png" />
     <None Remove="Assets\alerttone2.png" />
     <None Remove="Assets\AppIcon.ico" />
+    <None Remove="Assets\AppIcon.png" />
     <None Remove="Assets\audio.png" />
     <None Remove="Assets\channelmarker.png" />
     <None Remove="Assets\clearemerg.png" />
@@ -26,10 +27,13 @@
     <None Remove="Assets\config2.png" />
     <None Remove="Assets\connection.png" />
     <None Remove="Assets\DvmLogo.png" />
+    <None Remove="Assets\history.png" />
     <None Remove="Assets\instantptt.png" />
+    <None Remove="Assets\key.png" />
     <None Remove="Assets\page.png" />
     <None Remove="Assets\pageselect.png" />
     <None Remove="Assets\pttselect.png" />
+    <None Remove="Assets\select.png" />
     <None Remove="Assets\whackerlink-logo.png" />
     <None Remove="Assets\WhackerLinkLogoV2.png" />
     <None Remove="clearemerg.png" />
@@ -48,6 +52,9 @@
     <Content Include="Assets\AppIcon.ico">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
+    <Content Include="Assets\AppIcon.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
     <Content Include="Assets\audio.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
@@ -55,6 +62,15 @@
 
   <ItemGroup>
     <Content Include="Assets\config.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\history.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\key.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\select.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

@@ -5,13 +5,14 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:dvmconsole"
         mc:Ignorable="d"
-        Title="P25 Page" Height="200" Width="300" WindowStartupLocation="CenterOwner">
+        Title="Page Subscriber" Height="200" Width="300" WindowStartupLocation="CenterOwner">
     <Grid>
-        <Button Content="Send" Name="SendPageButton" HorizontalAlignment="Center" Margin="0,97,0,0" VerticalAlignment="Top" Click="SendPageButton_Click"/>
+        <Button Name="SendPageButton" HorizontalAlignment="Center" Margin="0,97,0,0" VerticalAlignment="Top" Click="SendPageButton_Click" Width="120" Height="24">
+            <TextBlock TextAlignment="Center" Margin="0,-21,0,0">Send</TextBlock>
+        </Button>
         <TextBox HorizontalAlignment="Center" Name="DstIdText" Margin="0,74,0,0" TextWrapping="Wrap" Text="" MaxLength="12" VerticalAlignment="Top" Width="120"/>
-        <Label Content="Dst ID:" HorizontalAlignment="Left" Margin="40,70,0,0" VerticalAlignment="Top"/>
+        <Label Content="Radio ID:" HorizontalAlignment="Left" Margin="27,70,0,0" VerticalAlignment="Top"/>
         <ComboBox HorizontalAlignment="Center"  Name="SystemCombo" Margin="0,47,0,0" VerticalAlignment="Top" Width="120"/>
         <Label Content="System:" HorizontalAlignment="Left" Margin="35,44,0,0" VerticalAlignment="Top"/>
-
     </Grid>
 </Window>

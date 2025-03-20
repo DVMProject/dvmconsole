@@ -97,6 +97,8 @@ namespace dvmconsole
         private Dictionary<string, SlotStatus> systemStatuses = new Dictionary<string, SlotStatus>();
         private FneSystemManager fneSystemManager = new FneSystemManager();
 
+        private bool selectAll = false;
+
         /*
         ** Properties
         */
@@ -1165,6 +1167,7 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void SelectAll_Click(object sender, RoutedEventArgs e)
         {
+            selectAll = !selectAll;
             foreach (ChannelBox channel in ChannelsCanvas.Children.OfType<ChannelBox>())
             {
                 if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
@@ -1173,16 +1176,13 @@ namespace dvmconsole
                 Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
                 Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
 
-                if (!channel.IsSelected)
-                {
-                    channel.IsSelected = true;
-                    channel.Background = channel.IsSelected ? ChannelBox.SELECTED_COLOR : ChannelBox.DESELECTED_COLOR;
+                channel.IsSelected = selectAll;
+                channel.Background = channel.IsSelected ? ChannelBox.SELECTED_COLOR : ChannelBox.DESELECTED_COLOR;
 
-                    if (channel.IsSelected)
-                        selectedChannelsManager.AddSelectedChannel(channel);
-                    else
-                        selectedChannelsManager.RemoveSelectedChannel(channel);
-                }
+                if (channel.IsSelected)
+                    selectedChannelsManager.AddSelectedChannel(channel);
+                else
+                    selectedChannelsManager.RemoveSelectedChannel(channel);
             }
         }
 
