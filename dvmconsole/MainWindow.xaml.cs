@@ -1209,6 +1209,9 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
+            const double widthOffset = 16;
+            const double heightOffset = 115;
+
             if (!string.IsNullOrEmpty(settingsManager.LastCodeplugPath) && File.Exists(settingsManager.LastCodeplugPath))
                 LoadCodeplug(settingsManager.LastCodeplugPath);
             else
@@ -1225,10 +1228,17 @@ namespace dvmconsole
             {
                 Width = settingsManager.WindowWidth;
                 channelsCanvas.Width = settingsManager.CanvasWidth;
-                canvasScrollViewer.Width = Width;
+                if (settingsManager.CanvasWidth > settingsManager.WindowWidth)
+                    canvasScrollViewer.Width = Width - widthOffset;
+                else
+                    canvasScrollViewer.Width = Width;
+
                 Height = settingsManager.WindowHeight;
                 channelsCanvas.Height = settingsManager.CanvasHeight;
-                canvasScrollViewer.Height = Height;
+                if (settingsManager.CanvasHeight > settingsManager.WindowHeight)
+                    canvasScrollViewer.Height = Height - heightOffset;
+                else
+                    canvasScrollViewer.Height = Height;
 
                 windowLoaded = true;
             }
