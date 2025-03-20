@@ -75,6 +75,27 @@ namespace dvmconsole
         /// </summary>
         public Dictionary<string, int> ChannelOutputDevices { get; set; } = new Dictionary<string, int>();
 
+        /// <summary>
+        /// 
+        /// </summary>
+        public bool Maximized { get; set; } = false;
+        /// <summary>
+        /// 
+        /// </summary>
+        public double WindowWidth { get; set; } = MainWindow.MIN_WIDTH;
+        /// <summary>
+        /// 
+        /// </summary>
+        public double WindowHeight { get; set; } = MainWindow.MIN_HEIGHT;
+        /// <summary>
+        /// 
+        /// </summary>
+        public double CanvasWidth { get; set; } = MainWindow.MIN_WIDTH;
+        /// <summary>
+        /// 
+        /// </summary>
+        public double CanvasHeight { get; set; } = MainWindow.MIN_HEIGHT;
+
         /*
         ** Methods
         */
@@ -106,6 +127,24 @@ namespace dvmconsole
                     AlertToneFilePaths = loadedSettings.AlertToneFilePaths ?? new List<string>();
                     AlertTonePositions = loadedSettings.AlertTonePositions ?? new Dictionary<string, ChannelPosition>();
                     ChannelOutputDevices = loadedSettings.ChannelOutputDevices ?? new Dictionary<string, int>();
+                    Maximized = loadedSettings.Maximized;
+                    WindowWidth = loadedSettings.WindowWidth;
+                    if (WindowWidth == 0)
+                        WindowWidth = MainWindow.MIN_WIDTH;
+                    WindowHeight = loadedSettings.WindowHeight;
+                    if (WindowHeight == 0)
+                        WindowHeight = MainWindow.MIN_HEIGHT;
+                    CanvasWidth = loadedSettings.CanvasWidth;
+                    if (CanvasWidth == 0)
+                        CanvasWidth = MainWindow.MIN_WIDTH;
+                    CanvasHeight = loadedSettings.CanvasHeight;
+                    if (CanvasHeight == 0)
+                        CanvasHeight = MainWindow.MIN_HEIGHT;
+
+                    if (CanvasWidth < WindowWidth)
+                        CanvasWidth = WindowWidth;
+                    if (CanvasHeight < WindowHeight)
+                        CanvasHeight = WindowHeight;
 
                     return true;
                 }

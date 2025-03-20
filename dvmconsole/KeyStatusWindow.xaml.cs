@@ -91,7 +91,7 @@ namespace dvmconsole
             {
                 KeyStatusItems.Clear();
 
-                foreach (var child in mainWindow.ChannelsCanvas.Children)
+                foreach (var child in mainWindow.channelsCanvas.Children)
                 {
                     if (child == null)
                     {

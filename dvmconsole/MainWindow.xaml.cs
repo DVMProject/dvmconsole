@@ -36,6 +36,7 @@ using fnecore;
 using fnecore.P25;
 using fnecore.P25.LC.TSBK;
 using fnecore.P25.KMM;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.Window;
 
 namespace dvmconsole
 {
@@ -63,6 +64,9 @@ namespace dvmconsole
     /// </summary>
     public partial class MainWindow : Window
     {
+        public const double MIN_WIDTH = 875;
+        public const double MIN_HEIGHT = 700;
+
         private bool isEditMode = false;
 
         private bool globalPttState = false;
@@ -75,6 +79,7 @@ namespace dvmconsole
         private double offsetY;
         private bool isDragging;
 
+        private bool windowLoaded = false;
         private bool noSaveSettingsOnClose = false;
         private SettingsManager settingsManager = new SettingsManager();
         private SelectedChannelsManager selectedChannelsManager;
@@ -119,12 +124,15 @@ namespace dvmconsole
         {
             InitializeComponent();
 
+            MinWidth = Width = MIN_WIDTH;
+            MinHeight = Height = MIN_HEIGHT;
+
             DisableControls();
 
             settingsManager.LoadSettings();
 
             selectedChannelsManager = new SelectedChannelsManager();
-            flashingManager = new FlashingBackgroundManager(null, ChannelsCanvas, null, this);
+            flashingManager = new FlashingBackgroundManager(null, channelsCanvas, null, this);
             emergencyAlertPlayback = new WaveFilePlaybackManager(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/emergency.wav"));
 
             channelHoldTimer = new System.Timers.Timer(10000);
@@ -141,6 +149,7 @@ namespace dvmconsole
             audioManager = new AudioManager(settingsManager);
 
             selectedChannelsManager.SelectedChannelsChanged += SelectedChannelsChanged;
+            SizeChanged += MainWindow_SizeChanged;
             Loaded += MainWindow_Loaded;
         }
 
@@ -149,8 +158,6 @@ namespace dvmconsole
         /// </summary>
         private void EnableControls()
         {
-            menuEditMode.IsEnabled = true;
-
             menuPageSubscriber.IsEnabled = true;
             menuRadioCheckSubscriber.IsEnabled = true;
             menuInhibitSubscriber.IsEnabled = true;
@@ -172,8 +179,6 @@ namespace dvmconsole
         /// </summary>
         private void DisableControls()
         {
-            menuEditMode.IsEnabled = false;
-
             menuPageSubscriber.IsEnabled = false;
             menuRadioCheckSubscriber.IsEnabled = false;
             menuInhibitSubscriber.IsEnabled = false;
@@ -260,7 +265,7 @@ namespace dvmconsole
         /// </summary>
         private void GenerateChannelWidgets()
         {
-            ChannelsCanvas.Children.Clear();
+            channelsCanvas.Children.Clear();
             double offsetX = 20;
             double offsetY = 20;
 
@@ -285,10 +290,10 @@ namespace dvmconsole
                     systemStatusBox.MouseLeftButtonUp += SystemStatusBox_MouseLeftButtonUp;
                     systemStatusBox.MouseMove += SystemStatusBox_MouseMove;
 
-                    ChannelsCanvas.Children.Add(systemStatusBox);
+                    channelsCanvas.Children.Add(systemStatusBox);
 
                     offsetX += 225;
-                    if (offsetX + 220 > ChannelsCanvas.ActualWidth)
+                    if (offsetX + 220 > channelsCanvas.ActualWidth)
                     {
                         offsetX = 20;
                         offsetY += 106;
@@ -361,11 +366,11 @@ namespace dvmconsole
                         channelBox.MouseLeftButtonDown += ChannelBox_MouseLeftButtonDown;
                         channelBox.MouseLeftButtonUp += ChannelBox_MouseLeftButtonUp;
                         channelBox.MouseMove += ChannelBox_MouseMove;
-                        ChannelsCanvas.Children.Add(channelBox);
+                        channelsCanvas.Children.Add(channelBox);
 
                         offsetX += 225;
 
-                        if (offsetX + 220 > ChannelsCanvas.ActualWidth)
+                        if (offsetX + 220 > channelsCanvas.ActualWidth)
                         {
                             offsetX = 20;
                             offsetY += 106;
@@ -394,7 +399,7 @@ namespace dvmconsole
 
                     alertTone.MouseRightButtonUp += AlertTone_MouseRightButtonUp;
 
-                    ChannelsCanvas.Children.Add(alertTone);
+                    channelsCanvas.Children.Add(alertTone);
                 }
             }
 
@@ -418,17 +423,7 @@ namespace dvmconsole
             playbackChannelBox.MouseLeftButtonDown += ChannelBox_MouseLeftButtonDown;
             playbackChannelBox.MouseLeftButtonUp += ChannelBox_MouseLeftButtonUp;
             playbackChannelBox.MouseMove += ChannelBox_MouseMove;
-            ChannelsCanvas.Children.Add(playbackChannelBox);
-
-            //offsetX += 225;
-
-            //if (offsetX + 220 > ChannelsCanvas.ActualWidth)
-            //{
-            //    offsetX = 20;
-            //    offsetY += 106;
-            //}
-
-            AdjustCanvasHeight();
+            channelsCanvas.Children.Add(playbackChannelBox);
         }
 
         /// <summary>
@@ -964,7 +959,7 @@ namespace dvmconsole
             if (!isEditMode || !(sender is UIElement element)) return;
 
             draggedElement = element;
-            startPoint = e.GetPosition(ChannelsCanvas);
+            startPoint = e.GetPosition(channelsCanvas);
             offsetX = startPoint.X - Canvas.GetLeft(draggedElement);
             offsetY = startPoint.Y - Canvas.GetTop(draggedElement);
             isDragging = true;
@@ -997,15 +992,15 @@ namespace dvmconsole
             if (!isEditMode || !isDragging || draggedElement == null) 
                 return;
 
-            Point currentPosition = e.GetPosition(ChannelsCanvas);
+            Point currentPosition = e.GetPosition(channelsCanvas);
 
             // Calculate the new position with snapping to the grid
             double newLeft = Math.Round((currentPosition.X - offsetX) / GridSize) * GridSize;
             double newTop = Math.Round((currentPosition.Y - offsetY) / GridSize) * GridSize;
 
             // Ensure the box stays within canvas bounds
-            newLeft = Math.Max(0, Math.Min(newLeft, ChannelsCanvas.ActualWidth - draggedElement.RenderSize.Width));
-            newTop = Math.Max(0, Math.Min(newTop, ChannelsCanvas.ActualHeight - draggedElement.RenderSize.Height));
+            newLeft = Math.Max(0, Math.Min(newLeft, channelsCanvas.ActualWidth - draggedElement.RenderSize.Width));
+            newTop = Math.Max(0, Math.Min(newTop, channelsCanvas.ActualHeight - draggedElement.RenderSize.Height));
 
             // Apply snapped position
             Canvas.SetLeft(draggedElement, newLeft);
@@ -1014,8 +1009,6 @@ namespace dvmconsole
             // Save the new position if it's a ChannelBox
             if (draggedElement is ChannelBox channelBox)
                 settingsManager.UpdateChannelPosition(channelBox.ChannelName, newLeft, newTop);
-
-            AdjustCanvasHeight();
         }
 
         /// <summary>
@@ -1042,8 +1035,6 @@ namespace dvmconsole
                 settingsManager.SystemStatusPositions[systemStatusBox.SystemName] = new ChannelPosition { X = x, Y = y };
 
                 ChannelBox_MouseLeftButtonUp(sender, e);
-
-                AdjustCanvasHeight();
             }
         }
 
@@ -1072,7 +1063,7 @@ namespace dvmconsole
         /// </summary>
         private void UpdateEditModeForWidgets()
         {
-            foreach (var child in ChannelsCanvas.Children)
+            foreach (var child in channelsCanvas.Children)
             {
                 if (child is AlertTone alertTone)
                     alertTone.IsEditMode = isEditMode;
@@ -1080,6 +1071,38 @@ namespace dvmconsole
                 if (child is ChannelBox channelBox)
                     channelBox.IsEditMode = isEditMode;
             }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void ResizeCanvasToWindow_Click(object sender, RoutedEventArgs e)
+        {
+            const double widthOffset = 16;
+            const double heightOffset = 115;
+
+            foreach (UIElement child in channelsCanvas.Children)
+            {
+                double childLeft = Canvas.GetLeft(child) + child.RenderSize.Width;
+                if (childLeft > ActualWidth)
+                    Canvas.SetLeft(child, ActualWidth - (child.RenderSize.Width + widthOffset));
+                double childBottom = Canvas.GetTop(child) + child.RenderSize.Height;
+                if (childBottom > ActualHeight)
+                    Canvas.SetTop(child, ActualHeight - (child.RenderSize.Height + heightOffset));
+            }
+
+            channelsCanvas.Width = ActualWidth;
+            canvasScrollViewer.Width = ActualWidth;
+            channelsCanvas.Height = ActualHeight;
+            canvasScrollViewer.Height = ActualHeight;
+
+            settingsManager.CanvasWidth = ActualWidth;
+            settingsManager.CanvasHeight = ActualHeight;
+
+            settingsManager.WindowWidth = ActualWidth;
+            settingsManager.WindowHeight = ActualHeight;
         }
 
         /// <summary>
@@ -1115,10 +1138,8 @@ namespace dvmconsole
 
                 alertTone.MouseRightButtonUp += AlertTone_MouseRightButtonUp;
 
-                ChannelsCanvas.Children.Add(alertTone);
+                channelsCanvas.Children.Add(alertTone);
                 settingsManager.UpdateAlertTonePaths(alertFilePath);
-
-                AdjustCanvasHeight();
             }
         }
 
@@ -1136,26 +1157,49 @@ namespace dvmconsole
                 double x = Canvas.GetLeft(alertTone);
                 double y = Canvas.GetTop(alertTone);
                 settingsManager.UpdateAlertTonePosition(alertTone.AlertFilePath, x, y);
-
-                AdjustCanvasHeight();
             }
         }
 
         /// <summary>
         /// 
         /// </summary>
-        private void AdjustCanvasHeight()
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        /// <exception cref="NotImplementedException"></exception>
+        private void MainWindow_SizeChanged(object sender, SizeChangedEventArgs e)
         {
-            double maxBottom = 0;
+            const double widthOffset = 16;
+            const double heightOffset = 115;
 
-            foreach (UIElement child in ChannelsCanvas.Children)
+            if (!windowLoaded)
+                return;
+
+            if (ActualWidth > channelsCanvas.ActualWidth)
             {
-                double childBottom = Canvas.GetTop(child) + child.RenderSize.Height;
-                if (childBottom > maxBottom)
-                    maxBottom = childBottom;
+                channelsCanvas.Width = ActualWidth;
+                canvasScrollViewer.Width = ActualWidth;
             }
+            else
+                canvasScrollViewer.Width = Width - widthOffset;
 
-            ChannelsCanvas.Height = maxBottom + 150;
+            if (ActualHeight > channelsCanvas.ActualHeight)
+            {
+                channelsCanvas.Height = ActualHeight;
+                canvasScrollViewer.Height = ActualHeight;
+            }
+            else
+                canvasScrollViewer.Height = Height - heightOffset;
+
+            if (WindowState == WindowState.Maximized)
+                ResizeCanvasToWindow_Click(sender, e);
+            else
+                settingsManager.Maximized = false;
+
+            settingsManager.CanvasWidth = channelsCanvas.ActualWidth;
+            settingsManager.CanvasHeight = channelsCanvas.ActualHeight;
+
+            settingsManager.WindowWidth = ActualWidth;
+            settingsManager.WindowHeight = ActualHeight;
         }
 
         /// <summary>
@@ -1165,10 +1209,32 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
+            const double widthOffset = 16;
+            const double heightOffset = 115;
+
             if (!string.IsNullOrEmpty(settingsManager.LastCodeplugPath) && File.Exists(settingsManager.LastCodeplugPath))
                 LoadCodeplug(settingsManager.LastCodeplugPath);
             else
                 GenerateChannelWidgets();
+
+            if (settingsManager.Maximized)
+            {
+                windowLoaded = true;
+                WindowState = WindowState.Maximized;
+                //Application.Current.MainWindow.WindowState = WindowState.Maximized;
+                ResizeCanvasToWindow_Click(sender, e);
+            }
+            else
+            {
+                Width = settingsManager.WindowWidth;
+                channelsCanvas.Width = settingsManager.CanvasWidth;
+                canvasScrollViewer.Width = ActualWidth - widthOffset;
+                Height = settingsManager.WindowHeight;
+                channelsCanvas.Height = settingsManager.CanvasHeight;
+                canvasScrollViewer.Height = ActualHeight - heightOffset;
+
+                windowLoaded = true;
+            }
         }
 
         /// <summary>
@@ -1204,7 +1270,12 @@ namespace dvmconsole
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
             if (!noSaveSettingsOnClose)
+            {
+                if (WindowState == WindowState.Maximized)
+                    settingsManager.Maximized = true;
+
                 settingsManager.SaveSettings();
+            }
 
             base.OnClosing(e);
             Application.Current.Shutdown();
@@ -1316,7 +1387,7 @@ namespace dvmconsole
         private void SelectAll_Click(object sender, RoutedEventArgs e)
         {
             selectAll = !selectAll;
-            foreach (ChannelBox channel in ChannelsCanvas.Children.OfType<ChannelBox>())
+            foreach (ChannelBox channel in channelsCanvas.Children.OfType<ChannelBox>())
             {
                 if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
                     continue;

@@ -21,6 +21,7 @@
     <None Remove="Assets\AppIcon.ico" />
     <None Remove="Assets\AppIcon.png" />
     <None Remove="Assets\audio.png" />
+    <None Remove="Assets\bg_main_hd.png" />
     <None Remove="Assets\channelmarker.png" />
     <None Remove="Assets\clearemerg.png" />
     <None Remove="Assets\config.png" />
@@ -56,6 +57,9 @@
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
     <Content Include="Assets\audio.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\bg_main_hd.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

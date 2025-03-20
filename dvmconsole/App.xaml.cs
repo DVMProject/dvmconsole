@@ -15,9 +15,6 @@
 using System.IO;
 using System.Reflection;
 using System.Windows;
-using MessageBox = System.Windows.Forms.MessageBox;
-using MessageBoxButtons = System.Windows.Forms.MessageBoxButtons;
-using MessageBoxIcon = System.Windows.Forms.MessageBoxIcon;
 
 namespace dvmconsole
 {
@@ -42,7 +39,7 @@ namespace dvmconsole
             if (!File.Exists(Path.Combine(new string[] { Path.GetDirectoryName(path), "libvocoder.DLL" })))
             {
                 MessageBox.Show("libvocoder is missing or not found! The library is required for operation of the console, please see: https://github.com/DVMProject/dvmvocoder.", "Digital Voice Modem - Desktop Dispatch Console",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBoxButton.OK, MessageBoxImage.Error);
                 Application.Current.Shutdown();
                 return;
             }
