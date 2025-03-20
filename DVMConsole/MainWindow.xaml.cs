@@ -1608,7 +1608,7 @@ namespace dvmconsole
                     {
                         channel.IsReceiving = true;
                         slot.RxStart = pktTime;
-                        Console.WriteLine($"({system.Name}) P25D: Traffic *CALL START     * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} [STREAM ID {e.StreamId}]");
+                        Trace.WriteLine($"({system.Name}) P25D: Traffic *CALL START     * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} [STREAM ID {e.StreamId}]");
 
                         FneUtils.Memset(channel.mi, 0x00, P25Defines.P25_MI_LENGTH);
 
@@ -1639,7 +1639,7 @@ namespace dvmconsole
                     {
                         channel.IsReceiving = false;
                         TimeSpan callDuration = pktTime - slot.RxStart;
-                        Console.WriteLine($"({system.Name}) P25D: Traffic *CALL END       * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} DUR {callDuration} [STREAM ID {e.StreamId}]");
+                        Trace.WriteLine($"({system.Name}) P25D: Traffic *CALL END       * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} DUR {callDuration} [STREAM ID {e.StreamId}]");
                         channel.Background = ChannelBox.SELECTED_COLOR;
                         callHistoryWindow.ChannelUnkeyed(cpgChannel.Name, (int)e.SrcId);
                         return;
@@ -1795,6 +1795,16 @@ namespace dvmconsole
         private void CallHist_Click(object sender, RoutedEventArgs e)
         {
             callHistoryWindow.Show();
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void Exit_Click(object sender, RoutedEventArgs e)
+        {
+            Application.Current.Shutdown();
         }
     } // public partial class MainWindow : Window
 } // namespace dvmconsole

@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:dvmconsole.Controls"
-        Title="Digital Voice Modem - Desktop Dispatch Console" Height="600" Width="1000" Background="#FFF2F2F2">
+        Title="Digital Voice Modem - Desktop Dispatch Console" Height="600" Width="1000" Background="#FFF2F2F2" Icon="/Assets/AppIcon.ico">
     <Grid Background="#FFF2F2F2">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="497*"/>
@@ -26,6 +26,8 @@
         <Menu VerticalAlignment="Center" Height="25" Background="White" Grid.ColumnSpan="2">
             <MenuItem Header="File">
                 <MenuItem Header="_Open Codeplug" Click="OpenCodeplug_Click"/>
+                <Separator />
+                <MenuItem Header="_Exit" Click="Exit_Click" />
             </MenuItem>
             <MenuItem Header="Edit">
                 <MenuItem Header="_Audio Settings" Click="AudioSettings_Click" />
