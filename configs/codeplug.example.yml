@@ -11,9 +11,9 @@ systems:
     # Textual name to idenitify this peer in the FNE
     Identity: "CONS OP1"
     # FNE Address
-    address: "localhost"
+    address: "127.0.0.1"
     # FNE Port
-    port: 3001
+    port: 62031
     # Peer ID for FNE
     peerId: 1234567
     # Radio ID transmitted traffic will come from

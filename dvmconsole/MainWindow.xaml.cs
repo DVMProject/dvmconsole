@@ -75,6 +75,7 @@ namespace dvmconsole
         private double offsetY;
         private bool isDragging;
 
+        private bool noSaveSettingsOnClose = false;
         private SettingsManager settingsManager = new SettingsManager();
         private SelectedChannelsManager selectedChannelsManager;
         private FlashingBackgroundManager flashingManager;
@@ -207,6 +208,7 @@ namespace dvmconsole
                 LoadCodeplug(openFileDialog.FileName);
 
                 settingsManager.LastCodeplugPath = openFileDialog.FileName;
+                noSaveSettingsOnClose = false;
                 settingsManager.SaveSettings();
             }
         }
@@ -218,9 +220,13 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void ResetSettings_Click(object sender, RoutedEventArgs e)
         {
-            var confirmResult = MessageBox.Show("Are you sure to wish to reset console settings?", "Confirm Settings Reset", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            var confirmResult = MessageBox.Show("Are you sure to wish to reset console settings?", "Reset Settings", MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (confirmResult == MessageBoxResult.Yes)
+            {
+                MessageBox.Show("Settings will be reset after console restart.", "Reset Settings", MessageBoxButton.OK, MessageBoxImage.Information);
+                noSaveSettingsOnClose = true;
                 settingsManager.Reset();
+            }
         }
 
         /// <summary>
@@ -849,7 +855,8 @@ namespace dvmconsole
                 settingsManager.ShowAlertTones = widgetSelectionWindow.ShowAlertTones;
 
                 GenerateChannelWidgets();
-                settingsManager.SaveSettings();
+                if (!noSaveSettingsOnClose)
+                    settingsManager.SaveSettings();
             }
         }
 
@@ -1196,7 +1203,9 @@ namespace dvmconsole
         /// <param name="e"></param>
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
-            settingsManager.SaveSettings();
+            if (!noSaveSettingsOnClose)
+                settingsManager.SaveSettings();
+
             base.OnClosing(e);
             Application.Current.Shutdown();
         }
