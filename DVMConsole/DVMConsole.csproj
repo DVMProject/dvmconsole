@@ -18,6 +18,7 @@
     <None Remove="alerttone.png" />
     <None Remove="Assets\alerttone.png" />
     <None Remove="Assets\alerttone2.png" />
+    <None Remove="Assets\AppIcon.ico" />
     <None Remove="Assets\audio.png" />
     <None Remove="Assets\channelmarker.png" />
     <None Remove="Assets\clearemerg.png" />
@@ -42,6 +43,9 @@
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
     <Content Include="Assets\alerttone2.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\AppIcon.ico">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
     <Content Include="Assets\audio.png">
