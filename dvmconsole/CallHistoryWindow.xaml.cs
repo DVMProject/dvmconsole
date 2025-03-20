@@ -153,7 +153,6 @@ namespace dvmconsole
                         entry.BackgroundColor = Brushes.LightGreen;
                     else
                         entry.BackgroundColor = Brushes.Orange;
-
                 }
             });
         }

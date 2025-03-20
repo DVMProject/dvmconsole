@@ -1603,7 +1603,8 @@ namespace dvmconsole
 
                             channel.Crypter.Prepare(channel.algId, channel.kId, channel.mi);
 
-                            encrypted = true;
+                            if (channel.algId != P25Defines.P25_ALGO_UNENCRYPT)
+                                encrypted = true;
                         }
                     }
 
