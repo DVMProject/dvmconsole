@@ -41,8 +41,8 @@
                 </MenuItem>
             </MenuItem>
             <MenuItem Header="Page">
-                <MenuItem Header="P25 _Page" Click="P25Page_Click" />
-                <MenuItem Header="Manual _QC2" Click="ManualPage_Click" />
+                <MenuItem Header="_Page Subscriber" Click="P25Page_Click" />
+                <MenuItem Header="_QuickCall II" Click="ManualPage_Click" />
             </MenuItem>
         </Menu>
 

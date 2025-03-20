@@ -4,14 +4,16 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:dvmconsole"
-        mc:Ignorable="d"
-        Title="Manual QC2 Page" Height="300" Width="300">
+        mc:Ignorable="d" Icon="/Assets/page.png"
+        Title="QuickCall II Page" Height="146" Width="330" WindowStartupLocation="CenterOwner">
     <Grid>
-        <Button Content="Send" HorizontalAlignment="Center" Margin="0,157,0,0" Name="SendButton" VerticalAlignment="Top" Click="SendButton_Click"/>
-        <TextBox HorizontalAlignment="Left" Margin="115,96,0,0" TextWrapping="Wrap" Text="" Name="ToneAText" VerticalAlignment="Top" Width="120"/>
-        <TextBox HorizontalAlignment="Left" Margin="115,123,0,0" TextWrapping="Wrap" Text="" Name="ToneBText" VerticalAlignment="Top" Width="120"/>
-        <Label Content="A Tone:" HorizontalAlignment="Left" Margin="66,89,0,0" VerticalAlignment="Top"/>
-        <Label Content="B Tone:" HorizontalAlignment="Left" Margin="67,116,0,0" VerticalAlignment="Top"/>
+        <Button HorizontalAlignment="Left" Margin="111,66,0,0" Name="SendButton" VerticalAlignment="Top" Click="SendButton_Click" Width="120" Height="24">
+            <TextBlock TextAlignment="Center" Margin="0,-21,0,0">Send</TextBlock>
+        </Button>
+        <TextBox HorizontalAlignment="Left" Margin="111,17,0,0" TextWrapping="Wrap" Text="" Name="ToneAText" VerticalAlignment="Top" Width="120"/>
+        <TextBox HorizontalAlignment="Left" Margin="111,43,0,0" TextWrapping="Wrap" Text="" Name="ToneBText" VerticalAlignment="Top" Width="120"/>
+        <Label Content="A Tone:" HorizontalAlignment="Left" Margin="57,13,0,0" VerticalAlignment="Top"/>
+        <Label Content="B Tone:" HorizontalAlignment="Left" Margin="58,39,0,0" VerticalAlignment="Top"/>
 
     </Grid>
 </Window>
