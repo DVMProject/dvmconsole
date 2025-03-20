@@ -28,20 +28,20 @@ namespace dvmconsole
         /// </summary>
         /// <param name="audioData"></param>
         /// <returns></returns>
-        public static List<byte[]> SplitToChunks(byte[] audioData, int OgLength = OriginalPcmLength, int ExepcetedLength = ExpectedPcmLength)
+        public static List<byte[]> SplitToChunks(byte[] audioData, int origLen = OriginalPcmLength, int expectedLength = ExpectedPcmLength)
         {
             List<byte[]> chunks = new List<byte[]>();
 
-            if (audioData.Length != OgLength)
+            if (audioData.Length != origLen)
             {
-                Trace.WriteLine($"Invalid PCM length: {audioData.Length}, expected: {OgLength}");
+                Trace.WriteLine($"Invalid PCM length: {audioData.Length}, expected: {origLen}");
                 return chunks;
             }
 
-            for (int offset = 0; offset < OgLength; offset += ExepcetedLength)
+            for (int offset = 0; offset < origLen; offset += expectedLength)
             {
                 byte[] chunk = new byte[ExpectedPcmLength];
-                Buffer.BlockCopy(audioData, offset, chunk, 0, ExepcetedLength);
+                Buffer.BlockCopy(audioData, offset, chunk, 0, expectedLength);
                 chunks.Add(chunk);
             }
 
@@ -53,21 +53,21 @@ namespace dvmconsole
         /// </summary>
         /// <param name="chunks"></param>
         /// <returns></returns>
-        public static byte[] CombineChunks(List<byte[]> chunks, int OgLength = OriginalPcmLength, int ExepcetedLength = ExpectedPcmLength)
+        public static byte[] CombineChunks(List<byte[]> chunks, int origLen = OriginalPcmLength, int expectedLength = ExpectedPcmLength)
         {
-            if (chunks.Count * ExepcetedLength != OgLength)
+            if (chunks.Count * expectedLength != origLen)
             {
-                Trace.WriteLine($"Invalid number of chunks: {chunks.Count}, expected total length: {OgLength}");
+                Trace.WriteLine($"Invalid number of chunks: {chunks.Count}, expected total length: {origLen}");
                 return null;
             }
 
-            byte[] combined = new byte[OgLength];
+            byte[] combined = new byte[origLen];
             int offset = 0;
 
             foreach (var chunk in chunks)
             {
-                Buffer.BlockCopy(chunk, 0, combined, offset, ExepcetedLength);
-                offset += ExepcetedLength;
+                Buffer.BlockCopy(chunk, 0, combined, offset, expectedLength);
+                offset += expectedLength;
             }
 
             return combined;
@@ -90,5 +90,5 @@ namespace dvmconsole
             }
             return floats;
         }
-    }
-}
+    } // public static class AudioConverter
+} // namespace dvmconsole
