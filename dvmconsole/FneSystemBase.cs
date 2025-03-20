@@ -16,7 +16,7 @@ using System.Diagnostics;
 
 using fnecore;
 using fnecore.DMR;
-using fnecore.P25.kmm;
+using fnecore.P25.KMM;
 
 namespace dvmconsole
 {

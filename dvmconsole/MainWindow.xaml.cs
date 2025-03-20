@@ -35,7 +35,7 @@ using Constants = fnecore.Constants;
 using fnecore;
 using fnecore.P25;
 using fnecore.P25.LC.TSBK;
-using fnecore.P25.kmm;
+using fnecore.P25.KMM;
 
 
 namespace dvmconsole
