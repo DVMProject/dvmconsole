@@ -127,7 +127,7 @@ namespace dvmconsole
                         continue;
                     }
 
-                    bool hasKey = channelBox.Crypter.HasKey(cpgChannel.GetKeyId());
+                    bool hasKey = channelBox.Crypter.HasKey();
 
                     KeyStatusItems.Add(new KeyStatusItem
                     {

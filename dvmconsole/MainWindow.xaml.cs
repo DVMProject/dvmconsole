@@ -35,6 +35,7 @@ using Constants = fnecore.Constants;
 using fnecore;
 using fnecore.P25;
 using fnecore.P25.LC.TSBK;
+using fnecore.P25.kmm;
 
 
 namespace dvmconsole
@@ -282,8 +283,6 @@ namespace dvmconsole
                     {
                         var channelBox = new ChannelBox(selectedChannelsManager, audioManager, channel.Name, channel.System, channel.Tgid);
 
-                        //channelBox.crypter.AddKey(channel.GetKeyId(), channel.GetAlgoId(), channel.GetEncryptionKey());
-
                         systemStatuses.Add(channel.Name, new SlotStatus());
 
                         if (settingsManager.ChannelPositions.TryGetValue(channel.Name, out var position))
@@ -396,24 +395,22 @@ namespace dvmconsole
             foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
             {
                 if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
-                {
-                    playbackChannelBox.IsReceiving = true;
                     continue;
-                }
 
                 Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
                 Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
 
-                Task.Run(() =>
+
+                PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
+
+                if (channel.IsSelected && channel.PttState)
                 {
-                    PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
+                    isAnyTgOn = true;
 
-                    if (channel.IsSelected && channel.PttState)
+                    int samples = 320;
+
+                    Task.Run(() =>
                     {
-                        isAnyTgOn = true;
-
-                        int samples = 320;
-
                         channel.chunkedPcm = AudioConverter.SplitToChunks(e.Buffer);
 
                         foreach (byte[] chunk in channel.chunkedPcm)
@@ -423,11 +420,11 @@ namespace dvmconsole
                             else
                                 Trace.WriteLine("bad sample length: " + chunk.Length);
                         }
-                    }
-                });
+                    });
+                }
             }
 
-            if (isAnyTgOn && playbackChannelBox.IsSelected)
+            if (playbackChannelBox != null && isAnyTgOn && playbackChannelBox.IsSelected)
                 audioManager.AddTalkgroupStream(PLAYBACKTG, e.Buffer);
         }
 
@@ -491,13 +488,10 @@ namespace dvmconsole
                 };
 
                 byte[] tsbk = new byte[P25Defines.P25_TSBK_LENGTH_BYTES];
-                byte[] payload = new byte[P25Defines.P25_TSBK_LENGTH_BYTES];
 
-                callAlert.Encode(ref tsbk, ref payload, true, true);
+                callAlert.Encode(ref tsbk);
 
                 handler.SendP25TSBK(callData, tsbk);
-
-                Trace.WriteLine("Transmitted Page");
             }
         }
 
@@ -1224,11 +1218,8 @@ namespace dvmconsole
             // Convert to signal
             DiscreteSignal signal = new DiscreteSignal(8000, fSamples, true);
 
-            // Log.Logger.Debug($"SAMPLE BUFFER {FneUtils.HexDump(samples)}");
-
             // encode PCM samples into IMBE codewords
             byte[] imbe = new byte[FneSystemBase.IMBE_BUF_LEN];
-
 
             int tone = 0;
 
@@ -1469,7 +1460,7 @@ namespace dvmconsole
                     {
                         Task.Run(() =>
                         {
-                            HandleEmergency(e.SrcId.ToString(), e.DstId.ToString());
+                            HandleEmergency(e.DstId.ToString(), e.SrcId.ToString());
                         });
                     }
 
@@ -1524,12 +1515,19 @@ namespace dvmconsole
                 {
                     foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
                     {
+                        if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                            continue;
+
                         Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
                         Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
                         PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
 
-                        if (cpgChannel.GetKeyId() != 0 && cpgChannel.GetAlgoId() != 0)
-                            channel.Crypter.AddKey(key.KeyId, e.KmmKey.KeysetItem.AlgId, key.GetKey());
+                        ushort keyId = cpgChannel.GetKeyId();
+                        byte algoId = cpgChannel.GetAlgoId();
+                        KeysetItem receivedKey = e.KmmKey.KeysetItem;
+
+                        if (keyId != 0 && algoId != 0 && keyId == key.KeyId && algoId == receivedKey.AlgId)
+                            channel.Crypter.SetKey(key.KeyId, receivedKey.AlgId, key.GetKey());
                     }
                 });
             }
@@ -1566,6 +1564,9 @@ namespace dvmconsole
             {
                 foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
                 {
+                    if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                        continue;
+
                     Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
                     Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
 
