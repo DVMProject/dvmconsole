@@ -46,11 +46,67 @@
             </MenuItem>
         </Menu>
 
+        <!-- Channel Widget Canvas -->
         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Grid.Row="2" Grid.ColumnSpan="2"  VerticalAlignment="Stretch">
             <Canvas x:Name="ChannelsCanvas" Background="#FFF2F2F2" VerticalAlignment="Top"/>
         </ScrollViewer>
 
-        <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" Margin="369,0,0,0" VerticalAlignment="Center" Height="46" Width="45" x:Name="btnAlert1" Click="btnAlert1_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial">
+        <!-- Application Banner -->
+        <Image HorizontalAlignment="Left" Height="50" Grid.Row="1" VerticalAlignment="Center" Width="231" Source="/Assets/DvmLogo.png" Stretch="UniformToFill" Margin="5,0,0,0" RenderTransformOrigin="0.5,0.5">
+            <Image.RenderTransform>
+                <TransformGroup>
+                    <ScaleTransform/>
+                    <SkewTransform AngleY="-0.164"/>
+                    <RotateTransform/>
+                    <TranslateTransform Y="-0.247"/>
+                </TransformGroup>
+            </Image.RenderTransform>
+        </Image>
+
+        <!-- Open Codeplug -->
+        <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" Margin="238,0,0,0" VerticalAlignment="Center" Height="46" Width="45" x:Name="OpenCodeplug_Click2" Click="OpenCodeplug_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial"
+                ToolTip="Open Codeplug">
+            <Button.Resources>
+                <Style TargetType="{x:Type Border}">
+                    <Setter Property="CornerRadius" Value="2"/>
+                </Style>
+            </Button.Resources>
+            <Button.Background>
+                <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
+                    <GradientStop Color="#FFF0F0F0" Offset="0.485"/>
+                    <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
+                </LinearGradientBrush>
+            </Button.Background>
+            <Image HorizontalAlignment="Left" Width="41" Source="/Assets/config2.png" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.598" Height="46"/>
+        </Button>
+
+        <!-- Global PTT -->
+        <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" x:Name="btnGlobalPtt" VerticalAlignment="Center" Height="46" Width="82" Click="btnGlobalPtt_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial" Margin="285,0,0,0"
+                ToolTip="Global PTT">
+            <Button.Resources>
+                <Style TargetType="{x:Type Border}">
+                    <Setter Property="CornerRadius" Value="2"/>
+                </Style>
+            </Button.Resources>
+            <Button.Background>
+                <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
+                    <GradientStop Color="#FFF0F0F0" Offset="0.485"/>
+                    <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
+                </LinearGradientBrush>
+            </Button.Background>
+            <Image HorizontalAlignment="Center" Width="62" Source="/Assets/instantptt.png" IsHitTestVisible="False" Height="45" >
+                <Image.OpacityMask>
+                    <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
+                        <GradientStop Color="Black"/>
+                        <GradientStop Color="White" Offset="1"/>
+                    </LinearGradientBrush>
+                </Image.OpacityMask>
+            </Image>
+        </Button>
+
+        <!-- Alert Tone 1, 2 and 3 -->
+        <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" Margin="369,0,0,0" VerticalAlignment="Center" Height="46" Width="45" x:Name="btnAlert1" Click="btnAlert1_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial"
+                ToolTip="Alert Tone 1">
             <Button.Resources>
                 <Style TargetType="{x:Type Border}">
                     <Setter Property="CornerRadius" Value="2"/>
@@ -67,17 +123,6 @@
                 <TextBlock TextAlignment="Center">1</TextBlock>
             </StackPanel>
         </Button>
-
-        <Image HorizontalAlignment="Left" Height="50" Grid.Row="1" VerticalAlignment="Center" Width="231" Source="/Assets/DvmLogo.png" Stretch="UniformToFill" Margin="5,0,0,0" RenderTransformOrigin="0.5,0.5">
-            <Image.RenderTransform>
-                <TransformGroup>
-                    <ScaleTransform/>
-                    <SkewTransform AngleY="-0.164"/>
-                    <RotateTransform/>
-                    <TranslateTransform Y="-0.247"/>
-                </TransformGroup>
-            </Image.RenderTransform>
-        </Image>
         <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" Margin="416,0,0,0" VerticalAlignment="Center" Height="46" Width="45" x:Name="btnAlert2" Click="btnAlert2_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial"
                 ToolTip="Alert Tone 2">
             <Button.Resources>
@@ -114,58 +159,8 @@
                 <TextBlock TextAlignment="Center">3</TextBlock>
             </StackPanel>
         </Button>
-        <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" x:Name="btnGlobalPtt" VerticalAlignment="Center" Height="46" Width="82" Click="btnGlobalPtt_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial" Margin="285,0,0,0">
-            <Button.Resources>
-                <Style TargetType="{x:Type Border}">
-                    <Setter Property="CornerRadius" Value="2"/>
-                </Style>
-            </Button.Resources>
-            <Button.Background>
-                <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-                    <GradientStop Color="#FFF0F0F0" Offset="0.485"/>
-                    <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
-                </LinearGradientBrush>
-            </Button.Background>
-            <Image HorizontalAlignment="Center" Width="62" Source="/Assets/instantptt.png" IsHitTestVisible="False" Height="45" >
-                <Image.OpacityMask>
-                    <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-                        <GradientStop Color="Black"/>
-                        <GradientStop Color="White" Offset="1"/>
-                    </LinearGradientBrush>
-                </Image.OpacityMask>
-            </Image>
-        </Button>
-        <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" Margin="602,0,0,0" VerticalAlignment="Center" Height="46" Width="45"  Click="ClearEmergency_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial"
-                ToolTip="Clear Emergency" Visibility="Hidden">
-            <Button.Resources>
-                <Style TargetType="{x:Type Border}">
-                    <Setter Property="CornerRadius" Value="2"/>
-                </Style>
-            </Button.Resources>
 
-            <Button.Background>
-                <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-                    <GradientStop Color="#FFF0F0F0" Offset="0.485"/>
-                    <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
-                </LinearGradientBrush>
-            </Button.Background>
-            <Image HorizontalAlignment="Left" Width="37" Source="/Assets/clearemerg.png" IsHitTestVisible="False" Height="46"/>
-        </Button>
-        <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" Margin="238,0,0,0" VerticalAlignment="Center" Height="46" Width="45" x:Name="OpenCodeplug_Click2" Click="OpenCodeplug_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial"
-                ToolTip="Open Codeplug">
-            <Button.Resources>
-                <Style TargetType="{x:Type Border}">
-                    <Setter Property="CornerRadius" Value="2"/>
-                </Style>
-            </Button.Resources>
-            <Button.Background>
-                <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-                    <GradientStop Color="#FFF0F0F0" Offset="0.485"/>
-                    <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
-                </LinearGradientBrush>
-            </Button.Background>
-            <Image HorizontalAlignment="Left" Width="41" Source="/Assets/config2.png" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.598" Height="46"/>
-        </Button>
+        <!-- Page Subscriber -->
         <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" Margin="510,0,0,0" VerticalAlignment="Center" Height="46" Width="44"  Click="P25Page_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial"
                 ToolTip="Page Subscriber">
             <Button.Resources>
@@ -181,8 +176,28 @@
             </Button.Background>
             <Image HorizontalAlignment="Left" Width="38" Source="/Assets/page.png" IsHitTestVisible="False" Height="46"/>
         </Button>
-        <Button VerticalContentAlignment="Center" HorizontalAlignment="Left" Margin="649,0,0,0" VerticalAlignment="Center" Height="46" Width="44"  Click="SelectAll_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" FontSize="10" FontFamily="Arial" Grid.Row="1"
-                ToolTip="Select All">
+
+        <!-- Clear Emergency (disabled) -->
+        <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" Margin="559,0,0,0" VerticalAlignment="Center" Height="46" Width="45"  Click="ClearEmergency_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial"
+                ToolTip="Clear Emergency" Visibility="Hidden">
+            <Button.Resources>
+                <Style TargetType="{x:Type Border}">
+                    <Setter Property="CornerRadius" Value="2"/>
+                </Style>
+            </Button.Resources>
+
+            <Button.Background>
+                <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
+                    <GradientStop Color="#FFF0F0F0" Offset="0.485"/>
+                    <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
+                </LinearGradientBrush>
+            </Button.Background>
+            <Image HorizontalAlignment="Left" Width="37" Source="/Assets/clearemerg.png" IsHitTestVisible="False" Height="46"/>
+        </Button>
+
+        <!-- Select/Unselect All -->
+        <Button VerticalContentAlignment="Center" HorizontalAlignment="Left" Margin="609,0,0,0" VerticalAlignment="Center" Height="46"  Click="SelectAll_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" FontSize="10" FontFamily="Arial" Grid.Row="1"
+                ToolTip="Select All/Unselect All">
             <Button.Resources>
                 <Style TargetType="{x:Type Border}">
                     <Setter Property="CornerRadius" Value="2"/>
@@ -196,7 +211,9 @@
             </Button.Background>
             <Image HorizontalAlignment="Left" Width="41" Source="/Assets/select.png" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.598" Height="46"/>
         </Button>
-        <Button VerticalContentAlignment="Center" HorizontalAlignment="Left" Margin="696,0,0,0" VerticalAlignment="Center" Height="46" Width="44"  Click="KeyStatus_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" FontSize="10" FontFamily="Arial" Grid.Row="1"
+
+        <!-- Encryption Key Information -->
+        <Button VerticalContentAlignment="Center" HorizontalAlignment="Left" Margin="656,0,0,0" VerticalAlignment="Center" Height="46" Width="44"  Click="KeyStatus_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" FontSize="10" FontFamily="Arial" Grid.Row="1"
                 ToolTip="Encryption Key Information">
             <Button.Resources>
                 <Style TargetType="{x:Type Border}">
@@ -211,7 +228,9 @@
             </Button.Background>
             <Image HorizontalAlignment="Left" Width="41" Source="/Assets/key.png" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.598" Height="46"/>
         </Button>
-        <Button VerticalContentAlignment="Center" HorizontalAlignment="Left" Margin="743,0,0,0" VerticalAlignment="Center" Height="46" Width="44"  Click="CallHist_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" FontSize="10" FontFamily="Arial" Grid.Row="1"
+
+        <!-- Call History -->
+        <Button VerticalContentAlignment="Center" HorizontalAlignment="Left" Margin="703,0,0,0" VerticalAlignment="Center" Height="46" Width="44"  Click="CallHist_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" FontSize="10" FontFamily="Arial" Grid.Row="1"
                 ToolTip="Call History">
             <Button.Resources>
                 <Style TargetType="{x:Type Border}">
@@ -226,8 +245,10 @@
             </Button.Background>
             <Image HorizontalAlignment="Left" Width="41" Source="/Assets/history.png" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.598" Height="46"/>
         </Button>
-        <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" Margin="556,0,0,0" VerticalAlignment="Center" Height="46" Width="44"  Click="AudioSettings_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial"
-                ToolTip="Audio Settings">
+
+        <!-- Audio Settings -->
+        <Button VerticalContentAlignment="Bottom" VerticalAlignment="Center" Height="46" Click="AudioSettings_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial"
+                ToolTip="Audio Settings" HorizontalAlignment="Left" Width="54" Margin="800,0,0,0">
             <Button.Resources>
                 <Style TargetType="{x:Type Border}">
                     <Setter Property="CornerRadius" Value="2"/>
