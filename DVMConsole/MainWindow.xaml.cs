@@ -1572,7 +1572,7 @@ namespace dvmconsole
 
                     PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
 
-                    if (!channel.IsEnabled)
+                    if (!channel.IsEnabled || channel.Name == PLAYBACKCHNAME)
                         continue;
 
                     if (cpgChannel.Tgid != e.DstId.ToString())
