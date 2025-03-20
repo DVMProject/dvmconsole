@@ -1,4 +1,10 @@
-# List of FNE master instances to connect to
+#
+# Digital Voice Modem - Desktop Dispatch Console
+#
+
+#
+# FNE Masters
+#
 systems:
     # Textual name for internal and external reference to this system
   - name: "System 1"
@@ -19,7 +25,9 @@ systems:
     # Preshared FNE encryption key
     presharedKey: "123ABC1234"
 
-# List of Zones
+#
+# Zones
+#
 zones:
     # Textual name of the zone
   - name: "Zone 1"
