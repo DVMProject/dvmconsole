@@ -15,8 +15,8 @@
             </DataGrid.RowStyle>
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Channel" Binding="{Binding Channel}" Width="*" />
-                <DataGridTextColumn Header="SrcId" Binding="{Binding SrcId}" Width="*" />
-                <DataGridTextColumn Header="DstId" Binding="{Binding DstId}" Width="*" />
+                <DataGridTextColumn Header="Radio ID" Binding="{Binding SrcId}" Width="*" />
+                <DataGridTextColumn Header="Talkgroup" Binding="{Binding DstId}" Width="*" />
             </DataGrid.Columns>
         </DataGrid>
     </Grid>
