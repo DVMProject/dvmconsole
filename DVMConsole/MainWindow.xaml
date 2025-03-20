@@ -33,7 +33,7 @@
                 <MenuItem Header="_Audio Settings" Click="AudioSettings_Click" />
                 <MenuItem Header="_Reset Settings" Click="ResetSettings_Click"/>
                 <Separator />
-                <MenuItem Header="_Enable Edit Mode" Click="ToggleEditMode_Click"/>
+                <MenuItem Header="_Enable Edit Mode" IsCheckable="True" Checked="ToggleEditMode_Click" Unchecked="ToggleEditMode_Click" />
                 <Separator />
                 <MenuItem Header="_Select Widgets to Display" Click="SelectWidgets_Click"/>
                 <MenuItem Header="Alerts">
