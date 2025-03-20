@@ -25,24 +25,29 @@
 
         <Menu VerticalAlignment="Center" Height="25" Background="White" Grid.ColumnSpan="2">
             <MenuItem Header="File">
-                <MenuItem Header="_Open Codeplug" Click="OpenCodeplug_Click"/>
+                <MenuItem Header="_Open Codeplug" Click="OpenCodeplug_Click" />
                 <Separator />
                 <MenuItem Header="_Exit" Click="Exit_Click" />
             </MenuItem>
             <MenuItem Header="Edit">
                 <MenuItem Header="_Audio Settings" Click="AudioSettings_Click" />
-                <MenuItem Header="_Reset Settings" Click="ResetSettings_Click"/>
+                <MenuItem Header="_Reset Settings" Click="ResetSettings_Click" />
                 <Separator />
-                <MenuItem Header="_Enable Edit Mode" IsCheckable="True" Checked="ToggleEditMode_Click" Unchecked="ToggleEditMode_Click" />
+                <MenuItem Header="_Enable Edit Mode" IsCheckable="True" Checked="ToggleEditMode_Click" Unchecked="ToggleEditMode_Click" x:Name="menuEditMode" />
                 <Separator />
-                <MenuItem Header="_Select Widgets to Display" Click="SelectWidgets_Click"/>
+                <MenuItem Header="_Select Widgets to Display" Click="SelectWidgets_Click" />
                 <MenuItem Header="Alerts">
-                    <MenuItem Header="Add Alert Tone" Click="AddAlertTone_Click"/>
+                    <MenuItem Header="Add Alert Tone" Click="AddAlertTone_Click" />
                 </MenuItem>
             </MenuItem>
-            <MenuItem Header="Page">
-                <MenuItem Header="_Page Subscriber" Click="P25Page_Click" />
-                <MenuItem Header="_QuickCall II" Click="ManualPage_Click" />
+            <MenuItem Header="Commands">
+                <MenuItem Header="_Page Subscriber" Click="PageRID_Click" x:Name="menuPageSubscriber" />
+                <MenuItem Header="Radio _Check Subscriber" Click="RadioCheckRID_Click" x:Name="menuRadioCheckSubscriber" />
+                <Separator />
+                <MenuItem Header="_Inhibit Subscriber" Click="InhibitRID_Click" x:Name="menuInhibitSubscriber" />
+                <MenuItem Header="_Uninhibit Subscriber" Click="UninhibitRID_Click" x:Name="menuUninhibitSubscriber" />
+                <Separator />
+                <MenuItem Header="_QuickCall II" Click="ManualPage_Click" x:Name="menuQuickCall2" />
             </MenuItem>
         </Menu>
 
@@ -64,7 +69,7 @@
         </Image>
 
         <!-- Open Codeplug -->
-        <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" Margin="238,0,0,0" VerticalAlignment="Center" Height="46" Width="45" x:Name="OpenCodeplug_Click2" Click="OpenCodeplug_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial"
+        <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" Margin="238,0,0,0" VerticalAlignment="Center" Height="46" Width="45" Click="OpenCodeplug_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial"
                 ToolTip="Open Codeplug">
             <Button.Resources>
                 <Style TargetType="{x:Type Border}">
@@ -161,7 +166,7 @@
         </Button>
 
         <!-- Page Subscriber -->
-        <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" Margin="510,0,0,0" VerticalAlignment="Center" Height="46" Width="44"  Click="P25Page_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial"
+        <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" Margin="510,0,0,0" VerticalAlignment="Center" Height="46" Width="44" x:Name="btnPageSub" Click="PageRID_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial"
                 ToolTip="Page Subscriber">
             <Button.Resources>
                 <Style TargetType="{x:Type Border}">
@@ -178,7 +183,7 @@
         </Button>
 
         <!-- Clear Emergency (disabled) -->
-        <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" Margin="559,0,0,0" VerticalAlignment="Center" Height="46" Width="45"  Click="ClearEmergency_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial"
+        <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" Margin="559,0,0,0" VerticalAlignment="Center" Height="46" Width="45" x:Name="btnClearEmergency" Click="ClearEmergency_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial"
                 ToolTip="Clear Emergency" Visibility="Hidden">
             <Button.Resources>
                 <Style TargetType="{x:Type Border}">
@@ -196,7 +201,7 @@
         </Button>
 
         <!-- Select/Unselect All -->
-        <Button VerticalContentAlignment="Center" HorizontalAlignment="Left" Margin="609,0,0,0" VerticalAlignment="Center" Height="46"  Click="SelectAll_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" FontSize="10" FontFamily="Arial" Grid.Row="1"
+        <Button VerticalContentAlignment="Center" HorizontalAlignment="Left" Margin="609,0,0,0" VerticalAlignment="Center" Height="46" x:Name="btnSelectAll" Click="SelectAll_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" FontSize="10" FontFamily="Arial" Grid.Row="1"
                 ToolTip="Select All/Unselect All">
             <Button.Resources>
                 <Style TargetType="{x:Type Border}">
@@ -213,7 +218,7 @@
         </Button>
 
         <!-- Encryption Key Information -->
-        <Button VerticalContentAlignment="Center" HorizontalAlignment="Left" Margin="656,0,0,0" VerticalAlignment="Center" Height="46" Width="44"  Click="KeyStatus_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" FontSize="10" FontFamily="Arial" Grid.Row="1"
+        <Button VerticalContentAlignment="Center" HorizontalAlignment="Left" Margin="656,0,0,0" VerticalAlignment="Center" Height="46" Width="44" x:Name="btnKeyStatus" Click="KeyStatus_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" FontSize="10" FontFamily="Arial" Grid.Row="1"
                 ToolTip="Encryption Key Information">
             <Button.Resources>
                 <Style TargetType="{x:Type Border}">
@@ -230,7 +235,7 @@
         </Button>
 
         <!-- Call History -->
-        <Button VerticalContentAlignment="Center" HorizontalAlignment="Left" Margin="703,0,0,0" VerticalAlignment="Center" Height="46" Width="44"  Click="CallHist_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" FontSize="10" FontFamily="Arial" Grid.Row="1"
+        <Button VerticalContentAlignment="Center" HorizontalAlignment="Left" Margin="703,0,0,0" VerticalAlignment="Center" Height="46" Width="44" x:Name="btnCallHistory" Click="CallHist_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" FontSize="10" FontFamily="Arial" Grid.Row="1"
                 ToolTip="Call History">
             <Button.Resources>
                 <Style TargetType="{x:Type Border}">
@@ -247,7 +252,7 @@
         </Button>
 
         <!-- Audio Settings -->
-        <Button VerticalContentAlignment="Bottom" VerticalAlignment="Center" Height="46" Click="AudioSettings_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial"
+        <Button VerticalContentAlignment="Bottom" VerticalAlignment="Center" Height="46" x:Name="btnAudioSettings" Click="AudioSettings_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial"
                 ToolTip="Audio Settings" HorizontalAlignment="Left" Width="54" Margin="800,0,0,0">
             <Button.Resources>
                 <Style TargetType="{x:Type Border}">

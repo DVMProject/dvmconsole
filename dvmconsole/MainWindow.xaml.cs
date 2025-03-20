@@ -37,7 +37,6 @@ using fnecore.P25;
 using fnecore.P25.LC.TSBK;
 using fnecore.P25.KMM;
 
-
 namespace dvmconsole
 {
     /// <summary>
@@ -118,7 +117,11 @@ namespace dvmconsole
         public MainWindow()
         {
             InitializeComponent();
+
+            DisableControls();
+
             settingsManager.LoadSettings();
+
             selectedChannelsManager = new SelectedChannelsManager();
             flashingManager = new FlashingBackgroundManager(null, ChannelsCanvas, null, this);
             emergencyAlertPlayback = new WaveFilePlaybackManager(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/emergency.wav"));
@@ -138,6 +141,52 @@ namespace dvmconsole
 
             selectedChannelsManager.SelectedChannelsChanged += SelectedChannelsChanged;
             Loaded += MainWindow_Loaded;
+        }
+
+        /// <summary>
+        /// Helper to enable form controls when settings and codeplug are loaded.
+        /// </summary>
+        private void EnableControls()
+        {
+            menuEditMode.IsEnabled = true;
+
+            menuPageSubscriber.IsEnabled = true;
+            menuRadioCheckSubscriber.IsEnabled = true;
+            menuInhibitSubscriber.IsEnabled = true;
+            menuUninhibitSubscriber.IsEnabled = true;
+            menuQuickCall2.IsEnabled = true;
+
+            btnGlobalPtt.IsEnabled = true;
+            btnAlert1.IsEnabled = true;
+            btnAlert2.IsEnabled = true;
+            btnAlert3.IsEnabled = true;
+            btnPageSub.IsEnabled = true;
+            btnSelectAll.IsEnabled = true;
+            btnKeyStatus.IsEnabled = true;
+            btnCallHistory.IsEnabled = true;
+        }
+
+        /// <summary>
+        /// Helper to disable form controls when settings load fails.
+        /// </summary>
+        private void DisableControls()
+        {
+            menuEditMode.IsEnabled = false;
+
+            menuPageSubscriber.IsEnabled = false;
+            menuRadioCheckSubscriber.IsEnabled = false;
+            menuInhibitSubscriber.IsEnabled = false;
+            menuUninhibitSubscriber.IsEnabled = false;
+            menuQuickCall2.IsEnabled = false;
+
+            btnGlobalPtt.IsEnabled = false;
+            btnAlert1.IsEnabled = false;
+            btnAlert2.IsEnabled = false;
+            btnAlert3.IsEnabled = false;
+            btnPageSub.IsEnabled = false;
+            btnSelectAll.IsEnabled = false;
+            btnKeyStatus.IsEnabled = false;
+            btnCallHistory.IsEnabled = false;
         }
 
         /// <summary>
@@ -169,8 +218,9 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void ResetSettings_Click(object sender, RoutedEventArgs e)
         {
-            if (File.Exists("UserSettings.json"))
-                File.Delete("UserSettings.json");
+            var confirmResult = MessageBox.Show("Are you sure to wish to reset console settings?", "Confirm Settings Reset", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (confirmResult == MessageBoxResult.Yes)
+                settingsManager.Reset();
         }
 
         /// <summary>
@@ -189,11 +239,13 @@ namespace dvmconsole
                 var yaml = File.ReadAllText(filePath);
                 Codeplug = deserializer.Deserialize<Codeplug>(yaml);
 
+                EnableControls();
                 GenerateChannelWidgets();
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"Error loading codeplug: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                DisableControls();
             }
         }
 
@@ -471,10 +523,12 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void P25Page_Click(object sender, RoutedEventArgs e)
+        private void PageRID_Click(object sender, RoutedEventArgs e)
         {
             DigitalPageWindow pageWindow = new DigitalPageWindow(Codeplug.Systems);
             pageWindow.Owner = this;
+            pageWindow.Title = "Page Subscriber";
+
             if (pageWindow.ShowDialog() == true)
             {
                 PeerSystem handler = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
@@ -500,10 +554,104 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
+        private void RadioCheckRID_Click(object sender, RoutedEventArgs e)
+        {
+            DigitalPageWindow pageWindow = new DigitalPageWindow(Codeplug.Systems);
+            pageWindow.Owner = this;
+            pageWindow.Title = "Radio Check Subscriber";
+
+            if (pageWindow.ShowDialog() == true)
+            {
+                PeerSystem handler = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
+                IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.CHECK, uint.Parse(pageWindow.RadioSystem.Rid), uint.Parse(pageWindow.DstId));
+
+                RemoteCallData callData = new RemoteCallData
+                {
+                    SrcId = uint.Parse(pageWindow.RadioSystem.Rid),
+                    DstId = uint.Parse(pageWindow.DstId),
+                    LCO = P25Defines.TSBK_IOSP_EXT_FNCT
+                };
+
+                byte[] tsbk = new byte[P25Defines.P25_TSBK_LENGTH_BYTES];
+
+                extFunc.Encode(ref tsbk);
+
+                handler.SendP25TSBK(callData, tsbk);
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void InhibitRID_Click(object sender, RoutedEventArgs e)
+        {
+            DigitalPageWindow pageWindow = new DigitalPageWindow(Codeplug.Systems);
+            pageWindow.Owner = this;
+            pageWindow.Title = "Inhibit Subscriber";
+
+            if (pageWindow.ShowDialog() == true)
+            {
+                PeerSystem handler = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
+                IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.INHIBIT, uint.Parse(pageWindow.RadioSystem.Rid), uint.Parse(pageWindow.DstId));
+
+                RemoteCallData callData = new RemoteCallData
+                {
+                    SrcId = uint.Parse(pageWindow.RadioSystem.Rid),
+                    DstId = uint.Parse(pageWindow.DstId),
+                    LCO = P25Defines.TSBK_IOSP_EXT_FNCT
+                };
+
+                byte[] tsbk = new byte[P25Defines.P25_TSBK_LENGTH_BYTES];
+
+                extFunc.Encode(ref tsbk);
+
+                handler.SendP25TSBK(callData, tsbk);
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void UninhibitRID_Click(object sender, RoutedEventArgs e)
+        {
+            DigitalPageWindow pageWindow = new DigitalPageWindow(Codeplug.Systems);
+            pageWindow.Owner = this;
+            pageWindow.Title = "Uninhibit Subscriber";
+
+            if (pageWindow.ShowDialog() == true)
+            {
+                PeerSystem handler = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
+                IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.UNINHIBIT, uint.Parse(pageWindow.RadioSystem.Rid), uint.Parse(pageWindow.DstId));
+
+                RemoteCallData callData = new RemoteCallData
+                {
+                    SrcId = uint.Parse(pageWindow.RadioSystem.Rid),
+                    DstId = uint.Parse(pageWindow.DstId),
+                    LCO = P25Defines.TSBK_IOSP_EXT_FNCT
+                };
+
+                byte[] tsbk = new byte[P25Defines.P25_TSBK_LENGTH_BYTES];
+
+                extFunc.Encode(ref tsbk);
+
+                handler.SendP25TSBK(callData, tsbk);
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private async void ManualPage_Click(object sender, RoutedEventArgs e)
         {
             QuickCallPage pageWindow = new QuickCallPage();
             pageWindow.Owner = this;
+
             if (pageWindow.ShowDialog() == true)
             {
                 foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
@@ -1541,6 +1689,7 @@ namespace dvmconsole
         private void KeyStatus_Click(object sender, RoutedEventArgs e)
         {
             KeyStatusWindow keyStatus = new KeyStatusWindow(Codeplug, this);
+            keyStatus.Owner = this;
             keyStatus.Show();
         }
 
@@ -1799,6 +1948,7 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void CallHist_Click(object sender, RoutedEventArgs e)
         {
+            callHistoryWindow.Owner = this;
             callHistoryWindow.Show();
         }
 

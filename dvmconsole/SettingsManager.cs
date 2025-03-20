@@ -8,6 +8,7 @@
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
 *   Copyright (C) 2024-2025 Caleb, K4PHP
+*   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
 *
 */
 
@@ -23,7 +24,13 @@ namespace dvmconsole
     /// </summary>
     public class SettingsManager
     {
-        private const string SettingsFilePath = "UserSettings.json";
+        public static readonly string UserAppData = Environment.GetFolderPath(
+            Environment.SpecialFolder.ApplicationData);
+
+        public static readonly string RootAppDataPath = "DVMProject" + Path.DirectorySeparatorChar + "dvmconsole";
+        public static readonly string UserAppDataPath = UserAppData + Path.DirectorySeparatorChar + RootAppDataPath;
+
+        private static readonly string SettingsFilePath = UserAppDataPath + Path.DirectorySeparatorChar + "UserSettings.json";
 
         /*
         ** Properties
@@ -75,9 +82,13 @@ namespace dvmconsole
         /// <summary>
         /// 
         /// </summary>
-        public void LoadSettings()
+        public bool LoadSettings()
         {
-            if (!File.Exists(SettingsFilePath)) return;
+            if (!Directory.Exists(UserAppDataPath))
+                Directory.CreateDirectory(UserAppDataPath);
+
+            if (!File.Exists(SettingsFilePath))
+                return false;
 
             try
             {
@@ -95,12 +106,45 @@ namespace dvmconsole
                     AlertToneFilePaths = loadedSettings.AlertToneFilePaths ?? new List<string>();
                     AlertTonePositions = loadedSettings.AlertTonePositions ?? new Dictionary<string, ChannelPosition>();
                     ChannelOutputDevices = loadedSettings.ChannelOutputDevices ?? new Dictionary<string, int>();
+
+                    return true;
                 }
+
+                return false;
             }
             catch (Exception ex)
             {
                 Trace.WriteLine($"Error loading settings: {ex.Message}");
+                return false;
             }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        public void SaveSettings()
+        {
+            if (!Directory.Exists(UserAppDataPath))
+                Directory.CreateDirectory(UserAppDataPath);
+
+            try
+            {
+                var json = JsonConvert.SerializeObject(this, Formatting.Indented);
+                File.WriteAllText(SettingsFilePath, json);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"Error saving settings: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        public void Reset()
+        {
+            if (File.Exists(SettingsFilePath))
+                File.Delete(SettingsFilePath);
         }
 
         /// <summary>
@@ -161,22 +205,6 @@ namespace dvmconsole
         {
             ChannelOutputDevices[channelName] = deviceIndex;
             SaveSettings();
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        public void SaveSettings()
-        {
-            try
-            {
-                var json = JsonConvert.SerializeObject(this, Formatting.Indented);
-                File.WriteAllText(SettingsFilePath, json);
-            }
-            catch (Exception ex)
-            {
-                Trace.WriteLine($"Error saving settings: {ex.Message}");
-            }
         }
     } // public class SettingsManager
 } // namespace dvmconsole
