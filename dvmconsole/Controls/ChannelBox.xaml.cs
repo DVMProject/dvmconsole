@@ -72,6 +72,8 @@ namespace dvmconsole.Controls
 
         public P25Crypto Crypter = new P25Crypto();
 
+        private bool pttToggleMode = false;
+
         /*
         ** Properties
         */
@@ -106,6 +108,14 @@ namespace dvmconsole.Controls
         /// Event action that handles the PTT button being clicked.
         /// </summary>
         public event EventHandler<ChannelBox> PTTButtonClicked;
+        /// <summary>
+        /// Event action that handles the PTT button being pressed.
+        /// </summary>
+        public event EventHandler<ChannelBox> PTTButtonPressed;
+        /// <summary>
+        /// Event action that handles the PTT button being released.
+        /// </summary>
+        public event EventHandler<ChannelBox> PTTButtonReleased;
         /// <summary>
         /// Event action that handles the page button being clicked.
         /// </summary>
@@ -184,6 +194,15 @@ namespace dvmconsole.Controls
         }
 
         /// <summary>
+        /// Flag indicating the channel is in toggle PTT or regular PTT.
+        /// </summary>
+        public bool PTTToggleMode
+        {
+            get => pttToggleMode;
+            set => pttToggleMode = value;
+        }
+
+        /// <summary>
         /// Flag indicating the emergency state of this channel.
         /// </summary>
         public bool Emergency
@@ -222,6 +241,10 @@ namespace dvmconsole.Controls
             set
             {
                 isSelected = value;
+                if (!isSelected)
+                    DisableControls();
+                else
+                    EnableControls();
                 UpdateBackground();
             }
         }
@@ -320,7 +343,8 @@ namespace dvmconsole.Controls
         /// <param name="channelName"></param>
         /// <param name="systemName"></param>
         /// <param name="dstId"></param>
-        public ChannelBox(SelectedChannelsManager selectedChannelsManager, AudioManager audioManager, string channelName, string systemName, string dstId)
+        /// <param name="pttToggleMode"></param>
+        public ChannelBox(SelectedChannelsManager selectedChannelsManager, AudioManager audioManager, string channelName, string systemName, string dstId, bool pttToggleMode = false)
         {
             InitializeComponent();
 
@@ -340,9 +364,17 @@ namespace dvmconsole.Controls
 
             MouseLeftButtonDown += ChannelBox_MouseLeftButtonDown;
 
+            PttButton.PreviewMouseLeftButtonDown += PttButton_MouseLeftButtonDown;
+            PttButton.PreviewMouseLeftButtonUp += PttButton_MouseLeftButtonUp;
+            PttButton.MouseRightButtonDown += PttButton_MouseRightButtonDown;
+
+            this.pttToggleMode = pttToggleMode;
+
             PttButton.Background = GRAY_GRADIENT;
             PageSelectButton.Background = GRAY_GRADIENT;
             ChannelMarkerBtn.Background = GRAY_GRADIENT;
+
+            DisableControls();
 
             if (SystemName == MainWindow.PLAYBACKSYS || ChannelName == MainWindow.PLAYBACKCHNAME || DstId == MainWindow.PLAYBACKTG)
             {
@@ -364,6 +396,30 @@ namespace dvmconsole.Controls
                 ExtFullRateVocoder = new AmbeVocoder();
                 ExtHalfRateVocoder = new AmbeVocoder(false);
             }
+        }
+
+        /// <summary>
+        /// Helper to enable controls.
+        /// </summary>
+        private void EnableControls()
+        {
+            PttButton.IsEnabled = true;
+            ChannelMarkerBtn.IsEnabled = true;
+            PageSelectButton.IsEnabled = true;
+
+            VolumeSlider.IsEnabled = true;
+        }
+
+        /// <summary>
+        /// Helper to disable controls.
+        /// </summary>
+        private void DisableControls()
+        {
+            PttButton.IsEnabled = false;
+            ChannelMarkerBtn.IsEnabled = false;
+            PageSelectButton.IsEnabled = false;
+
+            VolumeSlider.IsEnabled = false;
         }
 
         /// <summary>
@@ -437,7 +493,7 @@ namespace dvmconsole.Controls
         /// <param name="e"></param>
         private void ChannelBox_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (IsEditMode) 
+            if (IsEditMode)
                 return;
 
             IsSelected = !IsSelected;
@@ -454,17 +510,70 @@ namespace dvmconsole.Controls
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private async void PTTButton_Click(object sender, RoutedEventArgs e)
+        private void PttButton_Click(object sender, RoutedEventArgs e)
         {
-            if (!IsSelected) 
+            if (!IsSelected)
+                return;
+
+            PttState = !PttState;
+            PTTButtonClicked?.Invoke(sender, this);
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        /// <exception cref="NotImplementedException"></exception>
+        private async void PttButton_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (pttToggleMode)
                 return;
 
             if (PttState)
                 await Task.Delay(500);
 
-            PttState = !PttState;
+            PttButton_Click(sender, e);
+        }
 
-            PTTButtonClicked.Invoke(sender, this);
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        /// <exception cref="NotImplementedException"></exception>
+        private async void PttButton_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (!IsSelected)
+                return;
+
+            if (PttState)
+                await Task.Delay(500);
+
+            if (pttToggleMode)
+                PttButton_Click(sender, e);
+            else
+            {
+                PttState = true;
+                PTTButtonPressed?.Invoke(sender, this);
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        /// <exception cref="NotImplementedException"></exception>
+        private void PttButton_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (pttToggleMode)
+                return;
+            if (!IsSelected)
+                return;
+
+            PTTButtonReleased?.Invoke(sender, this);
+            PttState = false;
         }
 
         /// <summary>
@@ -478,7 +587,7 @@ namespace dvmconsole.Controls
                 return;
 
             PageState = !PageState;
-            PageButtonClicked.Invoke(sender, this);
+            PageButtonClicked?.Invoke(sender, this);
         }
 
         /// <summary>

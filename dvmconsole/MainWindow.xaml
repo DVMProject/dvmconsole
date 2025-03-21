@@ -30,7 +30,18 @@
                 <Separator />
                 <MenuItem Header="_Exit" Click="Exit_Click" />
             </MenuItem>
-            <MenuItem Header="Edit">
+            <MenuItem Header="Commands">
+                <MenuItem Header="_Page Subscriber" Click="PageRID_Click" x:Name="menuPageSubscriber" />
+                <MenuItem Header="Radio _Check Subscriber" Click="RadioCheckRID_Click" x:Name="menuRadioCheckSubscriber" />
+                <Separator />
+                <MenuItem Header="_Inhibit Subscriber" Click="InhibitRID_Click" x:Name="menuInhibitSubscriber" />
+                <MenuItem Header="_Uninhibit Subscriber" Click="UninhibitRID_Click" x:Name="menuUninhibitSubscriber" />
+                <Separator />
+                <MenuItem Header="_QuickCall II" Click="ManualPage_Click" x:Name="menuQuickCall2" />
+            </MenuItem>
+            <MenuItem Header="Settings">
+                <MenuItem Header="_Toggle Push To Talk Mode" IsCheckable="True" Checked="TogglePTTMode_Click" Unchecked="TogglePTTMode_Click" x:Name="menuTogglePTTMode" />
+                <Separator />
                 <MenuItem Header="_Audio Settings" Click="AudioSettings_Click" />
                 <MenuItem Header="_Reset Settings" Click="ResetSettings_Click" />
                 <Separator />
@@ -41,15 +52,6 @@
                 <MenuItem Header="Alerts">
                     <MenuItem Header="Add Alert Tone" Click="AddAlertTone_Click" />
                 </MenuItem>
-            </MenuItem>
-            <MenuItem Header="Commands">
-                <MenuItem Header="_Page Subscriber" Click="PageRID_Click" x:Name="menuPageSubscriber" />
-                <MenuItem Header="Radio _Check Subscriber" Click="RadioCheckRID_Click" x:Name="menuRadioCheckSubscriber" />
-                <Separator />
-                <MenuItem Header="_Inhibit Subscriber" Click="InhibitRID_Click" x:Name="menuInhibitSubscriber" />
-                <MenuItem Header="_Uninhibit Subscriber" Click="UninhibitRID_Click" x:Name="menuUninhibitSubscriber" />
-                <Separator />
-                <MenuItem Header="_QuickCall II" Click="ManualPage_Click" x:Name="menuQuickCall2" />
             </MenuItem>
             <MenuItem Header="View">
                 <MenuItem Header="Select _User Background..." Click="OpenUserBackground_Click" x:Name="menuUserBackground" />
@@ -97,7 +99,7 @@
         </Button>
 
         <!-- Global PTT -->
-        <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" x:Name="btnGlobalPtt" VerticalAlignment="Center" Height="46" Width="82" Click="btnGlobalPtt_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial" Margin="285,0,0,0"
+        <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" x:Name="btnGlobalPtt" VerticalAlignment="Center" Height="46" Width="82" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial" Margin="285,0,0,0"
                 ToolTip="Global PTT">
             <Button.Resources>
                 <Style TargetType="{x:Type Border}">

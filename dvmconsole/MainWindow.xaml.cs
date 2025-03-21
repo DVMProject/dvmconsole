@@ -149,6 +149,10 @@ namespace dvmconsole
 
             audioManager = new AudioManager(settingsManager);
 
+            btnGlobalPtt.PreviewMouseLeftButtonDown += btnGlobalPtt_MouseLeftButtonDown;
+            btnGlobalPtt.PreviewMouseLeftButtonUp += btnGlobalPtt_MouseLeftButtonUp;
+            btnGlobalPtt.MouseRightButtonDown += btnGlobalPtt_MouseRightButtonDown;
+
             selectedChannelsManager.SelectedChannelsChanged += SelectedChannelsChanged;
             SizeChanged += MainWindow_SizeChanged;
             Loaded += MainWindow_Loaded;
@@ -335,10 +339,10 @@ namespace dvmconsole
                 // iterate through the coeplug zones and begin building channel widgets
                 foreach (var zone in Codeplug.Zones)
                 {
-                    // iterate through zone channels.
+                    // iterate through zone channels
                     foreach (var channel in zone.Channels)
                     {
-                        ChannelBox channelBox = new ChannelBox(selectedChannelsManager, audioManager, channel.Name, channel.System, channel.Tgid);
+                        ChannelBox channelBox = new ChannelBox(selectedChannelsManager, audioManager, channel.Name, channel.System, channel.Tgid, true);
                         systemStatuses.Add(channel.Name, new SlotStatus());
 
                         if (settingsManager.ChannelPositions.TryGetValue(channel.Name, out var position))
@@ -353,6 +357,8 @@ namespace dvmconsole
                         }
 
                         channelBox.PTTButtonClicked += ChannelBox_PTTButtonClicked;
+                        channelBox.PTTButtonPressed += ChannelBox_PTTButtonPressed;
+                        channelBox.PTTButtonReleased += ChannelBox_PTTButtonReleased;
                         channelBox.PageButtonClicked += ChannelBox_PageButtonClicked;
                         channelBox.HoldChannelButtonClicked += ChannelBox_HoldChannelButtonClicked;
 
@@ -801,14 +807,19 @@ namespace dvmconsole
             const double widthOffset = 16;
             const double heightOffset = 115;
 
+            // set PTT toggle mode (this must be done before channel widgets are defined)
+            menuTogglePTTMode.IsChecked = settingsManager.TogglePTTMode;
+
             if (!string.IsNullOrEmpty(settingsManager.LastCodeplugPath) && File.Exists(settingsManager.LastCodeplugPath))
                 LoadCodeplug(settingsManager.LastCodeplugPath);
             else
                 GenerateChannelWidgets();
 
+            // set background configuration
             menuDarkMode.IsChecked = settingsManager.DarkMode;
             UpdateBackground();
 
+            // set window configuration
             if (settingsManager.Maximized)
             {
                 windowLoaded = true;
@@ -866,139 +877,6 @@ namespace dvmconsole
         private void Exit_Click(object sender, RoutedEventArgs e)
         {
             Application.Current.Shutdown();
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void AudioSettings_Click(object sender, RoutedEventArgs e)
-        {
-            List<Codeplug.Channel> channels = Codeplug?.Zones.SelectMany(z => z.Channels).ToList() ?? new List<Codeplug.Channel>();
-
-            AudioSettingsWindow audioSettingsWindow = new AudioSettingsWindow(settingsManager, audioManager, channels);
-            audioSettingsWindow.ShowDialog();
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void ResetSettings_Click(object sender, RoutedEventArgs e)
-        {
-            var confirmResult = MessageBox.Show("Are you sure to wish to reset console settings?", "Reset Settings", MessageBoxButton.YesNo, MessageBoxImage.Question);
-            if (confirmResult == MessageBoxResult.Yes)
-            {
-                MessageBox.Show("Settings will be reset after console restart.", "Reset Settings", MessageBoxButton.OK, MessageBoxImage.Information);
-                noSaveSettingsOnClose = true;
-                settingsManager.Reset();
-            }
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void ToggleEditMode_Click(object sender, RoutedEventArgs e)
-        {
-            isEditMode = !isEditMode;
-            var menuItem = (MenuItem)sender;
-            menuItem.Header = isEditMode ? "Disable Edit Mode" : "Enable Edit Mode";
-            UpdateEditModeForWidgets();
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void ResizeCanvasToWindow_Click(object sender, RoutedEventArgs e)
-        {
-            const double widthOffset = 16;
-            const double heightOffset = 115;
-
-            foreach (UIElement child in channelsCanvas.Children)
-            {
-                double childLeft = Canvas.GetLeft(child) + child.RenderSize.Width;
-                if (childLeft > ActualWidth)
-                    Canvas.SetLeft(child, ActualWidth - (child.RenderSize.Width + widthOffset));
-                double childBottom = Canvas.GetTop(child) + child.RenderSize.Height;
-                if (childBottom > ActualHeight)
-                    Canvas.SetTop(child, ActualHeight - (child.RenderSize.Height + heightOffset));
-            }
-
-            channelsCanvas.Width = ActualWidth;
-            canvasScrollViewer.Width = ActualWidth;
-            channelsCanvas.Height = ActualHeight;
-            canvasScrollViewer.Height = ActualHeight;
-
-            settingsManager.CanvasWidth = ActualWidth;
-            settingsManager.CanvasHeight = ActualHeight;
-
-            settingsManager.WindowWidth = ActualWidth;
-            settingsManager.WindowHeight = ActualHeight;
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void SelectWidgets_Click(object sender, RoutedEventArgs e)
-        {
-            WidgetSelectionWindow widgetSelectionWindow = new WidgetSelectionWindow();
-            widgetSelectionWindow.Owner = this;
-            if (widgetSelectionWindow.ShowDialog() == true)
-            {
-                settingsManager.ShowSystemStatus = widgetSelectionWindow.ShowSystemStatus;
-                settingsManager.ShowChannels = widgetSelectionWindow.ShowChannels;
-                settingsManager.ShowAlertTones = widgetSelectionWindow.ShowAlertTones;
-
-                GenerateChannelWidgets();
-                if (!noSaveSettingsOnClose)
-                    settingsManager.SaveSettings();
-            }
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void AddAlertTone_Click(object sender, RoutedEventArgs e)
-        {
-            OpenFileDialog openFileDialog = new OpenFileDialog
-            {
-                Filter = "WAV Files (*.wav)|*.wav|All Files (*.*)|*.*",
-                Title = "Select Alert Tone"
-            };
-
-            if (openFileDialog.ShowDialog() == true)
-            {
-                string alertFilePath = openFileDialog.FileName;
-                var alertTone = new AlertTone(alertFilePath) { IsEditMode = isEditMode };
-
-                alertTone.OnAlertTone += SendAlertTone;
-
-                if (settingsManager.AlertTonePositions.TryGetValue(alertFilePath, out var position))
-                {
-                    Canvas.SetLeft(alertTone, position.X);
-                    Canvas.SetTop(alertTone, position.Y);
-                }
-                else
-                {
-                    Canvas.SetLeft(alertTone, 20);
-                    Canvas.SetTop(alertTone, 20);
-                }
-
-                alertTone.MouseRightButtonUp += AlertTone_MouseRightButtonUp;
-
-                channelsCanvas.Children.Add(alertTone);
-                settingsManager.UpdateAlertTonePaths(alertFilePath);
-            }
         }
 
         /// <summary>
@@ -1202,6 +1080,156 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
+        private void TogglePTTMode_Click(object sender, RoutedEventArgs e)
+        {
+            settingsManager.TogglePTTMode = menuTogglePTTMode.IsChecked;
+
+            // update elements
+            foreach (UIElement child in channelsCanvas.Children)
+            {
+                if (child is ChannelBox)
+                    ((ChannelBox)child).PTTToggleMode = settingsManager.TogglePTTMode;
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void AudioSettings_Click(object sender, RoutedEventArgs e)
+        {
+            List<Codeplug.Channel> channels = Codeplug?.Zones.SelectMany(z => z.Channels).ToList() ?? new List<Codeplug.Channel>();
+
+            AudioSettingsWindow audioSettingsWindow = new AudioSettingsWindow(settingsManager, audioManager, channels);
+            audioSettingsWindow.ShowDialog();
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void ResetSettings_Click(object sender, RoutedEventArgs e)
+        {
+            var confirmResult = MessageBox.Show("Are you sure to wish to reset console settings?", "Reset Settings", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (confirmResult == MessageBoxResult.Yes)
+            {
+                MessageBox.Show("Settings will be reset after console restart.", "Reset Settings", MessageBoxButton.OK, MessageBoxImage.Information);
+                noSaveSettingsOnClose = true;
+                settingsManager.Reset();
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void ToggleEditMode_Click(object sender, RoutedEventArgs e)
+        {
+            isEditMode = !isEditMode;
+            var menuItem = (MenuItem)sender;
+            menuItem.Header = isEditMode ? "Disable Edit Mode" : "Enable Edit Mode";
+            UpdateEditModeForWidgets();
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void ResizeCanvasToWindow_Click(object sender, RoutedEventArgs e)
+        {
+            const double widthOffset = 16;
+            const double heightOffset = 115;
+
+            foreach (UIElement child in channelsCanvas.Children)
+            {
+                double childLeft = Canvas.GetLeft(child) + child.RenderSize.Width;
+                if (childLeft > ActualWidth)
+                    Canvas.SetLeft(child, ActualWidth - (child.RenderSize.Width + widthOffset));
+                double childBottom = Canvas.GetTop(child) + child.RenderSize.Height;
+                if (childBottom > ActualHeight)
+                    Canvas.SetTop(child, ActualHeight - (child.RenderSize.Height + heightOffset));
+            }
+
+            channelsCanvas.Width = ActualWidth;
+            canvasScrollViewer.Width = ActualWidth;
+            channelsCanvas.Height = ActualHeight;
+            canvasScrollViewer.Height = ActualHeight;
+
+            settingsManager.CanvasWidth = ActualWidth;
+            settingsManager.CanvasHeight = ActualHeight;
+
+            settingsManager.WindowWidth = ActualWidth;
+            settingsManager.WindowHeight = ActualHeight;
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void SelectWidgets_Click(object sender, RoutedEventArgs e)
+        {
+            WidgetSelectionWindow widgetSelectionWindow = new WidgetSelectionWindow();
+            widgetSelectionWindow.Owner = this;
+            if (widgetSelectionWindow.ShowDialog() == true)
+            {
+                settingsManager.ShowSystemStatus = widgetSelectionWindow.ShowSystemStatus;
+                settingsManager.ShowChannels = widgetSelectionWindow.ShowChannels;
+                settingsManager.ShowAlertTones = widgetSelectionWindow.ShowAlertTones;
+
+                GenerateChannelWidgets();
+                if (!noSaveSettingsOnClose)
+                    settingsManager.SaveSettings();
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void AddAlertTone_Click(object sender, RoutedEventArgs e)
+        {
+            OpenFileDialog openFileDialog = new OpenFileDialog
+            {
+                Filter = "WAV Files (*.wav)|*.wav|All Files (*.*)|*.*",
+                Title = "Select Alert Tone"
+            };
+
+            if (openFileDialog.ShowDialog() == true)
+            {
+                string alertFilePath = openFileDialog.FileName;
+                var alertTone = new AlertTone(alertFilePath) { IsEditMode = isEditMode };
+
+                alertTone.OnAlertTone += SendAlertTone;
+
+                if (settingsManager.AlertTonePositions.TryGetValue(alertFilePath, out var position))
+                {
+                    Canvas.SetLeft(alertTone, position.X);
+                    Canvas.SetTop(alertTone, position.Y);
+                }
+                else
+                {
+                    Canvas.SetLeft(alertTone, 20);
+                    Canvas.SetTop(alertTone, 20);
+                }
+
+                alertTone.MouseRightButtonUp += AlertTone_MouseRightButtonUp;
+
+                channelsCanvas.Children.Add(alertTone);
+                settingsManager.UpdateAlertTonePaths(alertFilePath);
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void ToggleDarkMode_Click(object sender, RoutedEventArgs e)
         {
             if (!windowLoaded)
@@ -1297,6 +1325,63 @@ namespace dvmconsole
             }
             else
                 handler.SendP25TDU(srcId, dstId, false);
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        /// <exception cref="NotImplementedException"></exception>
+        private void ChannelBox_PTTButtonPressed(object sender, ChannelBox e)
+        {
+            if (e.SystemName == PLAYBACKSYS || e.ChannelName == PLAYBACKCHNAME || e.DstId == PLAYBACKTG)
+                return;
+
+            if (!e.PttState)
+            {
+                Codeplug.System system = Codeplug.GetSystemForChannel(e.ChannelName);
+                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(e.ChannelName);
+                PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
+
+                if (!e.IsSelected)
+                    return;
+
+                FneUtils.Memset(e.mi, 0x00, P25Defines.P25_MI_LENGTH);
+
+                uint srcId = uint.Parse(system.Rid);
+                uint dstId = uint.Parse(cpgChannel.Tgid);
+
+                e.TxStreamId = handler.NewStreamId();
+                handler.SendP25TDU(srcId, dstId, true);
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        /// <exception cref="NotImplementedException"></exception>
+        private void ChannelBox_PTTButtonReleased(object sender, ChannelBox e)
+        {
+            if (e.SystemName == PLAYBACKSYS || e.ChannelName == PLAYBACKCHNAME || e.DstId == PLAYBACKTG)
+                return;
+
+            if (e.PttState)
+            {
+                Codeplug.System system = Codeplug.GetSystemForChannel(e.ChannelName);
+                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(e.ChannelName);
+                PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
+
+                if (!e.IsSelected)
+                    return;
+
+                uint srcId = uint.Parse(system.Rid);
+                uint dstId = uint.Parse(cpgChannel.Tgid);
+
+                handler.SendP25TDU(srcId, dstId, false);
+            }
         }
 
         /// <summary>
@@ -1442,8 +1527,6 @@ namespace dvmconsole
             if (globalPttState)
                 await Task.Delay(500);
 
-            globalPttState = !globalPttState;
-
             foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
             {
                 if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
@@ -1476,6 +1559,57 @@ namespace dvmconsole
                     handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
                 }
             }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        /// <exception cref="NotImplementedException"></exception>
+        private void btnGlobalPtt_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (settingsManager.TogglePTTMode)
+                return;
+
+            globalPttState = !globalPttState;
+
+            btnGlobalPtt_Click(sender, e);
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        /// <exception cref="NotImplementedException"></exception>
+        private void btnGlobalPtt_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (settingsManager.TogglePTTMode)
+            {
+                globalPttState = !globalPttState;
+                btnGlobalPtt_Click(sender, e);
+            }
+            else
+            {
+                globalPttState = true;
+                btnGlobalPtt_Click(sender, e);
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        /// <exception cref="NotImplementedException"></exception>
+        private void btnGlobalPtt_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (settingsManager.TogglePTTMode)
+                return;
+
+            globalPttState = false;
+            btnGlobalPtt_Click(sender, e);
         }
 
         /// <summary>

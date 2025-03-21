@@ -43,6 +43,17 @@
                 <TextBlock Text="{Binding SystemName}" Foreground="Gold" FontSize="10"/>
             </StackPanel>
 
+            <!-- PTT Button -->
+            <Button x:Name="PttButton" HorizontalAlignment="Left" Width="42" Margin="41,1,0,4" Grid.ColumnSpan="2" BorderThickness="0,0,0,0" BorderBrush="#FFC1C1C1" UseLayoutRounding="False" Grid.RowSpan="2" Background="#FFEEA400"
+                    ToolTip="Push To Talk">
+                <Button.Resources>
+                    <Style TargetType="{x:Type Border}">
+                        <Setter Property="CornerRadius" Value="2"/>
+                    </Style>
+                </Button.Resources>
+                <Image Source="/dvmconsole;component/Assets/instantptt.png" Width="39" Height="40" Stretch="Fill" Margin="0,0,0,1"/>
+            </Button>
+
             <!-- Volume Slider -->
             <Slider Minimum="0" Maximum="4" Value="{Binding Volume, Mode=TwoWay}" 
                 Height="21" VerticalAlignment="Top" x:Name="VolumeSlider" 
@@ -101,15 +112,6 @@
                     <Image Source="/dvmconsole;component/Assets/channelmarker.png" Width="36" Height="40"/>
                 </Button>
             </StackPanel>
-            <Button x:Name="PttButton" Click="PTTButton_Click" HorizontalAlignment="Left" Width="42" Margin="41,1,0,4" Grid.ColumnSpan="2" BorderThickness="0,0,0,0" BorderBrush="#FFC1C1C1" UseLayoutRounding="False" Grid.RowSpan="2" Background="#FFEEA400"
-                    ToolTip="Push To Talk">
-                <Button.Resources>
-                    <Style TargetType="{x:Type Border}">
-                        <Setter Property="CornerRadius" Value="2"/>
-                    </Style>
-                </Button.Resources>
-                <Image Source="/dvmconsole;component/Assets/instantptt.png" Width="39" Height="40" Stretch="Fill" Margin="0,0,0,1"/>
-            </Button>
         </Grid>
     </Border>
 </UserControl>

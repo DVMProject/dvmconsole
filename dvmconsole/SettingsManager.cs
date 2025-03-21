@@ -37,20 +37,20 @@ namespace dvmconsole
         */
 
         /// <summary>
-        /// 
+        /// Flag indicating whether or not system status widgets will be displayed.
         /// </summary>
         public bool ShowSystemStatus { get; set; } = true;
         /// <summary>
-        /// 
+        /// Flag indicating whether or not channel widgets will be displayed.
         /// </summary>
         public bool ShowChannels { get; set; } = true;
         /// <summary>
-        /// 
+        /// Flag indicating whether or not alert tone widgets will be displayed.
         /// </summary>
         public bool ShowAlertTones { get; set; } = true;
 
         /// <summary>
-        /// 
+        /// Full path to last loaded console codeplug.
         /// </summary>
         public string LastCodeplugPath { get; set; } = null;
 
@@ -62,46 +62,54 @@ namespace dvmconsole
         /// 
         /// </summary>
         public Dictionary<string, ChannelPosition> SystemStatusPositions { get; set; } = new Dictionary<string, ChannelPosition>();
+
         /// <summary>
         /// 
         /// </summary>
         public List<string> AlertToneFilePaths { get; set; } = new List<string>();
+
         /// <summary>
         /// 
         /// </summary>
         public Dictionary<string, ChannelPosition> AlertTonePositions { get; set; } = new Dictionary<string, ChannelPosition>();
+
         /// <summary>
         /// 
         /// </summary>
         public Dictionary<string, int> ChannelOutputDevices { get; set; } = new Dictionary<string, int>();
 
         /// <summary>
-        /// 
+        /// Flag indicating the PTT mode, Toggle PTT or Regular PTT.
+        /// </summary>
+        public bool TogglePTTMode { get; set; } = true;
+
+        /// <summary>
+        /// Flag indicating window maximized state.
         /// </summary>
         public bool Maximized { get; set; } = false;
         /// <summary>
-        /// 
+        /// Flag indicating whether or not the window operates in dark mode.
         /// </summary>
         public bool DarkMode { get; set; } = false;
         /// <summary>
-        /// 
+        /// Last width of the console window.
         /// </summary>
         public double WindowWidth { get; set; } = MainWindow.MIN_WIDTH;
         /// <summary>
-        /// 
+        /// Last height of the console window.
         /// </summary>
         public double WindowHeight { get; set; } = MainWindow.MIN_HEIGHT;
         /// <summary>
-        /// 
+        /// Last width of the console canvas display area.
         /// </summary>
         public double CanvasWidth { get; set; } = MainWindow.MIN_WIDTH;
         /// <summary>
-        /// 
+        /// Last height of the console canvas display area.
         /// </summary>
         public double CanvasHeight { get; set; } = MainWindow.MIN_HEIGHT;
 
         /// <summary>
-        /// 
+        /// Full path to a user defined background image.
         /// </summary>
         public string UserBackgroundImage { get; set; } = null;
 
@@ -122,8 +130,8 @@ namespace dvmconsole
 
             try
             {
-                var json = File.ReadAllText(SettingsFilePath);
-                var loadedSettings = JsonConvert.DeserializeObject<SettingsManager>(json);
+                string json = File.ReadAllText(SettingsFilePath);
+                SettingsManager loadedSettings = JsonConvert.DeserializeObject<SettingsManager>(json);
 
                 if (loadedSettings != null)
                 {
@@ -136,6 +144,7 @@ namespace dvmconsole
                     AlertToneFilePaths = loadedSettings.AlertToneFilePaths ?? new List<string>();
                     AlertTonePositions = loadedSettings.AlertTonePositions ?? new Dictionary<string, ChannelPosition>();
                     ChannelOutputDevices = loadedSettings.ChannelOutputDevices ?? new Dictionary<string, int>();
+                    TogglePTTMode = loadedSettings.TogglePTTMode;
                     Maximized = loadedSettings.Maximized;
                     DarkMode = loadedSettings.DarkMode;
                     WindowWidth = loadedSettings.WindowWidth;
@@ -180,7 +189,7 @@ namespace dvmconsole
 
             try
             {
-                var json = JsonConvert.SerializeObject(this, Formatting.Indented);
+                string json = JsonConvert.SerializeObject(this, Formatting.Indented);
                 File.WriteAllText(SettingsFilePath, json);
             }
             catch (Exception ex)
