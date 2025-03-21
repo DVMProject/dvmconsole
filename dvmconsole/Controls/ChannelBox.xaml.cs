@@ -236,11 +236,14 @@ namespace dvmconsole.Controls
             set
             {
                 isSelected = value;
-                if (!isSelected)
-                    DisableControls();
-                else
-                    EnableControls();
-                UpdateBackground();
+                Dispatcher.Invoke(() =>
+                {
+                    if (!isSelected)
+                        DisableControls();
+                    else
+                        EnableControls();
+                    UpdateBackground();
+                });
             }
         }
 

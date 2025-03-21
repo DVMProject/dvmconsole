@@ -452,7 +452,23 @@ namespace dvmconsole
                     continue;
 
                 Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
+                if (system == null)
+                {
+                    MessageBox.Show($"{channel.ChannelName} refers to an INVALID SYSTEM {channel.SystemName}. Please check your codeplug.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    channel.IsSelected = false;
+                    selectedChannelsManager.RemoveSelectedChannel(channel);
+                    continue;
+                }
+
                 Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
+                if (cpgChannel == null)
+                {
+                    // bryanb: this should actually never happen...
+                    MessageBox.Show($"{channel.ChannelName} refers to an INVALID CODEPLUG CHANNEL. Please check your codeplug.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    channel.IsSelected = false;
+                    selectedChannelsManager.RemoveSelectedChannel(channel);
+                    continue;
+                }
 
                 PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
 
@@ -719,8 +735,22 @@ namespace dvmconsole
                     continue;
 
                 Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
-                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
+                if (system == null)
+                {
+                    Trace.WriteLine($"{channel.ChannelName} refers to an INVALID SYSTEM {channel.SystemName}. Codeplug has erorrs. Skipping channel for audio.");
+                    channel.IsSelected = false;
+                    selectedChannelsManager.RemoveSelectedChannel(channel);
+                    continue;
+                }
 
+                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
+                if (cpgChannel == null)
+                {
+                    Trace.WriteLine($"{channel.ChannelName} refers to an INVALID CODEPLUG CHANNEL. Codeplug has erorrs. Skipping channel for audio.");
+                    channel.IsSelected = false;
+                    selectedChannelsManager.RemoveSelectedChannel(channel);
+                    continue;
+                }
 
                 PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
 
@@ -1644,7 +1674,7 @@ namespace dvmconsole
         private void btnAlert1_Click(object sender, RoutedEventArgs e)
         {
             Dispatcher.Invoke(() => {
-                SendAlertTone(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/alert1.wav"));
+                SendAlertTone(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/alert1.wav"));
             });
         }
 
@@ -1657,7 +1687,7 @@ namespace dvmconsole
         {
             Dispatcher.Invoke(() =>
             {
-                SendAlertTone(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/alert2.wav"));
+                SendAlertTone(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/alert2.wav"));
             });
         }
 
@@ -1670,7 +1700,7 @@ namespace dvmconsole
         {
             Dispatcher.Invoke(() =>
             {
-                SendAlertTone(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/alert3.wav"));
+                SendAlertTone(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/alert3.wav"));
             });
         }
 
