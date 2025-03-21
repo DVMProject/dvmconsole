@@ -300,6 +300,7 @@ namespace dvmconsole
                         Trace.WriteLine("FNE Peer connected");
                         Dispatcher.Invoke(() =>
                         {
+                            EnableCommandControls();
                             systemStatusBox.Background = ChannelBox.GREEN_GRADIENT;
                             systemStatusBox.ConnectionState = "Connected";
                         });
@@ -310,6 +311,7 @@ namespace dvmconsole
                         Trace.WriteLine("FNE Peer disconnected");
                         Dispatcher.Invoke(() =>
                         {
+                            DisableCommandControls();
                             systemStatusBox.Background = ChannelBox.RED_GRADIENT;
                             systemStatusBox.ConnectionState = "Disconnected";
                         });
