@@ -216,6 +216,8 @@ namespace dvmconsole
         /// <param name="filePath"></param>
         private void LoadCodeplug(string filePath)
         {
+            DisableControls();
+
             try
             {
                 var deserializer = new DeserializerBuilder()
@@ -223,11 +225,11 @@ namespace dvmconsole
                     .IgnoreUnmatchedProperties()
                     .Build();
 
-                var yaml = File.ReadAllText(filePath);
+                string yaml = File.ReadAllText(filePath);
                 Codeplug = deserializer.Deserialize<Codeplug>(yaml);
 
-                EnableControls();
                 GenerateChannelWidgets();
+                EnableControls();
             }
             catch (Exception ex)
             {
@@ -242,6 +244,10 @@ namespace dvmconsole
         private void GenerateChannelWidgets()
         {
             channelsCanvas.Children.Clear();
+            systemStatuses.Clear();
+
+            fneSystemManager.ClearAll();
+
             double offsetX = 20;
             double offsetY = 20;
 
@@ -249,10 +255,10 @@ namespace dvmconsole
 
             if (Codeplug != null)
             {
+                // load and initialize systems
                 foreach (var system in Codeplug.Systems)
                 {
-                    var systemStatusBox = new SystemStatusBox(system.Name, system.Address, system.Port);
-
+                    SystemStatusBox systemStatusBox = new SystemStatusBox(system.Name, system.Address, system.Port);
                     if (settingsManager.SystemStatusPositions.TryGetValue(system.Name, out var position))
                     {
                         Canvas.SetLeft(systemStatusBox, position.X);
@@ -277,13 +283,14 @@ namespace dvmconsole
                         offsetY += 106;
                     }
 
+                    // do we have aliases for this system?
                     if (File.Exists(system.AliasPath))
                         system.RidAlias = AliasTools.LoadAliases(system.AliasPath);
 
                     fneSystemManager.AddFneSystem(system.Name, system, this);
-
                     PeerSystem peer = fneSystemManager.GetFneSystem(system.Name);
 
+                    // hook FNE events
                     peer.peer.PeerConnected += (sender, response) =>
                     {
                         Trace.WriteLine("FNE Peer connected");
@@ -304,6 +311,7 @@ namespace dvmconsole
                         });
                     };
 
+                    // start peer
                     Task.Run(() =>
                     {
                         try
@@ -318,18 +326,19 @@ namespace dvmconsole
 
                     if (!settingsManager.ShowSystemStatus)
                         systemStatusBox.Visibility = Visibility.Collapsed;
-
                 }
             }
 
+            // are we showing channels?
             if (settingsManager.ShowChannels && Codeplug != null)
             {
+                // iterate through the coeplug zones and begin building channel widgets
                 foreach (var zone in Codeplug.Zones)
                 {
+                    // iterate through zone channels.
                     foreach (var channel in zone.Channels)
                     {
-                        var channelBox = new ChannelBox(selectedChannelsManager, audioManager, channel.Name, channel.System, channel.Tgid);
-
+                        ChannelBox channelBox = new ChannelBox(selectedChannelsManager, audioManager, channel.Name, channel.System, channel.Tgid);
                         systemStatuses.Add(channel.Name, new SlotStatus());
 
                         if (settingsManager.ChannelPositions.TryGetValue(channel.Name, out var position))
@@ -363,11 +372,13 @@ namespace dvmconsole
                 }
             }
 
+            // are we showing user configured alert tones?
             if (settingsManager.ShowAlertTones && Codeplug != null)
             {
+                // iterate through the alert tones and begin building alert tone widges
                 foreach (var alertPath in settingsManager.AlertToneFilePaths)
                 {
-                    var alertTone = new AlertTone(alertPath) { IsEditMode = isEditMode };
+                    AlertTone alertTone = new AlertTone(alertPath) { IsEditMode = isEditMode };
                     alertTone.OnAlertTone += SendAlertTone;
 
                     if (settingsManager.AlertTonePositions.TryGetValue(alertPath, out var position))
@@ -387,6 +398,7 @@ namespace dvmconsole
                 }
             }
 
+            // initialize the playback channel
             playbackChannelBox = new ChannelBox(selectedChannelsManager, audioManager, PLAYBACKCHNAME, PLAYBACKSYS, PLAYBACKTG);
 
             if (settingsManager.ChannelPositions.TryGetValue(PLAYBACKCHNAME, out var pos))
@@ -427,10 +439,11 @@ namespace dvmconsole
 
                 PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
 
+                // is the channel selected?
                 if (channel.IsSelected)
                 {
-                    uint newTgid = UInt32.Parse(cpgChannel.Tgid);
-
+                    // if the channel is configured for encryption request the key from the FNE
+                    uint newTgid = uint.Parse(cpgChannel.Tgid);
                     if (cpgChannel.GetAlgoId() != 0 && cpgChannel.GetKeyId() != 0)
                         fne.peer.SendMasterKeyRequest(cpgChannel.GetAlgoId(), cpgChannel.GetKeyId());
                 }
