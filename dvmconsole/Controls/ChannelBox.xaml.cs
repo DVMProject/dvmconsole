@@ -269,6 +269,21 @@ namespace dvmconsole.Controls
         /// <summary>
         /// 
         /// </summary>
+        public double VolumeMeterLevel
+        { 
+            set
+            {
+                OnPropertyChanged(nameof(VolumeMeterLevel));
+                Dispatcher.Invoke(() =>
+                {
+                    VolumeMeter.Value = 100 * value;
+                });
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
         public uint TxStreamId { get; internal set; }
 
         /*

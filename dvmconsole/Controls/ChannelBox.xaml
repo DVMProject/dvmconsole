@@ -43,6 +43,18 @@
                 <TextBlock Text="{Binding SystemName}" Foreground="Gold" FontSize="10"/>
             </StackPanel>
 
+            <!-- Volume Meter -->
+            <ProgressBar x:Name="VolumeMeter" HorizontalAlignment="Center" Width="16" Margin="0,1,0,5" Grid.RowSpan="2" Orientation="Vertical" Maximum="50" 
+                         BorderThickness="0" Background="#FFF0F0F0">
+                <ProgressBar.Foreground>
+                    <LinearGradientBrush EndPoint="1,0.5" StartPoint="0,0.5">
+                        <GradientStop Color="#F0C60000" Offset="1"/>
+                        <GradientStop Color="#F0C68700" Offset="0.9"/>
+                        <GradientStop Color="#F0008E00" Offset="0"/>
+                    </LinearGradientBrush>
+                </ProgressBar.Foreground>
+            </ProgressBar>
+
             <!-- PTT Button -->
             <Button x:Name="PttButton" HorizontalAlignment="Left" Width="42" Margin="41,1,0,4" Grid.ColumnSpan="2" BorderThickness="0,0,0,0" BorderBrush="#FFC1C1C1" UseLayoutRounding="False" Grid.RowSpan="2" Background="#FFEEA400"
                     ToolTip="Push To Talk">

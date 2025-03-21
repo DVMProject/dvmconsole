@@ -36,6 +36,7 @@ using fnecore;
 using fnecore.P25;
 using fnecore.P25.LC.TSBK;
 using fnecore.P25.KMM;
+using System;
 
 namespace dvmconsole
 {
@@ -1323,10 +1324,14 @@ namespace dvmconsole
             if (e.PttState)
             {
                 e.TxStreamId = handler.NewStreamId();
+                e.VolumeMeterLevel = 0;
                 handler.SendP25TDU(srcId, dstId, true);
             }
             else
+            {
+                e.VolumeMeterLevel = 0;
                 handler.SendP25TDU(srcId, dstId, false);
+            }
         }
 
         /// <summary>
@@ -1355,6 +1360,7 @@ namespace dvmconsole
                 uint dstId = uint.Parse(cpgChannel.Tgid);
 
                 e.TxStreamId = handler.NewStreamId();
+                e.VolumeMeterLevel = 0;
                 handler.SendP25TDU(srcId, dstId, true);
             }
         }
@@ -1382,6 +1388,7 @@ namespace dvmconsole
                 uint srcId = uint.Parse(system.Rid);
                 uint dstId = uint.Parse(cpgChannel.Tgid);
 
+                e.VolumeMeterLevel = 0;
                 handler.SendP25TDU(srcId, dstId, false);
             }
         }
@@ -1738,6 +1745,26 @@ namespace dvmconsole
                 smpIdx++;
             }
 
+            channel.VolumeMeterLevel = 0;
+
+            float max = 0;
+            for (int index = 0; index < samples.Length; index++)
+            {
+                short sample = samples[index];
+
+                // to floating point
+                float sample32 = sample / 32768f;
+
+                if (sample32 < 0)
+                    sample32 = -sample32;
+
+                // is this the max value?
+                if (sample32 > max)
+                    max = sample32;
+            }
+
+            channel.VolumeMeterLevel = max;
+
             // Convert to floats
             float[] fSamples = AudioConverter.PcmToFloat(samples);
 
@@ -1994,6 +2021,26 @@ namespace dvmconsole
                         //Log.Logger.Debug($"IMBE {FneUtils.HexDump(imbe)}");
                         //Trace.WriteLine($"SAMPLE BUFFER {FneUtils.HexDump(samples)}");
 
+                        channel.VolumeMeterLevel = 0;
+
+                        float max = 0;
+                        for (int index = 0; index < samples.Length; index++)
+                        {
+                            short sample = samples[index];
+                            
+                            // to floating point
+                            float sample32 = sample / 32768f;
+
+                            if (sample32 < 0) 
+                                sample32 = -sample32;
+
+                            // is this the max value?
+                            if (sample32 > max)
+                                max = sample32;
+                        }
+
+                        channel.VolumeMeterLevel = max;
+
                         int pcmIdx = 0;
                         byte[] pcmData = new byte[samples.Length * 2];
                         for (int i = 0; i < samples.Length; i++)
@@ -2152,13 +2199,14 @@ namespace dvmconsole
                             channel.Background = ChannelBox.GREEN_GRADIENT;
                     }
 
-                    // Is the call over?
+                    // is the call over?
                     if (((e.DUID == P25DUID.TDU) || (e.DUID == P25DUID.TDULC)) && (slot.RxType != fnecore.FrameType.TERMINATOR))
                     {
                         channel.IsReceiving = false;
                         TimeSpan callDuration = pktTime - slot.RxStart;
                         Trace.WriteLine($"({system.Name}) P25D: Traffic *CALL END       * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} DUR {callDuration} [STREAM ID {e.StreamId}]");
                         channel.Background = ChannelBox.BLUE_GRADIENT;
+                        channel.VolumeMeterLevel = 0;
                         callHistoryWindow.ChannelUnkeyed(cpgChannel.Name, (int)e.SrcId);
                         return;
                     }
