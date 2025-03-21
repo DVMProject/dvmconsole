@@ -13,7 +13,6 @@
 */
 
 using System.ComponentModel;
-using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Windows;
@@ -78,15 +77,15 @@ namespace dvmconsole.Controls
         */
 
         /// <summary>
-        /// 
+        /// Textual name of channel.
         /// </summary>
         public string ChannelName { get; set; }
         /// <summary>
-        /// 
+        /// Textual name of system channel belongs to.
         /// </summary>
         public string SystemName { get; set; }
         /// <summary>
-        /// 
+        /// Destination ID.
         /// </summary>
         public string DstId { get; set; }
 
@@ -104,33 +103,33 @@ namespace dvmconsole.Controls
         */
 
         /// <summary>
-        /// 
+        /// Event action that handles the PTT button being clicked.
         /// </summary>
         public event EventHandler<ChannelBox> PTTButtonClicked;
         /// <summary>
-        /// 
+        /// Event action that handles the page button being clicked.
         /// </summary>
         public event EventHandler<ChannelBox> PageButtonClicked;
         /// <summary>
-        /// 
+        /// Event action that handles the hold channel button being clicked.
         /// </summary>
         public event EventHandler<ChannelBox> HoldChannelButtonClicked;
         /// <summary>
-        /// 
+        /// Event action that occurs when a property changes on this control.
         /// </summary>
         public event PropertyChangedEventHandler PropertyChanged;
 
         /// <summary>
-        /// 
+        /// Flag indicating whether or not this channel is receiving.
         /// </summary>
         public bool IsReceiving { get; set; } = false;
         /// <summary>
-        /// 
+        /// Flag indicating whether or not this channel is receiving encrypted.
         /// </summary>
         public bool IsReceivingEncrypted { get; set; } = false;
 
         /// <summary>
-        /// 
+        /// Last Source ID received.
         /// </summary>
         public string LastSrcId
         {
@@ -146,7 +145,7 @@ namespace dvmconsole.Controls
         }
 
         /// <summary>
-        /// 
+        /// Flag indicating the current PTT state of this channel.
         /// </summary>
         public bool PttState
         {
@@ -159,7 +158,7 @@ namespace dvmconsole.Controls
         }
 
         /// <summary>
-        /// 
+        /// Flag indicating the current page state of this channel.
         /// </summary>
         public bool PageState
         {
@@ -172,7 +171,7 @@ namespace dvmconsole.Controls
         }
 
         /// <summary>
-        /// 
+        /// Flag indicating the hold state of this channel.
         /// </summary>
         public bool HoldState
         {
@@ -185,7 +184,7 @@ namespace dvmconsole.Controls
         }
 
         /// <summary>
-        /// 
+        /// Flag indicating the emergency state of this channel.
         /// </summary>
         public bool Emergency
         {
@@ -210,12 +209,12 @@ namespace dvmconsole.Controls
         public string VoiceChannel { get; set; }
 
         /// <summary>
-        /// 
+        /// Flag indicating whether or not edit mode is enabled.
         /// </summary>
         public bool IsEditMode { get; set; }
 
         /// <summary>
-        /// 
+        /// Flag indicating whether or not this channel is selected.
         /// </summary>
         public bool IsSelected
         {
@@ -228,7 +227,7 @@ namespace dvmconsole.Controls
         }
 
         /// <summary>
-        /// 
+        /// Current volume for this channel.
         /// </summary>
         public double Volume
         {
@@ -247,7 +246,7 @@ namespace dvmconsole.Controls
         /// <summary>
         /// 
         /// </summary>
-        public uint txStreamId { get; internal set; }
+        public uint TxStreamId { get; internal set; }
 
         /*
         ** Methods
@@ -370,28 +369,9 @@ namespace dvmconsole.Controls
         /// <summary>
         /// 
         /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void ChannelBox_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-        {
-            if (IsEditMode) 
-                return;
-
-            IsSelected = !IsSelected;
-            ControlBorder.Background = IsSelected ? BLUE_GRADIENT : DARK_GRAY_GRADIENT;
-
-            if (IsSelected)
-                selectedChannelsManager.AddSelectedChannel(this);
-            else
-                selectedChannelsManager.RemoveSelectedChannel(this);
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
         private void UpdatePTTColor()
         {
-            if (IsEditMode) 
+            if (IsEditMode)
                 return;
 
             if (PttState)
@@ -405,7 +385,7 @@ namespace dvmconsole.Controls
         /// </summary>
         private void UpdatePageColor()
         {
-            if (IsEditMode) 
+            if (IsEditMode)
                 return;
 
             if (PageState)
@@ -416,7 +396,7 @@ namespace dvmconsole.Controls
 
         private void UpdateHoldColor()
         {
-            if (IsEditMode) 
+            if (IsEditMode)
                 return;
 
             if (HoldState)
@@ -437,6 +417,36 @@ namespace dvmconsole.Controls
             }
 
             ControlBorder.Background = IsSelected ? BLUE_GRADIENT : DARK_GRAY_GRADIENT;
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="propertyName"></param>
+        protected virtual void OnPropertyChanged(string propertyName)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+
+        /** WPF Events */
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void ChannelBox_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (IsEditMode) 
+                return;
+
+            IsSelected = !IsSelected;
+            ControlBorder.Background = IsSelected ? BLUE_GRADIENT : DARK_GRAY_GRADIENT;
+
+            if (IsSelected)
+                selectedChannelsManager.AddSelectedChannel(this);
+            else
+                selectedChannelsManager.RemoveSelectedChannel(this);
         }
 
         /// <summary>
@@ -479,15 +489,6 @@ namespace dvmconsole.Controls
         private void VolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             Volume = e.NewValue;
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="propertyName"></param>
-        protected virtual void OnPropertyChanged(string propertyName)
-        {
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
 
         /// <summary>

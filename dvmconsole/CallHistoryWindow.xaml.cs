@@ -18,7 +18,42 @@ using System.Windows.Media;
 namespace dvmconsole
 {
     /// <summary>
-    /// 
+    /// Data structure representing a call entry.
+    /// </summary>
+    public class CallEntry : DependencyObject
+    {
+        public static readonly DependencyProperty BackgroundColorProperty =
+            DependencyProperty.Register(nameof(BackgroundColor), typeof(Brush), typeof(CallEntry), new PropertyMetadata(Brushes.Transparent));
+
+        /*
+        ** Properties
+        */
+
+        /// <summary>
+        /// Textual name of channel call was received on.
+        /// </summary>
+        public string Channel { get; set; }
+        /// <summary>
+        /// Source ID.
+        /// </summary>
+        public int SrcId { get; set; }
+        /// <summary>
+        /// Destination ID.
+        /// </summary>
+        public int DstId { get; set; }
+
+        /// <summary>
+        /// Background color for call entry.
+        /// </summary>
+        public Brush BackgroundColor
+        {
+            get { return (Brush)GetValue(BackgroundColorProperty); }
+            set { SetValue(BackgroundColorProperty, value); }
+        }
+    } // public class CallEntry : DependencyObject
+
+    /// <summary>
+    /// Data view model representing the call history.
     /// </summary>
     public class CallHistoryViewModel
     {
@@ -27,7 +62,7 @@ namespace dvmconsole
         */
 
         /// <summary>
-        /// 
+        /// Collection of call history entries.
         /// </summary>
         public ObservableCollection<CallEntry> CallHistory { get; set; }
 
@@ -45,41 +80,6 @@ namespace dvmconsole
     } // public class CallHistoryViewModel
 
     /// <summary>
-    /// 
-    /// </summary>
-    public class CallEntry : DependencyObject
-    {
-        public static readonly DependencyProperty BackgroundColorProperty =
-            DependencyProperty.Register(nameof(BackgroundColor), typeof(Brush), typeof(CallEntry), new PropertyMetadata(Brushes.Transparent));
-
-        /*
-        ** Properties
-        */
-
-        /// <summary>
-        /// 
-        /// </summary>
-        public string Channel { get; set; }
-        /// <summary>
-        /// 
-        /// </summary>
-        public int SrcId { get; set; }
-        /// <summary>
-        /// 
-        /// </summary>
-        public int DstId { get; set; }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        public Brush BackgroundColor
-        {
-            get { return (Brush)GetValue(BackgroundColorProperty); }
-            set { SetValue(BackgroundColorProperty, value); }
-        }
-    } // public class CallEntry : DependencyObject
-
-    /// <summary>
     /// Interaction logic for CallHistoryWindow.xaml.
     /// </summary>
     public partial class CallHistoryWindow : Window
@@ -89,7 +89,7 @@ namespace dvmconsole
         */
 
         /// <summary>
-        /// 
+        /// Gets or sets the <see cref="CallHistoryViewModel"/> view model for the window.
         /// </summary>
         public CallHistoryViewModel ViewModel { get; set; }
 

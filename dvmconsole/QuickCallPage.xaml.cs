@@ -20,7 +20,13 @@ namespace dvmconsole
     /// </summary>
     public partial class QuickCallPage : Window
     {
+        /// <summary>
+        /// Tone A.
+        /// </summary>
         public string ToneA;
+        /// <summary>
+        /// Tone B.
+        /// </summary>
         public string ToneB;
 
         /*
@@ -34,6 +40,8 @@ namespace dvmconsole
         {
             InitializeComponent();
         }
+
+        /** WPF Events */
 
         /// <summary>
         /// 

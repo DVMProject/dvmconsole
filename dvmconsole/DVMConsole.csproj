@@ -29,7 +29,8 @@
     <None Remove="Assets\alerttone.png" />
     <None Remove="Assets\AppIcon.ico" />
     <None Remove="Assets\audio.png" />
-    <None Remove="Assets\bg_main_hd.png" />
+    <None Remove="Assets\bg_main_hd_dark.png" />
+    <None Remove="Assets\bg_main_hd_light.png" />
     <None Remove="Assets\channelmarker.png" />
     <None Remove="Assets\clearemerg.png" />
     <None Remove="Assets\config.png" />
@@ -62,7 +63,10 @@
     <Resource Include="Assets\audio.png">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </Resource>
-    <Resource Include="Assets\bg_main_hd.png">
+    <Resource Include="Assets\bg_main_hd_dark.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\bg_main_hd_light.png">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </Resource>
   </ItemGroup>

@@ -20,7 +20,7 @@ using dvmconsole.Controls;
 namespace dvmconsole
 {
     /// <summary>
-    /// 
+    /// Data structure representing a key status item.
     /// </summary>
     public class KeyStatusItem
     {
@@ -29,25 +29,25 @@ namespace dvmconsole
         */
 
         /// <summary>
-        /// 
+        /// Textual name of channel key is for.
         /// </summary>
         public string ChannelName { get; set; }
         /// <summary>
-        /// 
+        /// Algorithm ID.
         /// </summary>
         public string AlgId { get; set; }
         /// <summary>
-        /// 
+        /// Key ID.
         /// </summary>
         public string KeyId { get; set; }
         /// <summary>
-        /// 
+        /// Key status.
         /// </summary>
         public string KeyStatus { get; set; }
     } // public class KeyStatusItem
 
     /// <summary>
-    /// 
+    /// Interaction logic for KeyStatusWindow.xaml.
     /// </summary>
     public partial class KeyStatusWindow : Window
     {
@@ -59,7 +59,7 @@ namespace dvmconsole
         */
 
         /// <summary>
-        /// 
+        ///  Collection of key status entries.
         /// </summary>
         public ObservableCollection<KeyStatusItem> KeyStatusItems { get; private set; } = new ObservableCollection<KeyStatusItem>();
 

@@ -30,16 +30,16 @@ namespace dvmconsole.Controls
         */
 
         /// <summary>
-        /// 
+        /// Textual name of the system.
         /// </summary>
         public string SystemName { get; set; }
         /// <summary>
-        /// 
+        /// Address and port of the system.
         /// </summary>
         public string AddressPort { get; set; }
 
         /// <summary>
-        /// 
+        /// Connection state.
         /// </summary>
         public string ConnectionState
         {
@@ -68,7 +68,7 @@ namespace dvmconsole.Controls
         */
 
         /// <summary>
-        /// 
+        /// Event action that occurs when a property changes on this control.
         /// </summary>
         public event PropertyChangedEventHandler PropertyChanged;
 

@@ -82,6 +82,10 @@ namespace dvmconsole
         /// <summary>
         /// 
         /// </summary>
+        public bool DarkMode { get; set; } = false;
+        /// <summary>
+        /// 
+        /// </summary>
         public double WindowWidth { get; set; } = MainWindow.MIN_WIDTH;
         /// <summary>
         /// 
@@ -128,6 +132,7 @@ namespace dvmconsole
                     AlertTonePositions = loadedSettings.AlertTonePositions ?? new Dictionary<string, ChannelPosition>();
                     ChannelOutputDevices = loadedSettings.ChannelOutputDevices ?? new Dictionary<string, int>();
                     Maximized = loadedSettings.Maximized;
+                    DarkMode = loadedSettings.DarkMode;
                     WindowWidth = loadedSettings.WindowWidth;
                     if (WindowWidth == 0)
                         WindowWidth = MainWindow.MIN_WIDTH;

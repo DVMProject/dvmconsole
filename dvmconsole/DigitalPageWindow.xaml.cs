@@ -20,9 +20,15 @@ namespace dvmconsole
     /// </summary>
     public partial class DigitalPageWindow : Window
     {
-        public List<Codeplug.System> systems = new List<Codeplug.System>();
+        private List<Codeplug.System> systems = new List<Codeplug.System>();
 
+        /// <summary>
+        /// Destination ID.
+        /// </summary>
         public string DstId = string.Empty;
+        /// <summary>
+        /// System.
+        /// </summary>
         public Codeplug.System RadioSystem = null;
 
         /// <summary>
@@ -38,6 +44,8 @@ namespace dvmconsole
             SystemCombo.ItemsSource = systems;
             SystemCombo.SelectedIndex = 0;
         }
+
+        /** WPF Events */
 
         /// <summary>
         /// 

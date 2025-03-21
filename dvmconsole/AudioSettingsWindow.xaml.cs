@@ -132,6 +132,8 @@ namespace dvmconsole
             return outputDevices;
         }
 
+        /** WPF Events */
+
         /// <summary>
         /// 
         /// </summary>

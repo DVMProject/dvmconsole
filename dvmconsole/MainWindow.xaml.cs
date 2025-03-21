@@ -19,7 +19,7 @@ using System.Timers;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 using Microsoft.Win32;
 
@@ -40,7 +40,7 @@ using fnecore.P25.KMM;
 namespace dvmconsole
 {
     /// <summary>
-    /// 
+    /// Data structure representing the position of a <see cref="ChannelBox"/> widget.
     /// </summary>
     public class ChannelPosition
     {
@@ -49,11 +49,11 @@ namespace dvmconsole
         */
 
         /// <summary>
-        /// 
+        /// X
         /// </summary>
         public double X { get; set; }
         /// <summary>
-        /// 
+        /// Y
         /// </summary>
         public double Y { get; set; }
     } // public class ChannelPosition
@@ -65,6 +65,8 @@ namespace dvmconsole
     {
         public const double MIN_WIDTH = 875;
         public const double MIN_HEIGHT = 700;
+
+        private const string URI_RESOURCE_PATH = "pack://application:,,,/dvmconsole;component";
 
         private bool isEditMode = false;
 
@@ -108,7 +110,7 @@ namespace dvmconsole
         */
 
         /// <summary>
-        /// 
+        /// Codeplug
         /// </summary>
         public Codeplug Codeplug { get; set; }
 
@@ -153,16 +155,22 @@ namespace dvmconsole
         }
 
         /// <summary>
-        /// Helper to enable form controls when settings and codeplug are loaded.
+        /// Helper to enable menu controls for Commands submenu.
         /// </summary>
-        private void EnableControls()
+        private void EnableCommandControls()
         {
             menuPageSubscriber.IsEnabled = true;
             menuRadioCheckSubscriber.IsEnabled = true;
             menuInhibitSubscriber.IsEnabled = true;
             menuUninhibitSubscriber.IsEnabled = true;
             menuQuickCall2.IsEnabled = true;
+        }
 
+        /// <summary>
+        /// Helper to enable form controls when settings and codeplug are loaded.
+        /// </summary>
+        private void EnableControls()
+        {
             btnGlobalPtt.IsEnabled = true;
             btnAlert1.IsEnabled = true;
             btnAlert2.IsEnabled = true;
@@ -174,15 +182,23 @@ namespace dvmconsole
         }
 
         /// <summary>
-        /// Helper to disable form controls when settings load fails.
+        /// Helper to disable menu controls for Commands submenu.
         /// </summary>
-        private void DisableControls()
+        private void DisableCommandControls()
         {
             menuPageSubscriber.IsEnabled = false;
             menuRadioCheckSubscriber.IsEnabled = false;
             menuInhibitSubscriber.IsEnabled = false;
             menuUninhibitSubscriber.IsEnabled = false;
             menuQuickCall2.IsEnabled = false;
+        }
+
+        /// <summary>
+        /// Helper to disable form controls when settings load fails.
+        /// </summary>
+        private void DisableControls()
+        {
+            DisableCommandControls();
 
             btnGlobalPtt.IsEnabled = false;
             btnAlert1.IsEnabled = false;
@@ -195,46 +211,7 @@ namespace dvmconsole
         }
 
         /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void OpenCodeplug_Click(object sender, RoutedEventArgs e)
-        {
-            OpenFileDialog openFileDialog = new OpenFileDialog
-            {
-                Filter = "Codeplug Files (*.yml)|*.yml|All Files (*.*)|*.*",
-                Title = "Open Codeplug"
-            };
-
-            if (openFileDialog.ShowDialog() == true)
-            {
-                LoadCodeplug(openFileDialog.FileName);
-
-                settingsManager.LastCodeplugPath = openFileDialog.FileName;
-                noSaveSettingsOnClose = false;
-                settingsManager.SaveSettings();
-            }
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void ResetSettings_Click(object sender, RoutedEventArgs e)
-        {
-            var confirmResult = MessageBox.Show("Are you sure to wish to reset console settings?", "Reset Settings", MessageBoxButton.YesNo, MessageBoxImage.Question);
-            if (confirmResult == MessageBoxResult.Yes)
-            {
-                MessageBox.Show("Settings will be reset after console restart.", "Reset Settings", MessageBoxButton.OK, MessageBoxImage.Information);
-                noSaveSettingsOnClose = true;
-                settingsManager.Reset();
-            }
-        }
-
-        /// <summary>
-        /// 
+        /// Helper to load the codeplug.
         /// </summary>
         /// <param name="filePath"></param>
         private void LoadCodeplug(string filePath)
@@ -260,7 +237,7 @@ namespace dvmconsole
         }
 
         /// <summary>
-        /// 
+        /// Helper to initialize and generate channel widgets on the canvas.
         /// </summary>
         private void GenerateChannelWidgets()
         {
@@ -438,6 +415,257 @@ namespace dvmconsole
         /// <summary>
         /// 
         /// </summary>
+        private void SelectedChannelsChanged()
+        {
+            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
+            {
+                if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                    continue;
+
+                Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
+                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
+
+                PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
+
+                if (channel.IsSelected)
+                {
+                    uint newTgid = UInt32.Parse(cpgChannel.Tgid);
+
+                    if (cpgChannel.GetAlgoId() != 0 && cpgChannel.GetKeyId() != 0)
+                        fne.peer.SendMasterKeyRequest(cpgChannel.GetAlgoId(), cpgChannel.GetKeyId());
+                }
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="e"></param>
+        private void SendAlertTone(AlertTone e)
+        {
+            Task.Run(() => SendAlertTone(e.AlertFilePath));
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="filePath"></param>
+        /// <param name="forHold"></param>
+        private void SendAlertTone(string filePath, bool forHold = false)
+        {
+            if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
+            {
+                try
+                {
+                    foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
+                    {
+                        if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                            continue;
+
+                        Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
+                        Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
+                        PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
+
+                        if (channel.PageState || (forHold && channel.HoldState))
+                        {
+                            byte[] pcmData;
+
+                            Task.Run(async () => {
+                                using (var waveReader = new WaveFileReader(filePath))
+                                {
+                                    if (waveReader.WaveFormat.Encoding != WaveFormatEncoding.Pcm ||
+                                        waveReader.WaveFormat.SampleRate != 8000 ||
+                                        waveReader.WaveFormat.BitsPerSample != 16 ||
+                                        waveReader.WaveFormat.Channels != 1)
+                                    {
+                                        MessageBox.Show("The alert tone must be PCM 16-bit, Mono, 8000Hz format.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                                        return;
+                                    }
+
+                                    using (MemoryStream ms = new MemoryStream())
+                                    {
+                                        waveReader.CopyTo(ms);
+                                        pcmData = ms.ToArray();
+                                    }
+                                }
+
+                                int chunkSize = 1600;
+                                int totalChunks = (pcmData.Length + chunkSize - 1) / chunkSize;
+
+                                if (pcmData.Length % chunkSize != 0)
+                                {
+                                    byte[] paddedData = new byte[totalChunks * chunkSize];
+                                    Buffer.BlockCopy(pcmData, 0, paddedData, 0, pcmData.Length);
+                                    pcmData = paddedData;
+                                }
+
+                                Task.Run(() =>
+                                {
+                                    audioManager.AddTalkgroupStream(cpgChannel.Tgid, pcmData);
+                                });
+
+                                DateTime startTime = DateTime.UtcNow;
+
+                                for (int i = 0; i < totalChunks; i++)
+                                {
+                                    int offset = i * chunkSize;
+                                    byte[] chunk = new byte[chunkSize];
+                                    Buffer.BlockCopy(pcmData, offset, chunk, 0, chunkSize);
+
+                                    PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
+
+                                    channel.chunkedPcm = AudioConverter.SplitToChunks(chunk);
+
+                                    foreach (byte[] smallchunk in channel.chunkedPcm)
+                                    {
+                                        if (smallchunk.Length == 320)
+                                            P25EncodeAudioFrame(smallchunk, handler, channel, cpgChannel, system);
+                                    }
+
+                                    DateTime nextPacketTime = startTime.AddMilliseconds((i + 1) * 100);
+                                    TimeSpan waitTime = nextPacketTime - DateTime.UtcNow;
+
+                                    if (waitTime.TotalMilliseconds > 0)
+                                        await Task.Delay(waitTime);
+                                }
+
+                                double totalDurationMs = ((double)pcmData.Length / 16000) + 250;
+                                await Task.Delay((int)totalDurationMs + 3000);
+
+                                handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
+
+                                Dispatcher.Invoke(() =>
+                                {
+                                    if (forHold)
+                                        channel.PttButton.Background = ChannelBox.GRAY_GRADIENT;
+                                    else
+                                        channel.PageState = false;
+                                });
+                            });
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Failed to process alert tone: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+            else
+                MessageBox.Show("Alert file not set or file not found.", "Alert", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="dstId"></param>
+        /// <param name="srcId"></param>
+        private void HandleEmergency(string dstId, string srcId)
+        {
+            bool forUs = false;
+
+            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
+            {
+                Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
+                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
+
+                if (dstId == cpgChannel.Tgid)
+                {
+                    forUs = true;
+                    channel.Emergency = true;
+                    channel.LastSrcId = srcId;
+                }
+            }
+
+            if (forUs)
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    flashingManager.Start();
+                    emergencyAlertPlayback.Start();
+                });
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        private void UpdateEditModeForWidgets()
+        {
+            foreach (var child in channelsCanvas.Children)
+            {
+                if (child is AlertTone alertTone)
+                    alertTone.IsEditMode = isEditMode;
+
+                if (child is ChannelBox channelBox)
+                    channelBox.IsEditMode = isEditMode;
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        private void UpdateBackground()
+        {
+            BitmapImage bg = new BitmapImage();
+            bg.BeginInit();
+            if (settingsManager.DarkMode)
+                bg.UriSource = new Uri($"{URI_RESOURCE_PATH}/Assets/bg_main_hd_dark.png");
+            else
+                bg.UriSource = new Uri($"{URI_RESOURCE_PATH}/Assets/bg_main_hd_light.png");
+            bg.EndInit();
+
+            channelsCanvasBg.ImageSource = bg;
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private async void OnHoldTimerElapsed(object sender, ElapsedEventArgs e)
+        {
+            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
+            {
+                if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                    continue;
+
+                Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
+                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
+                PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
+
+                if (channel.HoldState && !channel.IsReceiving && !channel.PttState && !channel.PageState)
+                {
+                    handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
+                    await Task.Delay(1000);
+
+                    SendAlertTone(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/hold.wav"), true);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="e"></param>
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            if (!noSaveSettingsOnClose)
+            {
+                if (WindowState == WindowState.Maximized)
+                    settingsManager.Maximized = true;
+
+                settingsManager.SaveSettings();
+            }
+
+            base.OnClosing(e);
+            Application.Current.Shutdown();
+        }
+
+        /** NAudio Events */
+
+        /// <summary>
+        /// 
+        /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
         private void WaveIn_RecordingStopped(object sender, EventArgs e)
@@ -490,29 +718,125 @@ namespace dvmconsole
                 audioManager.AddTalkgroupStream(PLAYBACKTG, e.Buffer);
         }
 
+        /** WPF Window Events */
+
         /// <summary>
         /// 
         /// </summary>
-        private void SelectedChannelsChanged()
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        /// <exception cref="NotImplementedException"></exception>
+        private void MainWindow_SizeChanged(object sender, SizeChangedEventArgs e)
         {
-            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
+            const double widthOffset = 16;
+            const double heightOffset = 115;
+
+            if (!windowLoaded)
+                return;
+
+            if (ActualWidth > channelsCanvas.ActualWidth)
             {
-                if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
-                    continue;
-
-                Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
-                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-
-                PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
-
-                if (channel.IsSelected)
-                {
-                    uint newTgid = UInt32.Parse(cpgChannel.Tgid);
-
-                    if (cpgChannel.GetAlgoId() != 0 && cpgChannel.GetKeyId() != 0)
-                        fne.peer.SendMasterKeyRequest(cpgChannel.GetAlgoId(), cpgChannel.GetKeyId());
-                }
+                channelsCanvas.Width = ActualWidth;
+                canvasScrollViewer.Width = ActualWidth;
             }
+            else
+                canvasScrollViewer.Width = Width - widthOffset;
+
+            if (ActualHeight > channelsCanvas.ActualHeight)
+            {
+                channelsCanvas.Height = ActualHeight;
+                canvasScrollViewer.Height = ActualHeight;
+            }
+            else
+                canvasScrollViewer.Height = Height - heightOffset;
+
+            if (WindowState == WindowState.Maximized)
+                ResizeCanvasToWindow_Click(sender, e);
+            else
+                settingsManager.Maximized = false;
+
+            settingsManager.CanvasWidth = channelsCanvas.ActualWidth;
+            settingsManager.CanvasHeight = channelsCanvas.ActualHeight;
+
+            settingsManager.WindowWidth = ActualWidth;
+            settingsManager.WindowHeight = ActualHeight;
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+            const double widthOffset = 16;
+            const double heightOffset = 115;
+
+            if (!string.IsNullOrEmpty(settingsManager.LastCodeplugPath) && File.Exists(settingsManager.LastCodeplugPath))
+                LoadCodeplug(settingsManager.LastCodeplugPath);
+            else
+                GenerateChannelWidgets();
+
+            menuDarkMode.IsChecked = settingsManager.DarkMode;
+            UpdateBackground();
+
+            if (settingsManager.Maximized)
+            {
+                windowLoaded = true;
+                WindowState = WindowState.Maximized;
+                ResizeCanvasToWindow_Click(sender, e);
+            }
+            else
+            {
+                Width = settingsManager.WindowWidth;
+                channelsCanvas.Width = settingsManager.CanvasWidth;
+                if (settingsManager.CanvasWidth > settingsManager.WindowWidth)
+                    canvasScrollViewer.Width = Width - widthOffset;
+                else
+                    canvasScrollViewer.Width = Width;
+
+                Height = settingsManager.WindowHeight;
+                channelsCanvas.Height = settingsManager.CanvasHeight;
+                if (settingsManager.CanvasHeight > settingsManager.WindowHeight)
+                    canvasScrollViewer.Height = Height - heightOffset;
+                else
+                    canvasScrollViewer.Height = Height;
+
+                windowLoaded = true;
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void OpenCodeplug_Click(object sender, RoutedEventArgs e)
+        {
+            OpenFileDialog openFileDialog = new OpenFileDialog
+            {
+                Filter = "Codeplug Files (*.yml)|*.yml|All Files (*.*)|*.*",
+                Title = "Open Codeplug"
+            };
+
+            if (openFileDialog.ShowDialog() == true)
+            {
+                LoadCodeplug(openFileDialog.FileName);
+
+                settingsManager.LastCodeplugPath = openFileDialog.FileName;
+                noSaveSettingsOnClose = false;
+                settingsManager.SaveSettings();
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void Exit_Click(object sender, RoutedEventArgs e)
+        {
+            Application.Current.Shutdown();
         }
 
         /// <summary>
@@ -526,6 +850,140 @@ namespace dvmconsole
 
             AudioSettingsWindow audioSettingsWindow = new AudioSettingsWindow(settingsManager, audioManager, channels);
             audioSettingsWindow.ShowDialog();
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void ResetSettings_Click(object sender, RoutedEventArgs e)
+        {
+            var confirmResult = MessageBox.Show("Are you sure to wish to reset console settings?", "Reset Settings", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (confirmResult == MessageBoxResult.Yes)
+            {
+                MessageBox.Show("Settings will be reset after console restart.", "Reset Settings", MessageBoxButton.OK, MessageBoxImage.Information);
+                noSaveSettingsOnClose = true;
+                settingsManager.Reset();
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void ToggleEditMode_Click(object sender, RoutedEventArgs e)
+        {
+            isEditMode = !isEditMode;
+            var menuItem = (MenuItem)sender;
+            menuItem.Header = isEditMode ? "Disable Edit Mode" : "Enable Edit Mode";
+            UpdateEditModeForWidgets();
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void ToggleDarkMode_Click(object sender, RoutedEventArgs e)
+        {
+            if (!windowLoaded)
+                return;
+
+            settingsManager.DarkMode = menuDarkMode.IsChecked;
+            UpdateBackground();
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void ResizeCanvasToWindow_Click(object sender, RoutedEventArgs e)
+        {
+            const double widthOffset = 16;
+            const double heightOffset = 115;
+
+            foreach (UIElement child in channelsCanvas.Children)
+            {
+                double childLeft = Canvas.GetLeft(child) + child.RenderSize.Width;
+                if (childLeft > ActualWidth)
+                    Canvas.SetLeft(child, ActualWidth - (child.RenderSize.Width + widthOffset));
+                double childBottom = Canvas.GetTop(child) + child.RenderSize.Height;
+                if (childBottom > ActualHeight)
+                    Canvas.SetTop(child, ActualHeight - (child.RenderSize.Height + heightOffset));
+            }
+
+            channelsCanvas.Width = ActualWidth;
+            canvasScrollViewer.Width = ActualWidth;
+            channelsCanvas.Height = ActualHeight;
+            canvasScrollViewer.Height = ActualHeight;
+
+            settingsManager.CanvasWidth = ActualWidth;
+            settingsManager.CanvasHeight = ActualHeight;
+
+            settingsManager.WindowWidth = ActualWidth;
+            settingsManager.WindowHeight = ActualHeight;
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void SelectWidgets_Click(object sender, RoutedEventArgs e)
+        {
+            WidgetSelectionWindow widgetSelectionWindow = new WidgetSelectionWindow();
+            widgetSelectionWindow.Owner = this;
+            if (widgetSelectionWindow.ShowDialog() == true)
+            {
+                settingsManager.ShowSystemStatus = widgetSelectionWindow.ShowSystemStatus;
+                settingsManager.ShowChannels = widgetSelectionWindow.ShowChannels;
+                settingsManager.ShowAlertTones = widgetSelectionWindow.ShowAlertTones;
+
+                GenerateChannelWidgets();
+                if (!noSaveSettingsOnClose)
+                    settingsManager.SaveSettings();
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void AddAlertTone_Click(object sender, RoutedEventArgs e)
+        {
+            OpenFileDialog openFileDialog = new OpenFileDialog
+            {
+                Filter = "WAV Files (*.wav)|*.wav|All Files (*.*)|*.*",
+                Title = "Select Alert Tone"
+            };
+
+            if (openFileDialog.ShowDialog() == true)
+            {
+                string alertFilePath = openFileDialog.FileName;
+                var alertTone = new AlertTone(alertFilePath) { IsEditMode = isEditMode };
+
+                alertTone.OnAlertTone += SendAlertTone;
+
+                if (settingsManager.AlertTonePositions.TryGetValue(alertFilePath, out var position))
+                {
+                    Canvas.SetLeft(alertTone, position.X);
+                    Canvas.SetTop(alertTone, position.Y);
+                }
+                else
+                {
+                    Canvas.SetLeft(alertTone, 20);
+                    Canvas.SetTop(alertTone, 20);
+                }
+
+                alertTone.MouseRightButtonUp += AlertTone_MouseRightButtonUp;
+
+                channelsCanvas.Children.Add(alertTone);
+                settingsManager.UpdateAlertTonePaths(alertFilePath);
+            }
         }
 
         /// <summary>
@@ -724,177 +1182,7 @@ namespace dvmconsole
             }
         }
 
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="e"></param>
-        private void SendAlertTone(AlertTone e)
-        {
-            Task.Run(() => SendAlertTone(e.AlertFilePath));
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="filePath"></param>
-        /// <param name="forHold"></param>
-        private void SendAlertTone(string filePath, bool forHold = false)
-        {
-            if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
-            {
-                try
-                {
-                    foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
-                    {
-                        if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
-                            continue;
-
-                        Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
-                        Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                        PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
-
-                        if (channel.PageState || (forHold && channel.HoldState))
-                        {
-                            byte[] pcmData;
-
-                            Task.Run(async () => {
-                                using (var waveReader = new WaveFileReader(filePath))
-                                {
-                                    if (waveReader.WaveFormat.Encoding != WaveFormatEncoding.Pcm ||
-                                        waveReader.WaveFormat.SampleRate != 8000 ||
-                                        waveReader.WaveFormat.BitsPerSample != 16 ||
-                                        waveReader.WaveFormat.Channels != 1)
-                                    {
-                                        MessageBox.Show("The alert tone must be PCM 16-bit, Mono, 8000Hz format.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                                        return;
-                                    }
-
-                                    using (MemoryStream ms = new MemoryStream())
-                                    {
-                                        waveReader.CopyTo(ms);
-                                        pcmData = ms.ToArray();
-                                    }
-                                }
-
-                                int chunkSize = 1600;
-                                int totalChunks = (pcmData.Length + chunkSize - 1) / chunkSize;
-
-                                if (pcmData.Length % chunkSize != 0)
-                                {
-                                    byte[] paddedData = new byte[totalChunks * chunkSize];
-                                    Buffer.BlockCopy(pcmData, 0, paddedData, 0, pcmData.Length);
-                                    pcmData = paddedData;
-                                }
-
-                                Task.Run(() =>
-                                {
-                                    audioManager.AddTalkgroupStream(cpgChannel.Tgid, pcmData);
-                                });
-
-                                DateTime startTime = DateTime.UtcNow;
-
-                                for (int i = 0; i < totalChunks; i++)
-                                {
-                                    int offset = i * chunkSize;
-                                    byte[] chunk = new byte[chunkSize];
-                                    Buffer.BlockCopy(pcmData, offset, chunk, 0, chunkSize);
-
-                                    PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
-
-                                    channel.chunkedPcm = AudioConverter.SplitToChunks(chunk);
-
-                                    foreach (byte[] smallchunk in channel.chunkedPcm)
-                                    {
-                                        if (smallchunk.Length == 320)
-                                            P25EncodeAudioFrame(smallchunk, handler, channel, cpgChannel, system);
-                                    }
-
-                                    DateTime nextPacketTime = startTime.AddMilliseconds((i + 1) * 100);
-                                    TimeSpan waitTime = nextPacketTime - DateTime.UtcNow;
-
-                                    if (waitTime.TotalMilliseconds > 0)
-                                        await Task.Delay(waitTime);
-                                }
-
-                                double totalDurationMs = ((double)pcmData.Length / 16000) + 250;
-                                await Task.Delay((int)totalDurationMs + 3000);
-
-                                handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
-
-                                Dispatcher.Invoke(() =>
-                                {
-                                    if (forHold)
-                                        channel.PttButton.Background = ChannelBox.GRAY_GRADIENT;
-                                    else
-                                        channel.PageState = false;
-                                });
-                            });
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Failed to process alert tone: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
-            }
-            else
-            {
-                MessageBox.Show("Alert file not set or file not found.", "Alert", MessageBoxButton.OK, MessageBoxImage.Warning);
-            }
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void SelectWidgets_Click(object sender, RoutedEventArgs e)
-        {
-            WidgetSelectionWindow widgetSelectionWindow = new WidgetSelectionWindow();
-            widgetSelectionWindow.Owner = this;
-            if (widgetSelectionWindow.ShowDialog() == true)
-            {
-                settingsManager.ShowSystemStatus = widgetSelectionWindow.ShowSystemStatus;
-                settingsManager.ShowChannels = widgetSelectionWindow.ShowChannels;
-                settingsManager.ShowAlertTones = widgetSelectionWindow.ShowAlertTones;
-
-                GenerateChannelWidgets();
-                if (!noSaveSettingsOnClose)
-                    settingsManager.SaveSettings();
-            }
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="dstId"></param>
-        /// <param name="srcId"></param>
-        private void HandleEmergency(string dstId, string srcId)
-        {
-            bool forUs = false;
-
-            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
-            {
-                Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
-                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-
-                if (dstId == cpgChannel.Tgid)
-                {
-                    forUs = true;
-                    channel.Emergency = true;
-                    channel.LastSrcId = srcId;
-                }
-            }
-
-            if (forUs)
-            {
-                Dispatcher.Invoke(() =>
-                {
-                    flashingManager.Start();
-                    emergencyAlertPlayback.Start();
-                });
-            }
-        }
+        /** Widget Controls */
 
         /// <summary>
         /// 
@@ -951,7 +1239,7 @@ namespace dvmconsole
 
             if (e.PttState)
             {
-                e.txStreamId = handler.NewStreamId();
+                e.TxStreamId = handler.NewStreamId();
                 handler.SendP25TDU(srcId, dstId, true);
             }
             else
@@ -1063,104 +1351,6 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void ToggleEditMode_Click(object sender, RoutedEventArgs e)
-        {
-            isEditMode = !isEditMode;
-            var menuItem = (MenuItem)sender;
-            menuItem.Header = isEditMode ? "Disable Edit Mode" : "Enable Edit Mode";
-            UpdateEditModeForWidgets();
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        private void UpdateEditModeForWidgets()
-        {
-            foreach (var child in channelsCanvas.Children)
-            {
-                if (child is AlertTone alertTone)
-                    alertTone.IsEditMode = isEditMode;
-
-                if (child is ChannelBox channelBox)
-                    channelBox.IsEditMode = isEditMode;
-            }
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void ResizeCanvasToWindow_Click(object sender, RoutedEventArgs e)
-        {
-            const double widthOffset = 16;
-            const double heightOffset = 115;
-
-            foreach (UIElement child in channelsCanvas.Children)
-            {
-                double childLeft = Canvas.GetLeft(child) + child.RenderSize.Width;
-                if (childLeft > ActualWidth)
-                    Canvas.SetLeft(child, ActualWidth - (child.RenderSize.Width + widthOffset));
-                double childBottom = Canvas.GetTop(child) + child.RenderSize.Height;
-                if (childBottom > ActualHeight)
-                    Canvas.SetTop(child, ActualHeight - (child.RenderSize.Height + heightOffset));
-            }
-
-            channelsCanvas.Width = ActualWidth;
-            canvasScrollViewer.Width = ActualWidth;
-            channelsCanvas.Height = ActualHeight;
-            canvasScrollViewer.Height = ActualHeight;
-
-            settingsManager.CanvasWidth = ActualWidth;
-            settingsManager.CanvasHeight = ActualHeight;
-
-            settingsManager.WindowWidth = ActualWidth;
-            settingsManager.WindowHeight = ActualHeight;
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void AddAlertTone_Click(object sender, RoutedEventArgs e)
-        {
-            OpenFileDialog openFileDialog = new OpenFileDialog
-            {
-                Filter = "WAV Files (*.wav)|*.wav|All Files (*.*)|*.*",
-                Title = "Select Alert Tone"
-            };
-
-            if (openFileDialog.ShowDialog() == true)
-            {
-                string alertFilePath = openFileDialog.FileName;
-                var alertTone = new AlertTone(alertFilePath) { IsEditMode = isEditMode };
-
-                alertTone.OnAlertTone += SendAlertTone;
-
-                if (settingsManager.AlertTonePositions.TryGetValue(alertFilePath, out var position))
-                {
-                    Canvas.SetLeft(alertTone, position.X);
-                    Canvas.SetTop(alertTone, position.Y);
-                }
-                else
-                {
-                    Canvas.SetLeft(alertTone, 20);
-                    Canvas.SetTop(alertTone, 20);
-                }
-
-                alertTone.MouseRightButtonUp += AlertTone_MouseRightButtonUp;
-
-                channelsCanvas.Children.Add(alertTone);
-                settingsManager.UpdateAlertTonePaths(alertFilePath);
-            }
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
         private void AlertTone_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
         {
             if (!isEditMode) return;
@@ -1173,133 +1363,7 @@ namespace dvmconsole
             }
         }
 
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        /// <exception cref="NotImplementedException"></exception>
-        private void MainWindow_SizeChanged(object sender, SizeChangedEventArgs e)
-        {
-            const double widthOffset = 16;
-            const double heightOffset = 115;
-
-            if (!windowLoaded)
-                return;
-
-            if (ActualWidth > channelsCanvas.ActualWidth)
-            {
-                channelsCanvas.Width = ActualWidth;
-                canvasScrollViewer.Width = ActualWidth;
-            }
-            else
-                canvasScrollViewer.Width = Width - widthOffset;
-
-            if (ActualHeight > channelsCanvas.ActualHeight)
-            {
-                channelsCanvas.Height = ActualHeight;
-                canvasScrollViewer.Height = ActualHeight;
-            }
-            else
-                canvasScrollViewer.Height = Height - heightOffset;
-
-            if (WindowState == WindowState.Maximized)
-                ResizeCanvasToWindow_Click(sender, e);
-            else
-                settingsManager.Maximized = false;
-
-            settingsManager.CanvasWidth = channelsCanvas.ActualWidth;
-            settingsManager.CanvasHeight = channelsCanvas.ActualHeight;
-
-            settingsManager.WindowWidth = ActualWidth;
-            settingsManager.WindowHeight = ActualHeight;
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void MainWindow_Loaded(object sender, RoutedEventArgs e)
-        {
-            const double widthOffset = 16;
-            const double heightOffset = 115;
-
-            if (!string.IsNullOrEmpty(settingsManager.LastCodeplugPath) && File.Exists(settingsManager.LastCodeplugPath))
-                LoadCodeplug(settingsManager.LastCodeplugPath);
-            else
-                GenerateChannelWidgets();
-
-            if (settingsManager.Maximized)
-            {
-                windowLoaded = true;
-                WindowState = WindowState.Maximized;
-                //Application.Current.MainWindow.WindowState = WindowState.Maximized;
-                ResizeCanvasToWindow_Click(sender, e);
-            }
-            else
-            {
-                Width = settingsManager.WindowWidth;
-                channelsCanvas.Width = settingsManager.CanvasWidth;
-                if (settingsManager.CanvasWidth > settingsManager.WindowWidth)
-                    canvasScrollViewer.Width = Width - widthOffset;
-                else
-                    canvasScrollViewer.Width = Width;
-
-                Height = settingsManager.WindowHeight;
-                channelsCanvas.Height = settingsManager.CanvasHeight;
-                if (settingsManager.CanvasHeight > settingsManager.WindowHeight)
-                    canvasScrollViewer.Height = Height - heightOffset;
-                else
-                    canvasScrollViewer.Height = Height;
-
-                windowLoaded = true;
-            }
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private async void OnHoldTimerElapsed(object sender, ElapsedEventArgs e)
-        {
-            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
-            {
-                if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
-                    continue;
-
-                Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
-                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
-
-                if (channel.HoldState && !channel.IsReceiving && !channel.PttState && !channel.PageState)
-                {
-                    handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
-                    await Task.Delay(1000);
-
-                    SendAlertTone(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/hold.wav"), true);
-                }
-            }
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="e"></param>
-        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
-        {
-            if (!noSaveSettingsOnClose)
-            {
-                if (WindowState == WindowState.Maximized)
-                    settingsManager.Maximized = true;
-
-                settingsManager.SaveSettings();
-            }
-
-            base.OnClosing(e);
-            Application.Current.Shutdown();
-        }
+        /** WPF Ribbon Controls */
 
         /// <summary>
         /// 
@@ -1313,6 +1377,52 @@ namespace dvmconsole
 
             foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
                 channel.Emergency = false;
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private async void btnGlobalPtt_Click(object sender, RoutedEventArgs e)
+        {
+            if (globalPttState)
+                await Task.Delay(500);
+
+            globalPttState = !globalPttState;
+
+            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
+            {
+                if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                    continue;
+
+                Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
+                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
+                PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
+
+                channel.TxStreamId = handler.NewStreamId();
+
+                if (globalPttState)
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        btnGlobalPtt.Background = ChannelBox.RED_GRADIENT;
+                        channel.PttState = true;
+                    });
+
+                    handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
+                }
+                else
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        btnGlobalPtt.Background = ChannelBox.GRAY_GRADIENT;
+                        channel.PttState = false;
+                    });
+
+                    handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
+                }
+            }
         }
 
         /// <summary>
@@ -1358,52 +1468,6 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private async void btnGlobalPtt_Click(object sender, RoutedEventArgs e)
-        {
-            if (globalPttState)
-                await Task.Delay(500);
-
-            globalPttState = !globalPttState;
-
-            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
-            {
-                if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
-                    continue;
-
-                Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
-                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
-
-                channel.txStreamId = handler.NewStreamId();
-
-                if (globalPttState)
-                {
-                    Dispatcher.Invoke(() =>
-                    {
-                        btnGlobalPtt.Background = ChannelBox.RED_GRADIENT;
-                        channel.PttState = true;
-                    });
-
-                    handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
-                }
-                else
-                {
-                    Dispatcher.Invoke(() =>
-                    {
-                        btnGlobalPtt.Background = ChannelBox.GRAY_GRADIENT;
-                        channel.PttState = false;
-                    });
-
-                    handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
-                }
-            }
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
         private void SelectAll_Click(object sender, RoutedEventArgs e)
         {
             selectAll = !selectAll;
@@ -1424,6 +1488,31 @@ namespace dvmconsole
                     selectedChannelsManager.RemoveSelectedChannel(channel);
             }
         }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void KeyStatus_Click(object sender, RoutedEventArgs e)
+        {
+            KeyStatusWindow keyStatus = new KeyStatusWindow(Codeplug, this);
+            keyStatus.Owner = this;
+            keyStatus.Show();
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void CallHist_Click(object sender, RoutedEventArgs e)
+        {
+            callHistoryWindow.Owner = this;
+            callHistoryWindow.Show();
+        }
+
+        /** fnecore Hooks / Helpers */
 
         /// <summary>
         /// Helper to encode and transmit PCM audio as P25 IMBE frames.
@@ -1511,9 +1600,7 @@ namespace dvmconsole
                         Random random = new Random();
 
                         for (int i = 0; i < P25Defines.P25_MI_LENGTH; i++)
-                        {
                             channel.mi[i] = (byte)random.Next(0x00, 0x100);
-                        }
                     }
 
                     channel.Crypter.Prepare(cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
@@ -1618,7 +1705,7 @@ namespace dvmconsole
                 handler.CreateNewP25MessageHdr((byte)P25DUID.LDU1, callData, ref payload, cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
                 handler.CreateP25LDU1Message(channel.netLDU1, ref payload, srcId, dstId);
 
-                peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_P25), payload, pktSeq, channel.txStreamId);
+                peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_P25), payload, pktSeq, channel.TxStreamId);
             }
 
             // send P25 LDU2
@@ -1636,7 +1723,7 @@ namespace dvmconsole
                 handler.CreateNewP25MessageHdr((byte)P25DUID.LDU2, callData, ref payload, cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
                 handler.CreateP25LDU2Message(channel.netLDU2, ref payload, new CryptoParams { AlgId = cpgChannel.GetAlgoId(), KeyId = cpgChannel.GetKeyId(), MI = channel.mi });
 
-                peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_P25), payload, pktSeq, channel.txStreamId);
+                peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_P25), payload, pktSeq, channel.TxStreamId);
             }
 
             channel.p25SeqNo++;
@@ -1779,18 +1866,6 @@ namespace dvmconsole
                     }
                 });
             }
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void KeyStatus_Click(object sender, RoutedEventArgs e)
-        {
-            KeyStatusWindow keyStatus = new KeyStatusWindow(Codeplug, this);
-            keyStatus.Owner = this;
-            keyStatus.Show();
         }
 
         /// <summary>
@@ -2039,27 +2114,6 @@ namespace dvmconsole
 
                 }
             });
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void CallHist_Click(object sender, RoutedEventArgs e)
-        {
-            callHistoryWindow.Owner = this;
-            callHistoryWindow.Show();
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void Exit_Click(object sender, RoutedEventArgs e)
-        {
-            Application.Current.Shutdown();
         }
     } // public partial class MainWindow : Window
 } // namespace dvmconsole

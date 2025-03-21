@@ -25,15 +25,15 @@ namespace dvmconsole
         */
         
         /// <summary>
-        /// 
+        /// Flag indicating whether or not the system status widgets appear.
         /// </summary>
         public bool ShowSystemStatus { get; private set; } = true;
         /// <summary>
-        /// 
+        /// Flag indicating whether or not the channel widgets appear.
         /// </summary>
         public bool ShowChannels { get; private set; } = true;
         /// <summary>
-        /// 
+        /// Flag indicating whether or not alert tone widgets appear.
         /// </summary>
         public bool ShowAlertTones { get; private set; } = true;
 
@@ -48,6 +48,8 @@ namespace dvmconsole
         {
             InitializeComponent();
         }
+
+        /** WPF Events */
 
         /// <summary>
         /// 

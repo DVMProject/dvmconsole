@@ -51,13 +51,16 @@
                 <Separator />
                 <MenuItem Header="_QuickCall II" Click="ManualPage_Click" x:Name="menuQuickCall2" />
             </MenuItem>
+            <MenuItem Header="View">
+                <MenuItem Header="_Dark Mode" IsCheckable="True" Checked="ToggleDarkMode_Click" Unchecked="ToggleDarkMode_Click" x:Name="menuDarkMode" />
+            </MenuItem>
         </Menu>
 
         <!-- Channel Widget Canvas -->
         <ScrollViewer x:Name="canvasScrollViewer" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" Grid.Row="2" Grid.ColumnSpan="2">
             <Canvas x:Name="channelsCanvas" VerticalAlignment="Top">
                 <Canvas.Background>
-                    <ImageBrush x:Name="channelsCanvasBg" ImageSource="/dvmconsole;component/Assets/bg_main_hd.png" Stretch="UniformToFill" />
+                    <ImageBrush x:Name="channelsCanvasBg" ImageSource="/dvmconsole;component/Assets/bg_main_hd_light.png" Stretch="UniformToFill" />
                 </Canvas.Background>
             </Canvas>
         </ScrollViewer>
