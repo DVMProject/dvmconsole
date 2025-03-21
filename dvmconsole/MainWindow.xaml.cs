@@ -309,7 +309,7 @@ namespace dvmconsole
                     // hook FNE events
                     peer.peer.PeerConnected += (sender, response) =>
                     {
-                        Trace.WriteLine("FNE Peer connected");
+                        Log.WriteLine("FNE Peer connected");
                         Dispatcher.Invoke(() =>
                         {
                             EnableCommandControls();
@@ -320,7 +320,7 @@ namespace dvmconsole
 
                     peer.peer.PeerDisconnected += (response) =>
                     {
-                        Trace.WriteLine("FNE Peer disconnected");
+                        Log.WriteLine("FNE Peer disconnected");
                         Dispatcher.Invoke(() =>
                         {
                             DisableCommandControls();
@@ -529,7 +529,7 @@ namespace dvmconsole
                         Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
                         if (system == null)
                         {
-                            Trace.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
+                            Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
                             channel.IsSelected = false;
                             selectedChannelsManager.RemoveSelectedChannel(channel);
                             continue;
@@ -538,7 +538,7 @@ namespace dvmconsole
                         Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
                         if (cpgChannel == null)
                         {
-                            Trace.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
+                            Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
                             channel.IsSelected = false;
                             selectedChannelsManager.RemoveSelectedChannel(channel);
                             continue;
@@ -547,7 +547,7 @@ namespace dvmconsole
                         PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
                         if (fne == null)
                         {
-                            Trace.WriteLine($"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
+                            Log.WriteLine($"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
                             channel.IsSelected = false;
                             selectedChannelsManager.RemoveSelectedChannel(channel);
                             continue;
@@ -777,7 +777,7 @@ namespace dvmconsole
                 Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
                 if (system == null)
                 {
-                    Trace.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
+                    Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
                     channel.IsSelected = false;
                     selectedChannelsManager.RemoveSelectedChannel(channel);
                     continue;
@@ -786,7 +786,7 @@ namespace dvmconsole
                 Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
                 if (cpgChannel == null)
                 {
-                    Trace.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
+                    Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
                     channel.IsSelected = false;
                     selectedChannelsManager.RemoveSelectedChannel(channel);
                     continue;
@@ -795,7 +795,7 @@ namespace dvmconsole
                 PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
                 if (fne == null)
                 {
-                    Trace.WriteLine($"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
+                    Log.WriteLine($"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
                     channel.IsSelected = false;
                     selectedChannelsManager.RemoveSelectedChannel(channel);
                     continue;
@@ -813,7 +813,7 @@ namespace dvmconsole
                             if (chunk.Length == PCM_SAMPLES_LENGTH)
                                 P25EncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
                             else
-                                Trace.WriteLine("bad sample length: " + chunk.Length);
+                                Log.WriteLine("bad sample length: " + chunk.Length);
                         }
                     });
                 }
@@ -1091,7 +1091,7 @@ namespace dvmconsole
                     Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
                     if (system == null)
                     {
-                        Trace.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}.");
+                        Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}.");
                         channel.IsSelected = false;
                         selectedChannelsManager.RemoveSelectedChannel(channel);
                         continue;
@@ -1100,7 +1100,7 @@ namespace dvmconsole
                     Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
                     if (cpgChannel == null)
                     {
-                        Trace.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.");
+                        Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.");
                         channel.IsSelected = false;
                         selectedChannelsManager.RemoveSelectedChannel(channel);
                         continue;
@@ -1704,7 +1704,7 @@ namespace dvmconsole
                 Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
                 if (system == null)
                 {
-                    Trace.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}.");
+                    Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}.");
                     channel.IsSelected = false;
                     selectedChannelsManager.RemoveSelectedChannel(channel);
                     continue;
@@ -1713,7 +1713,7 @@ namespace dvmconsole
                 Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
                 if (cpgChannel == null)
                 {
-                    Trace.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.");
+                    Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.");
                     channel.IsSelected = false;
                     selectedChannelsManager.RemoveSelectedChannel(channel);
                     continue;
@@ -1722,7 +1722,7 @@ namespace dvmconsole
                 PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
                 if (fne == null)
                 {
-                    Trace.WriteLine($"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {ERR_INVALID_CODEPLUG}.");
+                    Log.WriteLine($"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {ERR_INVALID_CODEPLUG}.");
                     channel.IsSelected = false;
                     selectedChannelsManager.RemoveSelectedChannel(channel);
                     continue;
@@ -1857,7 +1857,7 @@ namespace dvmconsole
                 Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
                 if (system == null)
                 {
-                    Trace.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}.");
+                    Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}.");
                     channel.IsSelected = false;
                     selectedChannelsManager.RemoveSelectedChannel(channel);
                     continue;
@@ -1866,7 +1866,7 @@ namespace dvmconsole
                 Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
                 if (cpgChannel == null)
                 {
-                    Trace.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.");
+                    Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.");
                     channel.IsSelected = false;
                     selectedChannelsManager.RemoveSelectedChannel(channel);
                     continue;
@@ -1981,7 +1981,7 @@ namespace dvmconsole
             if (tone > 0)
             {
                 MBEToneGenerator.IMBEEncodeSingleTone((ushort)tone, imbe);
-                Trace.WriteLine($"({system.Name}) P25D: {tone} HZ TONE DETECT");
+                Log.WriteLine($"({system.Name}) P25D: {tone} HZ TONE DETECT");
             }
             else
             {
@@ -2112,7 +2112,7 @@ namespace dvmconsole
                 else
                     pktSeq = peer.pktSeq();
 
-                //Trace.WriteLine($"({channel.SystemName}) P25D: Traffic *VOICE FRAME    * PEER {handler.PeerId} SRC_ID {srcId} TGID {dstId} [STREAM ID {channel.txStreamId}]");
+                Log.WriteLine($"({channel.SystemName}) P25D: Traffic *VOICE FRAME    * PEER {handler.PeerId} SRC_ID {srcId} TGID {dstId} [STREAM ID {channel.TxStreamId}]");
 
                 byte[] payload = new byte[200];
                 handler.CreateNewP25MessageHdr((byte)P25DUID.LDU1, callData, ref payload, cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
@@ -2130,7 +2130,7 @@ namespace dvmconsole
                 else
                     pktSeq = peer.pktSeq();
 
-                //Trace.WriteLine($"({channel.SystemName}) P25D: Traffic *VOICE FRAME    * PEER {handler.PeerId} SRC_ID {srcId} TGID {dstId} [STREAM ID {channel.txStreamId}]");
+                Log.WriteLine($"({channel.SystemName}) P25D: Traffic *VOICE FRAME    * PEER {handler.PeerId} SRC_ID {srcId} TGID {dstId} [STREAM ID {channel.TxStreamId}]");
 
                 byte[] payload = new byte[200];
                 handler.CreateNewP25MessageHdr((byte)P25DUID.LDU2, callData, ref payload, cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
@@ -2214,9 +2214,7 @@ namespace dvmconsole
 
                     if (samples != null)
                     {
-                        //Log.Logger.Debug($"({Config.Name}) P25D: Traffic *VOICE FRAME    * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} VC{n} ERRS {errs} [STREAM ID {e.StreamId}]");
-                        //Log.Logger.Debug($"IMBE {FneUtils.HexDump(imbe)}");
-                        //Trace.WriteLine($"SAMPLE BUFFER {FneUtils.HexDump(samples)}");
+                        //Log.WriteLine($"P25D: Traffic *VOICE FRAME    * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} VC{n} [STREAM ID {e.StreamId}]");
 
                         channel.VolumeMeterLevel = 0;
 
@@ -2253,7 +2251,7 @@ namespace dvmconsole
             }
             catch (Exception ex)
             {
-                Trace.WriteLine($"Audio Decode Exception: {ex.Message}");
+                Log.WriteLine($"Audio Decode Exception: {ex.Message}");
             }
         }
 
@@ -2263,21 +2261,21 @@ namespace dvmconsole
         /// <param name="e"></param>
         public void KeyResponseReceived(KeyResponseEvent e)
         {
-            //Trace.WriteLine($"Message ID: {e.KmmKey.MessageId}");
-            //Trace.WriteLine($"Decrypt Info Format: {e.KmmKey.DecryptInfoFmt}");
-            //Trace.WriteLine($"Algorithm ID: {e.KmmKey.AlgId}");
-            //Trace.WriteLine($"Key ID: {e.KmmKey.KeyId}");
-            //Trace.WriteLine($"Keyset ID: {e.KmmKey.KeysetItem.KeysetId}");
-            //Trace.WriteLine($"Keyset Alg ID: {e.KmmKey.KeysetItem.AlgId}");
-            //Trace.WriteLine($"Keyset Key Length: {e.KmmKey.KeysetItem.KeyLength}");
-            //Trace.WriteLine($"Number of Keys: {e.KmmKey.KeysetItem.Keys.Count}");
+            //Log.WriteLine($"Message ID: {e.KmmKey.MessageId}");
+            //Log.WriteLine($"Decrypt Info Format: {e.KmmKey.DecryptInfoFmt}");
+            //Log.WriteLine($"Algorithm ID: {e.KmmKey.AlgId}");
+            //Log.WriteLine($"Key ID: {e.KmmKey.KeyId}");
+            //Log.WriteLine($"Keyset ID: {e.KmmKey.KeysetItem.KeysetId}");
+            //Log.WriteLine($"Keyset Alg ID: {e.KmmKey.KeysetItem.AlgId}");
+            //Log.WriteLine($"Keyset Key Length: {e.KmmKey.KeysetItem.KeyLength}");
+            //Log.WriteLine($"Number of Keys: {e.KmmKey.KeysetItem.Keys.Count}");
 
             foreach (var key in e.KmmKey.KeysetItem.Keys)
             {
-                //Trace.WriteLine($"  Key Format: {key.KeyFormat}");
-                //Trace.WriteLine($"  SLN: {key.Sln}");
-                //Trace.WriteLine($"  Key ID: {key.KeyId}");
-                //Trace.WriteLine($"  Key Data: {BitConverter.ToString(key.GetKey())}");
+                //Log.WriteLine($"  Key Format: {key.KeyFormat}");
+                //Log.WriteLine($"  SLN: {key.Sln}");
+                //Log.WriteLine($"  Key ID: {key.KeyId}");
+                //Log.WriteLine($"  Key Data: {BitConverter.ToString(key.GetKey())}");
 
                 Dispatcher.Invoke(() =>
                 {
@@ -2370,7 +2368,7 @@ namespace dvmconsole
                     {
                         channel.IsReceiving = true;
                         slot.RxStart = pktTime;
-                        Trace.WriteLine($"({system.Name}) P25D: Traffic *CALL START     * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} [STREAM ID {e.StreamId}]");
+                        Log.WriteLine($"({system.Name}) P25D: Traffic *CALL START     * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} [STREAM ID {e.StreamId}]");
 
                         FneUtils.Memset(channel.mi, 0x00, P25Defines.P25_MI_LENGTH);
 
@@ -2401,7 +2399,7 @@ namespace dvmconsole
                     {
                         channel.IsReceiving = false;
                         TimeSpan callDuration = pktTime - slot.RxStart;
-                        Trace.WriteLine($"({system.Name}) P25D: Traffic *CALL END       * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} DUR {callDuration} [STREAM ID {e.StreamId}]");
+                        Log.WriteLine($"({system.Name}) P25D: Traffic *CALL END       * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} DUR {callDuration} [STREAM ID {e.StreamId}]");
                         channel.Background = ChannelBox.BLUE_GRADIENT;
                         channel.VolumeMeterLevel = 0;
                         callHistoryWindow.ChannelUnkeyed(cpgChannel.Name, (int)e.SrcId);

@@ -134,20 +134,20 @@ namespace dvmconsole
                 switch (level)
                 {
                     case LogLevel.WARNING:
-                        Trace.WriteLine(message);
+                        Log.WriteWarning(message);
                         break;
                     case LogLevel.ERROR:
-                        Trace.WriteLine(message);
+                        Log.WriteError(message);
                         break;
                     case LogLevel.DEBUG:
-                        Trace.WriteLine(message);
+                        Log.WriteLine($"[DEBUG] {message}");
                         break;
                     case LogLevel.FATAL:
-                        Trace.WriteLine(message);
+                        Log.WriteError(message);
                         break;
                     case LogLevel.INFO:
                     default:
-                        Trace.WriteLine(message);
+                        Log.WriteLine(message);
                         break;
                 }
             };

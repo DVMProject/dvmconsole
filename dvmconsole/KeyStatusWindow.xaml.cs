@@ -95,7 +95,7 @@ namespace dvmconsole
                 {
                     if (child == null)
                     {
-                        Trace.WriteLine("A child in ChannelsCanvas.Children is null.");
+                        Log.WriteLine("A child in ChannelsCanvas.Children is null.");
                         continue;
                     }
 
@@ -107,14 +107,14 @@ namespace dvmconsole
                     Codeplug.System system = Codeplug.GetSystemForChannel(channelBox.ChannelName);
                     if (system == null)
                     {
-                        Trace.WriteLine($"System not found for {channelBox.ChannelName}");
+                        Log.WriteLine($"System not found for {channelBox.ChannelName}");
                         continue;
                     }
 
                     Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channelBox.ChannelName);
                     if (cpgChannel == null)
                     {
-                        Trace.WriteLine($"Channel not found for {channelBox.ChannelName}");
+                        Log.WriteLine($"Channel not found for {channelBox.ChannelName}");
                         continue;
                     }
 
@@ -123,7 +123,7 @@ namespace dvmconsole
 
                     if (channelBox.Crypter == null)
                     {
-                        Trace.WriteLine($"Crypter is null for channel {channelBox.ChannelName}");
+                        Log.WriteLine($"Crypter is null for channel {channelBox.ChannelName}");
                         continue;
                     }
 

@@ -14,7 +14,6 @@
 
 using System.Diagnostics;
 using System.IO;
-
 using Newtonsoft.Json;
 
 namespace dvmconsole
@@ -118,6 +117,11 @@ namespace dvmconsole
         /// </summary>
         public string UserBackgroundImage { get; set; } = null;
 
+        /// <summary>
+        /// Flag enabling trace logging.
+        /// </summary>
+        public bool SaveTraceLog { get; set; }
+
         /*
         ** Methods
         */
@@ -173,6 +177,14 @@ namespace dvmconsole
 
                     UserBackgroundImage = loadedSettings.UserBackgroundImage;
 
+                    SaveTraceLog = loadedSettings.SaveTraceLog;
+                    if (SaveTraceLog)
+                        Log.SetupTextWriter(Environment.CurrentDirectory, "dvmconsole.log");
+
+                    Log.WriteLine("Digital Voice Modem - Desktop Dispatch Console");
+                    Log.WriteLine("Copyright (c) 2025 DVMProject (https://github.com/dvmproject) Authors.");
+                    Log.WriteLine(">> Desktop Dispatch Console");
+
                     return true;
                 }
 
@@ -180,7 +192,8 @@ namespace dvmconsole
             }
             catch (Exception ex)
             {
-                Trace.WriteLine($"Error loading settings: {ex.Message}");
+                Log.WriteLine($"Error loading settings: {ex.Message}");
+                Log.StackTrace(ex, false);
                 return false;
             }
         }
@@ -200,7 +213,8 @@ namespace dvmconsole
             }
             catch (Exception ex)
             {
-                Trace.WriteLine($"Error saving settings: {ex.Message}");
+                Log.WriteLine($"Error saving settings: {ex.Message}");
+                Log.StackTrace(ex, false);
             }
         }
 
