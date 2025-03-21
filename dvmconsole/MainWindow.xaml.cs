@@ -604,7 +604,7 @@ namespace dvmconsole
             if (pageWindow.ShowDialog() == true)
             {
                 PeerSystem handler = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
-                IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.INHIBIT, uint.Parse(pageWindow.RadioSystem.Rid), uint.Parse(pageWindow.DstId));
+                IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.INHIBIT, P25Defines.WUID_FNE, uint.Parse(pageWindow.DstId));
 
                 RemoteCallData callData = new RemoteCallData
                 {
@@ -635,7 +635,7 @@ namespace dvmconsole
             if (pageWindow.ShowDialog() == true)
             {
                 PeerSystem handler = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
-                IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.UNINHIBIT, uint.Parse(pageWindow.RadioSystem.Rid), uint.Parse(pageWindow.DstId));
+                IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.UNINHIBIT, P25Defines.WUID_FNE, uint.Parse(pageWindow.DstId));
 
                 RemoteCallData callData = new RemoteCallData
                 {
