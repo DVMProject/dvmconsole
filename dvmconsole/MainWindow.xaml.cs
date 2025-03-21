@@ -620,6 +620,22 @@ namespace dvmconsole
         private void UpdateBackground()
         {
             BitmapImage bg = new BitmapImage();
+
+            // do we have a user defined background?
+            if (settingsManager.UserBackgroundImage != null)
+            {
+                // does the file exist?
+                if (File.Exists(settingsManager.UserBackgroundImage))
+                {
+                    bg.BeginInit();
+                    bg.UriSource = new Uri(settingsManager.UserBackgroundImage);
+                    bg.EndInit();
+
+                    channelsCanvasBg.ImageSource = bg;
+                    return;
+                }
+            }
+
             bg.BeginInit();
             if (settingsManager.DarkMode)
                 bg.UriSource = new Uri($"{URI_RESOURCE_PATH}/Assets/bg_main_hd_dark.png");
@@ -892,20 +908,6 @@ namespace dvmconsole
             var menuItem = (MenuItem)sender;
             menuItem.Header = isEditMode ? "Disable Edit Mode" : "Enable Edit Mode";
             UpdateEditModeForWidgets();
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void ToggleDarkMode_Click(object sender, RoutedEventArgs e)
-        {
-            if (!windowLoaded)
-                return;
-
-            settingsManager.DarkMode = menuDarkMode.IsChecked;
-            UpdateBackground();
         }
 
         /// <summary>
@@ -1192,6 +1194,44 @@ namespace dvmconsole
                         });
                     }
                 }
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void ToggleDarkMode_Click(object sender, RoutedEventArgs e)
+        {
+            if (!windowLoaded)
+                return;
+
+            settingsManager.DarkMode = menuDarkMode.IsChecked;
+            UpdateBackground();
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void OpenUserBackground_Click(object sender, RoutedEventArgs e)
+        {
+            if (!windowLoaded)
+                return;
+
+            OpenFileDialog openFileDialog = new OpenFileDialog
+            {
+                Filter = "JPEG Files (*.jpg)|*.jpg|PNG Files (*.png)|*.png|All Files (*.*)|*.*",
+                Title = "Open User Background"
+            };
+
+            if (openFileDialog.ShowDialog() == true)
+            {
+                settingsManager.UserBackgroundImage = openFileDialog.FileName;
+                settingsManager.SaveSettings();
+                UpdateBackground();
             }
         }
 

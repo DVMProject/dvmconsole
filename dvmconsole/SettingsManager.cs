@@ -100,6 +100,11 @@ namespace dvmconsole
         /// </summary>
         public double CanvasHeight { get; set; } = MainWindow.MIN_HEIGHT;
 
+        /// <summary>
+        /// 
+        /// </summary>
+        public string UserBackgroundImage { get; set; } = null;
+
         /*
         ** Methods
         */
@@ -150,6 +155,8 @@ namespace dvmconsole
                         CanvasWidth = WindowWidth;
                     if (CanvasHeight < WindowHeight)
                         CanvasHeight = WindowHeight;
+
+                    UserBackgroundImage = loadedSettings.UserBackgroundImage;
 
                     return true;
                 }
