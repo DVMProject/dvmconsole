@@ -1128,51 +1128,6 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void ToggleEditMode_Click(object sender, RoutedEventArgs e)
-        {
-            isEditMode = !isEditMode;
-            var menuItem = (MenuItem)sender;
-            menuItem.Header = isEditMode ? "Disable Edit Mode" : "Enable Edit Mode";
-            UpdateEditModeForWidgets();
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void ResizeCanvasToWindow_Click(object sender, RoutedEventArgs e)
-        {
-            const double widthOffset = 16;
-            const double heightOffset = 115;
-
-            foreach (UIElement child in channelsCanvas.Children)
-            {
-                double childLeft = Canvas.GetLeft(child) + child.RenderSize.Width;
-                if (childLeft > ActualWidth)
-                    Canvas.SetLeft(child, ActualWidth - (child.RenderSize.Width + widthOffset));
-                double childBottom = Canvas.GetTop(child) + child.RenderSize.Height;
-                if (childBottom > ActualHeight)
-                    Canvas.SetTop(child, ActualHeight - (child.RenderSize.Height + heightOffset));
-            }
-
-            channelsCanvas.Width = ActualWidth;
-            canvasScrollViewer.Width = ActualWidth;
-            channelsCanvas.Height = ActualHeight;
-            canvasScrollViewer.Height = ActualHeight;
-
-            settingsManager.CanvasWidth = ActualWidth;
-            settingsManager.CanvasHeight = ActualHeight;
-
-            settingsManager.WindowWidth = ActualWidth;
-            settingsManager.WindowHeight = ActualHeight;
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
         private void SelectWidgets_Click(object sender, RoutedEventArgs e)
         {
             WidgetSelectionWindow widgetSelectionWindow = new WidgetSelectionWindow();
@@ -1232,20 +1187,6 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void ToggleDarkMode_Click(object sender, RoutedEventArgs e)
-        {
-            if (!windowLoaded)
-                return;
-
-            settingsManager.DarkMode = menuDarkMode.IsChecked;
-            UpdateBackground();
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
         private void OpenUserBackground_Click(object sender, RoutedEventArgs e)
         {
             if (!windowLoaded)
@@ -1263,6 +1204,65 @@ namespace dvmconsole
                 settingsManager.SaveSettings();
                 UpdateBackground();
             }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void ToggleDarkMode_Click(object sender, RoutedEventArgs e)
+        {
+            if (!windowLoaded)
+                return;
+
+            settingsManager.DarkMode = menuDarkMode.IsChecked;
+            UpdateBackground();
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void ToggleEditMode_Click(object sender, RoutedEventArgs e)
+        {
+            isEditMode = !isEditMode;
+            var menuItem = (MenuItem)sender;
+            menuItem.Header = isEditMode ? "Disable Edit Mode" : "Enable Edit Mode";
+            UpdateEditModeForWidgets();
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void ResizeCanvasToWindow_Click(object sender, RoutedEventArgs e)
+        {
+            const double widthOffset = 16;
+            const double heightOffset = 115;
+
+            foreach (UIElement child in channelsCanvas.Children)
+            {
+                double childLeft = Canvas.GetLeft(child) + child.RenderSize.Width;
+                if (childLeft > ActualWidth)
+                    Canvas.SetLeft(child, ActualWidth - (child.RenderSize.Width + widthOffset));
+                double childBottom = Canvas.GetTop(child) + child.RenderSize.Height;
+                if (childBottom > ActualHeight)
+                    Canvas.SetTop(child, ActualHeight - (child.RenderSize.Height + heightOffset));
+            }
+
+            channelsCanvas.Width = ActualWidth;
+            canvasScrollViewer.Width = ActualWidth;
+            channelsCanvas.Height = ActualHeight;
+            canvasScrollViewer.Height = ActualHeight;
+
+            settingsManager.CanvasWidth = ActualWidth;
+            settingsManager.CanvasHeight = ActualHeight;
+
+            settingsManager.WindowWidth = ActualWidth;
+            settingsManager.WindowHeight = ActualHeight;
         }
 
         /** Widget Controls */
