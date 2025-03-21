@@ -60,7 +60,7 @@ namespace dvmconsole.Controls
         public byte algId = 0;                                     // Algorithm ID
         public ushort kId = 0;                                     // Key ID
 
-        public List<byte[]> chunkedPcm = new List<byte[]>();
+        public List<byte[]> chunkedPCM = new List<byte[]>();
 
         public bool ExternalVocoderEnabled = false;
         public AmbeVocoder ExtFullRateVocoder = null;
