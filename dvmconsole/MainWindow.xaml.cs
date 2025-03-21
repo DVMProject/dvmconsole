@@ -344,7 +344,7 @@ namespace dvmconsole
                     // iterate through zone channels
                     foreach (var channel in zone.Channels)
                     {
-                        ChannelBox channelBox = new ChannelBox(selectedChannelsManager, audioManager, channel.Name, channel.System, channel.Tgid, true);
+                        ChannelBox channelBox = new ChannelBox(selectedChannelsManager, audioManager, channel.Name, channel.System, channel.Tgid, settingsManager.TogglePTTMode);
                         systemStatuses.Add(channel.Name, new SlotStatus());
 
                         if (settingsManager.ChannelPositions.TryGetValue(channel.Name, out var position))
