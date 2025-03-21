@@ -47,11 +47,6 @@ namespace dvmconsole.Controls
         /// </summary>
         public string AlertFilePath { get; set; }
 
-        /// <summary>
-        /// 
-        /// </summary>
-        public bool IsEditMode { get; set; }
-
         /*
         ** Events
         */
@@ -71,10 +66,6 @@ namespace dvmconsole.Controls
             InitializeComponent();
             AlertFilePath = alertFilePath;
             AlertFileName = System.IO.Path.GetFileNameWithoutExtension(alertFilePath);
-
-            this.MouseLeftButtonDown += AlertTone_MouseLeftButtonDown;
-            this.MouseMove += AlertTone_MouseMove;
-            this.MouseRightButtonDown += AlertTone_MouseRightButtonDown;
         }
 
         /// <summary>
@@ -85,62 +76,6 @@ namespace dvmconsole.Controls
         private void PlayAlert_Click(object sender, RoutedEventArgs e)
         {
             OnAlertTone.Invoke(this);
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void AlertTone_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-        {
-            if (!IsEditMode) return;
-
-            startPoint = e.GetPosition(this);
-            isDragging = true;
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void AlertTone_MouseMove(object sender, MouseEventArgs e)
-        {
-            if (isDragging && IsEditMode)
-            {
-                var parentCanvas = VisualTreeHelper.GetParent(this) as Canvas;
-                if (parentCanvas != null)
-                {
-                    Point mousePos = e.GetPosition(parentCanvas);
-                    double newLeft = mousePos.X - startPoint.X;
-                    double newTop = mousePos.Y - startPoint.Y;
-
-                    Canvas.SetLeft(this, Math.Max(0, newLeft));
-                    Canvas.SetTop(this, Math.Max(0, newTop));
-                }
-            }
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void AlertTone_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
-        {
-            if (!IsEditMode || !isDragging) return;
-
-            isDragging = false;
-
-            var parentCanvas = VisualTreeHelper.GetParent(this) as Canvas;
-            if (parentCanvas != null)
-            {
-                double x = Canvas.GetLeft(this);
-                double y = Canvas.GetTop(this);
-            }
-
-            ReleaseMouseCapture();
         }
     } // public partial class AlertTone : UserControl
 } // namespace dvmconsole.Controls

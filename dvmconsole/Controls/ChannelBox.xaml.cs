@@ -228,11 +228,6 @@ namespace dvmconsole.Controls
         public string VoiceChannel { get; set; }
 
         /// <summary>
-        /// Flag indicating whether or not edit mode is enabled.
-        /// </summary>
-        public bool IsEditMode { get; set; }
-
-        /// <summary>
         /// Flag indicating whether or not this channel is selected.
         /// </summary>
         public bool IsSelected
@@ -442,9 +437,6 @@ namespace dvmconsole.Controls
         /// </summary>
         private void UpdatePTTColor()
         {
-            if (IsEditMode)
-                return;
-
             if (PttState)
                 PttButton.Background = RED_GRADIENT;
             else
@@ -456,9 +448,6 @@ namespace dvmconsole.Controls
         /// </summary>
         private void UpdatePageColor()
         {
-            if (IsEditMode)
-                return;
-
             if (PageState)
                 PageSelectButton.Background = ORANGE_GRADIENT;
             else
@@ -467,9 +456,6 @@ namespace dvmconsole.Controls
 
         private void UpdateHoldColor()
         {
-            if (IsEditMode)
-                return;
-
             if (HoldState)
                 ChannelMarkerBtn.Background = ORANGE_GRADIENT;
             else
@@ -508,9 +494,6 @@ namespace dvmconsole.Controls
         /// <param name="e"></param>
         private void ChannelBox_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (IsEditMode)
-                return;
-
             IsSelected = !IsSelected;
             ControlBorder.Background = IsSelected ? BLUE_GRADIENT : DARK_GRAY_GRADIENT;
 

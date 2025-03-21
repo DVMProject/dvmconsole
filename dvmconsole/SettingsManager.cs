@@ -84,6 +84,11 @@ namespace dvmconsole
         public bool TogglePTTMode { get; set; } = true;
 
         /// <summary>
+        /// Flag indicating channel and other widgets are locked in place.
+        /// </summary>
+        public bool LockWidgets { get; set; } = true;
+
+        /// <summary>
         /// Flag indicating window maximized state.
         /// </summary>
         public bool Maximized { get; set; } = false;
@@ -145,6 +150,7 @@ namespace dvmconsole
                     AlertTonePositions = loadedSettings.AlertTonePositions ?? new Dictionary<string, ChannelPosition>();
                     ChannelOutputDevices = loadedSettings.ChannelOutputDevices ?? new Dictionary<string, int>();
                     TogglePTTMode = loadedSettings.TogglePTTMode;
+                    LockWidgets = loadedSettings.LockWidgets;
                     Maximized = loadedSettings.Maximized;
                     DarkMode = loadedSettings.DarkMode;
                     WindowWidth = loadedSettings.WindowWidth;

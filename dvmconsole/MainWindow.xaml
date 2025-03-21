@@ -46,6 +46,7 @@
                 <MenuItem Header="_Reset Settings" Click="ResetSettings_Click" />
                 <Separator />
                 <MenuItem Header="_Select Widgets to Display" Click="SelectWidgets_Click" />
+                <Separator />
                 <MenuItem Header="Alerts">
                     <MenuItem Header="Add Alert Tone" Click="AddAlertTone_Click" />
                 </MenuItem>
@@ -55,7 +56,7 @@
                 <Separator />
                 <MenuItem Header="_Dark Mode" IsCheckable="True" Checked="ToggleDarkMode_Click" Unchecked="ToggleDarkMode_Click" x:Name="menuDarkMode" />
                 <Separator />
-                <MenuItem Header="_Enable Edit Mode" IsCheckable="True" Checked="ToggleEditMode_Click" Unchecked="ToggleEditMode_Click" x:Name="menuEditMode" />
+                <MenuItem Header="_Lock Widgets" IsCheckable="True" Checked="ToggleLockWidgets_Click" Unchecked="ToggleLockWidgets_Click" x:Name="menuToggleLockWidgets" />
                 <MenuItem Header="_Fit Channel Display to Window Size" Click="ResizeCanvasToWindow_Click" x:Name="menuFitToWindow" />
             </MenuItem>
         </Menu>

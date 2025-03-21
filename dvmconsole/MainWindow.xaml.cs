@@ -37,6 +37,7 @@ using fnecore.P25;
 using fnecore.P25.LC.TSBK;
 using fnecore.P25.KMM;
 using System;
+using System.Windows.Media;
 
 namespace dvmconsole
 {
@@ -68,8 +69,6 @@ namespace dvmconsole
         public const double MIN_HEIGHT = 700;
 
         private const string URI_RESOURCE_PATH = "pack://application:,,,/dvmconsole;component";
-
-        private bool isEditMode = false;
 
         private bool globalPttState = false;
 
@@ -275,8 +274,9 @@ namespace dvmconsole
                         Canvas.SetTop(systemStatusBox, offsetY);
                     }
 
-                    systemStatusBox.MouseLeftButtonDown += SystemStatusBox_MouseLeftButtonDown;
-                    systemStatusBox.MouseLeftButtonUp += SystemStatusBox_MouseLeftButtonUp;
+                    // widget placement
+                    systemStatusBox.MouseRightButtonDown += SystemStatusBox_MouseRightButtonDown;
+                    systemStatusBox.MouseRightButtonUp += SystemStatusBox_MouseRightButtonUp;
                     systemStatusBox.MouseMove += SystemStatusBox_MouseMove;
 
                     channelsCanvas.Children.Add(systemStatusBox);
@@ -365,9 +365,11 @@ namespace dvmconsole
                         channelBox.PageButtonClicked += ChannelBox_PageButtonClicked;
                         channelBox.HoldChannelButtonClicked += ChannelBox_HoldChannelButtonClicked;
 
-                        channelBox.MouseLeftButtonDown += ChannelBox_MouseLeftButtonDown;
-                        channelBox.MouseLeftButtonUp += ChannelBox_MouseLeftButtonUp;
+                        // widget placement
+                        channelBox.MouseRightButtonDown += ChannelBox_MouseRightButtonDown;
+                        channelBox.MouseRightButtonUp += ChannelBox_MouseRightButtonUp;
                         channelBox.MouseMove += ChannelBox_MouseMove;
+
                         channelsCanvas.Children.Add(channelBox);
 
                         offsetX += 225;
@@ -387,8 +389,14 @@ namespace dvmconsole
                 // iterate through the alert tones and begin building alert tone widges
                 foreach (var alertPath in settingsManager.AlertToneFilePaths)
                 {
-                    AlertTone alertTone = new AlertTone(alertPath) { IsEditMode = isEditMode };
+                    AlertTone alertTone = new AlertTone(alertPath);
+
                     alertTone.OnAlertTone += SendAlertTone;
+
+                    // widget placement
+                    alertTone.MouseRightButtonDown += AlertTone_MouseRightButtonDown;
+                    alertTone.MouseRightButtonUp += AlertTone_MouseRightButtonUp;
+                    alertTone.MouseMove += AlertTone_MouseMove;
 
                     if (settingsManager.AlertTonePositions.TryGetValue(alertPath, out var position))
                     {
@@ -400,8 +408,6 @@ namespace dvmconsole
                         Canvas.SetLeft(alertTone, 20);
                         Canvas.SetTop(alertTone, 20);
                     }
-
-                    alertTone.MouseRightButtonUp += AlertTone_MouseRightButtonUp;
 
                     channelsCanvas.Children.Add(alertTone);
                 }
@@ -425,9 +431,11 @@ namespace dvmconsole
             playbackChannelBox.PageButtonClicked += ChannelBox_PageButtonClicked;
             playbackChannelBox.HoldChannelButtonClicked += ChannelBox_HoldChannelButtonClicked;
 
-            playbackChannelBox.MouseLeftButtonDown += ChannelBox_MouseLeftButtonDown;
-            playbackChannelBox.MouseLeftButtonUp += ChannelBox_MouseLeftButtonUp;
+            // widget placement
+            playbackChannelBox.MouseRightButtonDown += ChannelBox_MouseRightButtonDown;
+            playbackChannelBox.MouseRightButtonUp += ChannelBox_MouseRightButtonUp;
             playbackChannelBox.MouseMove += ChannelBox_MouseMove;
+
             channelsCanvas.Children.Add(playbackChannelBox);
 
             Cursor = Cursors.Arrow;
@@ -605,21 +613,6 @@ namespace dvmconsole
                     flashingManager.Start();
                     emergencyAlertPlayback.Start();
                 });
-            }
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        private void UpdateEditModeForWidgets()
-        {
-            foreach (var child in channelsCanvas.Children)
-            {
-                if (child is AlertTone alertTone)
-                    alertTone.IsEditMode = isEditMode;
-
-                if (child is ChannelBox channelBox)
-                    channelBox.IsEditMode = isEditMode;
             }
         }
 
@@ -811,6 +804,7 @@ namespace dvmconsole
             const double heightOffset = 115;
 
             // set PTT toggle mode (this must be done before channel widgets are defined)
+            menuToggleLockWidgets.IsChecked = settingsManager.LockWidgets;
             menuTogglePTTMode.IsChecked = settingsManager.TogglePTTMode;
 
             if (!string.IsNullOrEmpty(settingsManager.LastCodeplugPath) && File.Exists(settingsManager.LastCodeplugPath))
@@ -1161,9 +1155,14 @@ namespace dvmconsole
             if (openFileDialog.ShowDialog() == true)
             {
                 string alertFilePath = openFileDialog.FileName;
-                var alertTone = new AlertTone(alertFilePath) { IsEditMode = isEditMode };
+                var alertTone = new AlertTone(alertFilePath);
 
                 alertTone.OnAlertTone += SendAlertTone;
+
+                // widget placement
+                alertTone.MouseRightButtonDown += AlertTone_MouseRightButtonDown;
+                alertTone.MouseRightButtonUp += AlertTone_MouseRightButtonUp;
+                alertTone.MouseMove += AlertTone_MouseMove;
 
                 if (settingsManager.AlertTonePositions.TryGetValue(alertFilePath, out var position))
                 {
@@ -1175,8 +1174,6 @@ namespace dvmconsole
                     Canvas.SetLeft(alertTone, 20);
                     Canvas.SetTop(alertTone, 20);
                 }
-
-                alertTone.MouseRightButtonUp += AlertTone_MouseRightButtonUp;
 
                 channelsCanvas.Children.Add(alertTone);
                 settingsManager.UpdateAlertTonePaths(alertFilePath);
@@ -1226,12 +1223,12 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void ToggleEditMode_Click(object sender, RoutedEventArgs e)
+        private void ToggleLockWidgets_Click(object sender, RoutedEventArgs e)
         {
-            isEditMode = !isEditMode;
-            var menuItem = (MenuItem)sender;
-            menuItem.Header = isEditMode ? "Disable Edit Mode" : "Enable Edit Mode";
-            UpdateEditModeForWidgets();
+            if (!windowLoaded)
+                return;
+
+            settingsManager.LockWidgets = !settingsManager.LockWidgets;
         }
 
         /// <summary>
@@ -1398,9 +1395,10 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void ChannelBox_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        private void ChannelBox_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (!isEditMode || !(sender is UIElement element)) return;
+            if (settingsManager.LockWidgets || !(sender is UIElement element))
+                return;
 
             draggedElement = element;
             startPoint = e.GetPosition(channelsCanvas);
@@ -1418,9 +1416,9 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void ChannelBox_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        private void ChannelBox_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
         {
-            if (!isEditMode || !isDragging || draggedElement == null)
+            if (settingsManager.LockWidgets || !isDragging || draggedElement == null)
                 return;
 
             Cursor = Cursors.Arrow;
@@ -1437,7 +1435,7 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void ChannelBox_MouseMove(object sender, MouseEventArgs e)
         {
-            if (!isEditMode || !isDragging || draggedElement == null) 
+            if (settingsManager.LockWidgets || !isDragging || draggedElement == null) 
                 return;
 
             Point currentPosition = e.GetPosition(channelsCanvas);
@@ -1464,16 +1462,16 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void SystemStatusBox_MouseLeftButtonDown(object sender, MouseButtonEventArgs e) => ChannelBox_MouseLeftButtonDown(sender, e);
+        private void SystemStatusBox_MouseRightButtonDown(object sender, MouseButtonEventArgs e) => ChannelBox_MouseRightButtonDown(sender, e);
 
         /// <summary>
         /// 
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void SystemStatusBox_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        private void SystemStatusBox_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
         {
-            if (!isEditMode)
+            if (settingsManager.LockWidgets)
                 return;
 
             if (sender is SystemStatusBox systemStatusBox)
@@ -1482,7 +1480,7 @@ namespace dvmconsole
                 double y = Canvas.GetTop(systemStatusBox);
                 settingsManager.SystemStatusPositions[systemStatusBox.SystemName] = new ChannelPosition { X = x, Y = y };
 
-                ChannelBox_MouseLeftButtonUp(sender, e);
+                ChannelBox_MouseRightButtonUp(sender, e);
             }
         }
 
@@ -1498,17 +1496,34 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
+        private void AlertTone_MouseRightButtonDown(object sender, MouseButtonEventArgs e) => ChannelBox_MouseRightButtonDown(sender, e);
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void AlertTone_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
         {
-            if (!isEditMode) return;
+            if (settingsManager.LockWidgets)
+                return;
 
             if (sender is AlertTone alertTone)
             {
                 double x = Canvas.GetLeft(alertTone);
                 double y = Canvas.GetTop(alertTone);
-                settingsManager.UpdateAlertTonePosition(alertTone.AlertFilePath, x, y);
+                settingsManager.UpdateAlertTonePosition(alertTone.AlertFileName, x, y);
+
+                ChannelBox_MouseRightButtonUp(sender, e);
             }
         }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void AlertTone_MouseMove(object sender, MouseEventArgs e) => ChannelBox_MouseMove(sender, e);
 
         /** WPF Ribbon Controls */
 
