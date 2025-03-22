@@ -14,7 +14,11 @@
 
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
+
 using Newtonsoft.Json;
+
+using fnecore.Utility;
 
 namespace dvmconsole
 {
@@ -181,8 +185,19 @@ namespace dvmconsole
                     if (SaveTraceLog)
                         Log.SetupTextWriter(Environment.CurrentDirectory, "dvmconsole.log");
 
-                    Log.WriteLine("Digital Voice Modem - Desktop Dispatch Console");
-                    Log.WriteLine("Copyright (c) 2025 DVMProject (https://github.com/dvmproject) Authors.");
+                    Assembly asm = Assembly.GetExecutingAssembly();
+#if DEBUG
+                    SemVersion _SEM_VERSION = new SemVersion(asm, "DEBUG_FACTORY_LABTOOL");
+#else
+                    SemVersion _SEM_VERSION = new SemVersion(asm);
+#endif
+
+                    AssemblyProductAttribute asmProd = asm.GetCustomAttributes(typeof(AssemblyProductAttribute), false)[0] as AssemblyProductAttribute;
+                    AssemblyCopyrightAttribute asmCopyright = asm.GetCustomAttributes(typeof(AssemblyCopyrightAttribute), false)[0] as AssemblyCopyrightAttribute;
+                    DateTime buildDate = new DateTime(2000, 1, 1).AddDays(asm.GetName().Version.Build).AddSeconds(asm.GetName().Version.Revision * 2);
+
+                    Log.WriteLine($"{asmProd.Product} {_SEM_VERSION.ToString()} (Built: {buildDate.ToShortDateString() + " at " + buildDate.ToShortTimeString()})");
+                    Log.WriteLine($"{asmCopyright.Copyright}");
                     Log.WriteLine(">> Desktop Dispatch Console");
 
                     return true;

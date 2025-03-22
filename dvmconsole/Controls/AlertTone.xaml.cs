@@ -23,9 +23,6 @@ namespace dvmconsole.Controls
     /// </summary>
     public partial class AlertTone : UserControl
     {
-        private Point startPoint;
-        private bool isDragging;
-
         public static readonly DependencyProperty AlertFileNameProperty =
             DependencyProperty.Register("AlertFileName", typeof(string), typeof(AlertTone), new PropertyMetadata(string.Empty));
 

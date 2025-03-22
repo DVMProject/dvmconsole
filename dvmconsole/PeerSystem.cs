@@ -13,8 +13,11 @@
 */
 
 using System.Net;
+using System.Reflection;
 
 using fnecore;
+using fnecore.Utility;
+using NAudio.Mixer;
 
 namespace dvmconsole
 {
@@ -66,6 +69,11 @@ namespace dvmconsole
 
             FnePeer peer = new FnePeer("DVMCONSOLE", system.PeerId, endpoint, key);
 
+            Assembly asm = Assembly.GetExecutingAssembly();
+            SemVersion _SEM_VERSION = new SemVersion(asm);
+
+            string software = $"CONSOLE_R{_SEM_VERSION.Major.ToString("D2")}A{_SEM_VERSION.Minor.ToString("D2")}";
+
             // set configuration parameters
             peer.Passphrase = system.Password;
             peer.Information = new PeerInformation
@@ -73,7 +81,7 @@ namespace dvmconsole
                 Details = new PeerDetails
                 {
                     ConventionalPeer = true,
-                    Software = "DVMCONSOLE",
+                    Software = software,
                     Identity = system.Identity
                 }
             };

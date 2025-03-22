@@ -149,9 +149,6 @@ namespace dvmconsole.Controls
     {
         private VuMeterViewModel viewModel;
 
-        private Brush borderColor;
-        private Shape fillColor;
-
         /// <summary>
         /// 
         /// </summary>

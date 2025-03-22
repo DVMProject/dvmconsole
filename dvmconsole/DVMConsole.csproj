@@ -4,6 +4,7 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows7.0</TargetFramework>
     <Nullable>disable</Nullable>
+    <Deterministic>False</Deterministic>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <Platforms>AnyCPU;x64;x86</Platforms>
@@ -22,6 +23,7 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/DVMProject/dvmconsole</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
+    <AssemblyVersion>1.0.*</AssemblyVersion>
   </PropertyGroup>
 
   <ItemGroup>
