@@ -2692,7 +2692,7 @@ namespace dvmconsole
                     {
                         channel.IsReceiving = true;
                         systemStatuses[cpgChannel.Name + e.Slot].RxStart = pktTime;
-                        Log.WriteLine($"({system.Name}) DMRD: Traffic *CALL START     * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} [STREAM ID {e.StreamId}]");
+                        Log.WriteLine($"({system.Name}) DMRD: Traffic *CALL START     * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} Slot {e.Slot} [STREAM ID {e.StreamId}]");
 
                         // if we can, use the LC from the voice header as to keep all options intact
                         if ((e.FrameType == FrameType.DATA_SYNC) && (e.DataType == DMRDataType.VOICE_LC_HEADER))
@@ -2742,7 +2742,7 @@ namespace dvmconsole
                     {
                         channel.IsReceiving = false;
                         TimeSpan callDuration = pktTime - systemStatuses[cpgChannel.Name + e.Slot].RxStart;
-                        Log.WriteLine($"({system.Name}) DMRD: Traffic *CALL END       * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} DUR {callDuration} [STREAM ID {e.StreamId}]");
+                        Log.WriteLine($"({system.Name}) DMRD: Traffic *CALL END       * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} Slot {e.Slot} DUR {callDuration} [STREAM ID {e.StreamId}]");
                         channel.Background = ChannelBox.BLUE_GRADIENT;
                         channel.VolumeMeterLevel = 0;
                         callHistoryWindow.ChannelUnkeyed(cpgChannel.Name, (int)e.SrcId);
@@ -2839,7 +2839,7 @@ namespace dvmconsole
                     {
                         channel.IsReceiving = true;
                         slot.RxStart = pktTime;
-                        Log.WriteLine($"({system.Name}) P25D: Traffic *CALL START     * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} [STREAM ID {e.StreamId}]");
+                        Log.WriteLine($"({system.Name}) P25D: Traffic *CALL START     * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
 
                         FneUtils.Memset(channel.mi, 0x00, P25Defines.P25_MI_LENGTH);
 
