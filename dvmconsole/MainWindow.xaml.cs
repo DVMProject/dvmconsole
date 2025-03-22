@@ -1905,7 +1905,7 @@ namespace dvmconsole
             {
                 double x = Canvas.GetLeft(alertTone);
                 double y = Canvas.GetTop(alertTone);
-                settingsManager.UpdateAlertTonePosition(alertTone.AlertFileName, x, y);
+                settingsManager.UpdateAlertTonePosition(alertTone.AlertFilePath, x, y);
 
                 ChannelBox_MouseRightButtonUp(sender, e);
             }
