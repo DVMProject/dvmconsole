@@ -43,7 +43,7 @@ namespace dvmconsole
 
             try
             {
-                byte slot = 1; // TODO: Support both time slots
+                byte slot = (byte)(cpgChannel.Slot - 1);
 
                 byte[] data = null, dmrpkt = null;
                 channel.dmrN = (byte)(channel.dmrSeqNo % 6);
@@ -196,7 +196,7 @@ namespace dvmconsole
 
                     if (samples != null)
                     {
-                        //Log.WriteLine($"({system.SystemName}) DMRD: Traffic *VOICE FRAME    * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} TS {e.Slot + 1} VC{e.n}.{n} ERRS {errs} [STREAM ID {e.StreamId}]");
+                        Log.WriteLine($"({system.SystemName}) DMRD: Traffic *VOICE FRAME    * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} TS {e.Slot + 1} VC{e.n}.{n} ERRS {errs} [STREAM ID {e.StreamId}]");
                         // Log.Logger.Debug($"PARTIAL AMBE {FneUtils.HexDump(ambePartial)}");
                         // Log.Logger.Debug($"SAMPLE BUFFER {FneUtils.HexDump(samples)}");
 
@@ -264,7 +264,7 @@ namespace dvmconsole
                     {
                         channel.IsReceiving = true;
                         systemStatuses[cpgChannel.Name + e.Slot].RxStart = pktTime;
-                        Log.WriteLine($"({system.Name}) DMRD: Traffic *CALL START     * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} Slot {e.Slot} [STREAM ID {e.StreamId}]");
+                        Log.WriteLine($"({system.Name}) DMRD: Traffic *CALL START     * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} TS {e.Slot} [STREAM ID {e.StreamId}]");
 
                         // if we can, use the LC from the voice header as to keep all options intact
                         if ((e.FrameType == FrameType.DATA_SYNC) && (e.DataType == DMRDataType.VOICE_LC_HEADER))
@@ -314,7 +314,7 @@ namespace dvmconsole
                     {
                         channel.IsReceiving = false;
                         TimeSpan callDuration = pktTime - systemStatuses[cpgChannel.Name + e.Slot].RxStart;
-                        Log.WriteLine($"({system.Name}) DMRD: Traffic *CALL END       * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} Slot {e.Slot} DUR {callDuration} [STREAM ID {e.StreamId}]");
+                        Log.WriteLine($"({system.Name}) DMRD: Traffic *CALL END       * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} TS {e.Slot} DUR {callDuration} [STREAM ID {e.StreamId}]");
                         channel.Background = ChannelBox.BLUE_GRADIENT;
                         channel.VolumeMeterLevel = 0;
                         callHistoryWindow.ChannelUnkeyed(cpgChannel.Name, (int)e.SrcId);

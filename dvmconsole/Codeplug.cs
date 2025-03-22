@@ -9,7 +9,7 @@
 *
 *   Copyright (C) 2024-2025 Caleb, K4PHP
 *   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
- *  Copyright (C) 2025 Steven Jennison, KD8RHO
+*   Copyright (C) 2025 Steven Jennison, KD8RHO
 *
 */
 
@@ -22,6 +22,16 @@ namespace dvmconsole
     /// </summary>
     public class Codeplug
     {
+        /// <summary>
+        /// Enumeration of channel modes.
+        /// </summary>
+        public enum ChannelMode
+        {
+            DMR = 0,
+            NXDN = 1,
+            P25 = 2
+        } // public enum ChannelMode
+
         /*
         ** Properties
         */
@@ -31,11 +41,11 @@ namespace dvmconsole
         /// </summary>
         public string KeyFile { get; set; } = null;
         /// <summary>
-        /// 
+        /// List of systems.
         /// </summary>
         public List<System> Systems { get; set; }
         /// <summary>
-        /// 
+        /// List of zones.
         /// </summary>
         public List<Zone> Zones { get; set; }
 
@@ -53,41 +63,46 @@ namespace dvmconsole
             */
             
             /// <summary>
-            /// 
+            /// Textual name for system.
             /// </summary>
             public string Name { get; set; }
+
             /// <summary>
-            /// 
+            /// Textual identity string reported to the FNE core.
             /// </summary>
             public string Identity { get; set; }
             /// <summary>
-            /// 
+            /// IP/hostname of the FNE.
             /// </summary>
             public string Address { get; set; }
             /// <summary>
-            /// 
-            /// </summary>
-            public string Password { get; set; }
-            /// <summary>
-            /// 
-            /// </summary>
-            public string PresharedKey { get; set; }
-            /// <summary>
-            /// 
-            /// </summary>
-            public bool Encrypted { get; set; }
-            /// <summary>
-            /// 
-            /// </summary>
-            public uint PeerId { get; set; }
-            /// <summary>
-            /// 
+            /// Port number for the FNE connection.
             /// </summary>
             public int Port { get; set; }
             /// <summary>
-            /// 
+            /// Authentication password.
+            /// </summary>
+            public string Password { get; set; }
+
+            /// <summary>
+            /// Preshared Encryption key.
+            /// </summary>
+            public string PresharedKey { get; set; }
+            /// <summary>
+            /// Flag indicating whether or not the connection to the FNE is encrypted.
+            /// </summary>
+            public bool Encrypted { get; set; }
+
+            /// <summary>
+            /// Unique Peer ID.
+            /// </summary>
+            public uint PeerId { get; set; }
+
+            /// <summary>
+            /// Unique Radio ID.
             /// </summary>
             public string Rid { get; set; }
+
             /// <summary>
             /// 
             /// </summary>
@@ -112,7 +127,7 @@ namespace dvmconsole
         } // public class System
 
         /// <summary>
-        /// 
+        /// Data structure representation of the data for a zone.
         /// </summary>
         public class Zone
         {
@@ -121,17 +136,17 @@ namespace dvmconsole
             */
 
             /// <summary>
-            /// 
+            /// Textual name for zone.
             /// </summary>
             public string Name { get; set; }
             /// <summary>
-            /// 
+            /// List of channels in the zone.
             /// </summary>
             public List<Channel> Channels { get; set; }
         } // public class Zone
 
         /// <summary>
-        /// 
+        /// Data structure representation of the data for a channel.
         /// </summary>
         public class Channel
         {
@@ -140,31 +155,31 @@ namespace dvmconsole
             */
 
             /// <summary>
-            /// 
+            /// Textual name for channel.
             /// </summary>
             public string Name { get; set; }
             /// <summary>
-            /// 
+            /// Textual name for system channel is a member of.
             /// </summary>
             public string System { get; set; }
             /// <summary>
-            /// 
+            /// Talkgroup ID.
             /// </summary>
             public string Tgid { get; set; }
             /// <summary>
-            /// 
+            /// DMR Timeslot.
             /// </summary>
-            public string EncryptionKey { get; set; }
+            public int Slot { get; set; }
             /// <summary>
-            /// 
+            /// Textual algorithm name.
             /// </summary>
             public string Algo { get; set; } = "none";
             /// <summary>
-            /// 
+            /// Encryption Key ID.
             /// </summary>
             public string KeyId { get; set; }
             /// <summary>
-            /// 
+            /// Digital Voice Mode.
             /// </summary>
             public string Mode { get; set; } = "p25";
 
@@ -173,7 +188,7 @@ namespace dvmconsole
             */
 
             /// <summary>
-            /// 
+            /// Helper to return the key ID as a numeric value from a string.
             /// </summary>
             /// <returns></returns>
             public ushort GetKeyId()
@@ -182,7 +197,7 @@ namespace dvmconsole
             }
 
             /// <summary>
-            /// 
+            /// Helper to return the algorithm ID from the configured algorithm type string.
             /// </summary>
             /// <returns></returns>
             public byte GetAlgoId()
@@ -199,41 +214,17 @@ namespace dvmconsole
             }
 
             /// <summary>
-            /// 
-            /// </summary>
-            /// <returns></returns>
-            public byte[] GetEncryptionKey()
-            {
-                if (EncryptionKey == null)
-                    return [];
-
-                return EncryptionKey.Split(',').Select(s => Convert.ToByte(s.Trim(), 16)).ToArray();
-            }
-
-            /// <summary>
-            /// 
+            /// Helper to return the channel mode.
             /// </summary>
             /// <returns></returns>
             public ChannelMode GetChannelMode()
             {
                 if (Enum.TryParse(typeof(ChannelMode), Mode, ignoreCase: true, out var result))
-                {
                     return (ChannelMode)result;
-                }
 
                 return ChannelMode.P25;
             }
         } // public class Channel
-
-        /// <summary>
-        /// 
-        /// </summary>
-        public enum ChannelMode
-        {
-            DMR = 0,
-            NXDN = 1,
-            P25 = 2
-        } // public enum ChannelMode
 
         /// <summary>
         /// Helper to return a system by looking up a <see cref="Channel"/>
@@ -252,9 +243,9 @@ namespace dvmconsole
         /// <returns></returns>
         public System GetSystemForChannel(string channelName)
         {
-            foreach (var zone in Zones)
+            foreach (Zone zone in Zones)
             {
-                var channel = zone.Channels.FirstOrDefault(c => c.Name == channelName);
+                Channel channel = zone.Channels.FirstOrDefault(c => c.Name == channelName);
                 if (channel != null)
                     return Systems.FirstOrDefault(s => s.Name == channel.System);
             }
@@ -269,9 +260,9 @@ namespace dvmconsole
         /// <returns></returns>
         public Channel GetChannelByName(string channelName)
         {
-            foreach (var zone in Zones)
+            foreach (Zone zone in Zones)
             {
-                var channel = zone.Channels.FirstOrDefault(c => c.Name == channelName);
+                Channel channel = zone.Channels.FirstOrDefault(c => c.Name == channelName);
                 if (channel != null)
                     return channel;
             }

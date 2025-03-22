@@ -298,6 +298,12 @@ namespace dvmconsole
                             channel.Name = channel.Name.Substring(0, MAX_CHANNEL_NAME_LEN);
                             Log.WriteLine($"{original} CHANNEL NAME was greater then {MAX_CHANNEL_NAME_LEN} characters, truncated {channel.Name}");
                         }
+
+                        // clamp slot value
+                        if (channel.Slot <= 0)
+                            channel.Slot = 1;
+                        if (channel.Slot > 2)
+                            channel.Slot = 1;
                     }
                 }
 
