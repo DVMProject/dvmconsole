@@ -37,6 +37,7 @@ using fnecore.DMR;
 using fnecore.P25;
 using fnecore.P25.KMM;
 using fnecore.P25.LC.TSBK;
+using static dvmconsole.Codeplug;
 
 namespace dvmconsole
 {
@@ -68,6 +69,9 @@ namespace dvmconsole
         public const double MIN_HEIGHT = 700;
         public const int MBE_SAMPLES_LENGTH = 160;
         public const int PCM_SAMPLES_LENGTH = 320; // MBE_SAMPLES_LENGTH * 2
+
+        public const int MAX_SYSTEM_NAME_LEN = 10;
+        public const int MAX_CHANNEL_NAME_LEN = 15;
 
         private const string INVALID_SYSTEM = "INVALID SYSTEM";
         private const string INVALID_CODEPLUG_CHANNEL = "INVALID CODEPLUG CHANNEL";
@@ -242,6 +246,61 @@ namespace dvmconsole
                 string yaml = File.ReadAllText(filePath);
                 Codeplug = deserializer.Deserialize<Codeplug>(yaml);
 
+                // perform codeplug validation
+                List<string> errors = new List<string>();
+
+                // ensure string lengths are acceptable
+                // systems
+                Dictionary<string, string> replacedSystemNames = new Dictionary<string, string>();
+                foreach (Codeplug.System system in Codeplug.Systems)
+                {
+                    // ensure system name is less then or equals to the max
+                    if (system.Name.Length > MAX_SYSTEM_NAME_LEN)
+                    {
+                        string original = system.Name;
+                        system.Name = system.Name.Substring(0, MAX_SYSTEM_NAME_LEN);
+                        replacedSystemNames.Add(original, system.Name);
+                        Log.WriteLine($"{original} SYSTEM NAME was greater then {MAX_SYSTEM_NAME_LEN} characters, truncated {system.Name}");
+                    }
+                }
+
+                // zones
+                foreach (Codeplug.Zone zone in Codeplug.Zones)
+                {
+                    // channels
+                    foreach (Codeplug.Channel channel in zone.Channels)
+                    {
+                        if (Codeplug.Systems.Find((x) => x.Name == channel.System) == null)
+                            errors.Add($"{channel.Name} refers to an {INVALID_SYSTEM} {channel.System}.");
+
+                        // because we possibly truncated system names above lets see if we
+                        // have to replaced the related system name
+                        if (replacedSystemNames.ContainsKey(channel.System))
+                            channel.System = replacedSystemNames[channel.System];
+
+                        // ensure channel name is less then or equals to the max
+                        if (channel.Name.Length > MAX_CHANNEL_NAME_LEN)
+                        {
+                            string original = channel.Name;
+                            channel.Name = channel.Name.Substring(0, MAX_CHANNEL_NAME_LEN);
+                            Log.WriteLine($"{original} CHANNEL NAME was greater then {MAX_CHANNEL_NAME_LEN} characters, truncated {channel.Name}");
+                        }
+                    }
+                }
+
+                // compile list of errors and throw up a messagebox of doom
+                if (errors.Count > 0)
+                {
+                    string newLine = Environment.NewLine + Environment.NewLine;
+                    string messageBoxString = $"Loaded codeplug {filePath} contains errors. {PLEASE_CHECK_CODEPLUG}" + newLine;
+                    foreach (string error in errors)
+                        messageBoxString += error + newLine;
+                    messageBoxString = messageBoxString.TrimEnd(new char[] { '\r', '\n' });
+
+                    MessageBox.Show(messageBoxString, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+
+                // generate widgets and enable controls
                 GenerateChannelWidgets();
                 EnableControls();
             }
@@ -356,6 +415,8 @@ namespace dvmconsole
                     foreach (var channel in zone.Channels)
                     {
                         ChannelBox channelBox = new ChannelBox(selectedChannelsManager, audioManager, channel.Name, channel.System, channel.Tgid, settingsManager.TogglePTTMode);
+                        channelBox.ChannelMode = channel.Mode.ToUpperInvariant();
+
                         systemStatuses.Add(channel.Name, new SlotStatus());
 
                         if (settingsManager.ChannelPositions.TryGetValue(channel.Name, out var position))
@@ -425,6 +486,7 @@ namespace dvmconsole
 
             // initialize the playback channel
             playbackChannelBox = new ChannelBox(selectedChannelsManager, audioManager, PLAYBACKCHNAME, PLAYBACKSYS, PLAYBACKTG);
+            playbackChannelBox.ChannelMode = "Local";
 
             if (settingsManager.ChannelPositions.TryGetValue(PLAYBACKCHNAME, out var pos))
             {

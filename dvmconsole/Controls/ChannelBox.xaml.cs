@@ -89,6 +89,10 @@ namespace dvmconsole.Controls
         /// </summary>
         public string ChannelName { get; set; }
         /// <summary>
+        /// Textual mode of the channel.
+        /// </summary>
+        public string ChannelMode { get; set; }
+        /// <summary>
         /// Textual name of system channel belongs to.
         /// </summary>
         public string SystemName { get; set; }
@@ -375,6 +379,7 @@ namespace dvmconsole.Controls
             flashingBackgroundManager = new FlashingBackgroundManager(this);
 
             ChannelName = channelName;
+            ChannelMode = "P25";
             DstId = dstId;
             SystemName = $"System: {systemName}";
             LastSrcId = $"Last ID: {LastSrcId}";

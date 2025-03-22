@@ -38,7 +38,14 @@
 
             <!-- Main Info Section -->
             <StackPanel Grid.Column="1" HorizontalAlignment="Left" Width="119" Margin="48,0,0,1" Grid.RowSpan="2" Grid.ColumnSpan="2">
-                <TextBlock Text="{Binding ChannelName}" FontWeight="Bold" Foreground="White" FontSize="12"/>
+                <TextBlock x:Name="ChannelTextBlock" FontWeight="Bold" Foreground="White" FontSize="12">
+                    <TextBlock.Text>
+                        <MultiBinding StringFormat="{}{0} ({1})">
+                            <Binding Path="ChannelName" />
+                            <Binding Path="ChannelMode" />
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
                 <TextBlock Text="{Binding LastSrcId}" Foreground="Gold" FontSize="10"/>
                 <TextBlock Text="{Binding SystemName}" Foreground="Gold" FontSize="10"/>
             </StackPanel>
