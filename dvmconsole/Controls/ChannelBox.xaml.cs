@@ -149,6 +149,11 @@ namespace dvmconsole.Controls
         public bool IsReceivingEncrypted { get; set; } = false;
 
         /// <summary>
+        /// Flag indicating whether or not the console is transmitting with encryption.
+        /// </summary>
+        public bool IsTxEncrypted { get; set; } = false;
+
+        /// <summary>
         /// Last Source ID received.
         /// </summary>
         public string LastSrcId
@@ -447,12 +452,26 @@ namespace dvmconsole.Controls
         }
 
         /// <summary>
+        /// Helper to hide the PTT button.
+        /// </summary>
+        public void HidePTTButton()
+        {
+            PttButton.IsEnabled = false;
+            PttButton.Visibility = Visibility.Hidden;
+        }
+
+        /// <summary>
         /// 
         /// </summary>
         private void UpdatePTTColor()
         {
             if (PttState)
-                PttButton.Background = RED_GRADIENT;
+            {
+                if (IsTxEncrypted)
+                    PttButton.Background = ORANGE_GRADIENT;
+                else
+                    PttButton.Background = RED_GRADIENT;
+            }
             else
                 PttButton.Background = GRAY_GRADIENT;
         }

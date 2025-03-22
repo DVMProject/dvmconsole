@@ -416,6 +416,8 @@ namespace dvmconsole
                     {
                         ChannelBox channelBox = new ChannelBox(selectedChannelsManager, audioManager, channel.Name, channel.System, channel.Tgid, settingsManager.TogglePTTMode);
                         channelBox.ChannelMode = channel.Mode.ToUpperInvariant();
+                        if (channel.GetAlgoId() != P25Defines.P25_ALGO_UNENCRYPT && channel.GetKeyId() > 0)
+                            channelBox.IsTxEncrypted = true;
 
                         systemStatuses.Add(channel.Name, new SlotStatus());
 
@@ -487,6 +489,7 @@ namespace dvmconsole
             // initialize the playback channel
             playbackChannelBox = new ChannelBox(selectedChannelsManager, audioManager, PLAYBACKCHNAME, PLAYBACKSYS, PLAYBACKTG);
             playbackChannelBox.ChannelMode = "Local";
+            playbackChannelBox.HidePTTButton(); // playback box shouldn't have PTT
 
             if (settingsManager.ChannelPositions.TryGetValue(PLAYBACKCHNAME, out var pos))
             {
@@ -499,7 +502,6 @@ namespace dvmconsole
                 Canvas.SetTop(playbackChannelBox, offsetY);
             }
 
-            playbackChannelBox.PTTButtonClicked += ChannelBox_PTTButtonClicked;
             playbackChannelBox.PageButtonClicked += ChannelBox_PageButtonClicked;
             playbackChannelBox.HoldChannelButtonClicked += ChannelBox_HoldChannelButtonClicked;
 
