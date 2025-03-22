@@ -471,7 +471,7 @@ namespace dvmconsole
                         if (offsetX + 220 > channelsCanvas.ActualWidth)
                         {
                             offsetX = 20;
-                            offsetY += 106;
+                            offsetY += 116;
                         }
                     }
                 }
