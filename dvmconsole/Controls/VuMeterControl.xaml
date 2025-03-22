@@ -1,0 +1,43 @@
+﻿<UserControl x:Class="dvmconsole.Controls.VuMeterControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:local="clr-namespace:dvmconsole.Controls" d:DataContext="{d:DesignInstance Type=local:VuMeterViewModel}"
+             mc:Ignorable="d" d:DesignHeight="16" d:DesignWidth="200">
+    <Border x:Name="ControlBorder" BorderBrush="#FF979797" BorderThickness="1,1,1,1" CornerRadius="6,6,0,0">
+        <Grid x:Name="Container">
+            <Grid.Resources>
+                <LinearGradientBrush x:Key="VuMeterBrush">
+                    <LinearGradientBrush.GradientStops>
+                        <GradientStop Color="Green" Offset="0"/>
+                        <GradientStop Color="LightGreen" Offset="0.1"/>
+                        <GradientStop Color="Yellow" Offset="0.60"/>
+                        <GradientStop Color="Orange" Offset="0.7"/>
+                        <GradientStop Color="Red" Offset="0.9"/>
+                    </LinearGradientBrush.GradientStops>
+                </LinearGradientBrush>
+            </Grid.Resources>
+
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <Border x:Name="backgroundRect" BorderThickness="1" Grid.Column="2" Grid.ZIndex="1" Height="14" HorizontalAlignment="Stretch"
+                    CornerRadius="5,5,0,0" BorderBrush="#FF979797" Background="#FF979797">
+            </Border>
+            <Border BorderThickness="1" Grid.Column="2" Grid.ZIndex="2" Height="6" HorizontalAlignment="Stretch" Margin="0.15,0,0.15,0"
+                    CornerRadius="4,4,0,0" BorderBrush="{StaticResource VuMeterBrush}" Background="{StaticResource VuMeterBrush}">
+            </Border>
+            <Rectangle x:Name="maskRect" Grid.Column="2" Grid.ZIndex="3" Height="8" HorizontalAlignment="Right" Margin="0,1,0,0" Fill="#FF979797">
+                <Rectangle.Width>
+                    <MultiBinding Converter="{x:Static local:SizePercentConverter.Instance}">
+                        <Binding ElementName="Container" Path="ActualWidth" FallbackValue="100"/>
+                        <Binding Path="InvertedLevel" FallbackValue="1"/>
+                    </MultiBinding>
+                </Rectangle.Width>
+            </Rectangle>
+        </Grid>
+    </Border>
+</UserControl>

@@ -26,7 +26,7 @@ using fnecore.P25;
 namespace dvmconsole.Controls
 {
     /// <summary>
-    /// 
+    /// Interaction logic for ChannelBox.xaml.
     /// </summary>
     public partial class ChannelBox : UserControl, INotifyPropertyChanged
     {
@@ -86,6 +86,8 @@ namespace dvmconsole.Controls
 
         private bool pttToggleMode = false;
 
+        private bool isPrimary = false;
+
         /*
         ** Properties
         */
@@ -113,7 +115,11 @@ namespace dvmconsole.Controls
         public new Brush Background
         {
             get => ControlBorder.Background;
-            set => ControlBorder.Background = value;
+            set
+            {
+                ControlBorder.Background = value;
+                SetVolumeMeterBg(value);
+            }
         }
 
         /*
@@ -268,14 +274,19 @@ namespace dvmconsole.Controls
             }
         }
 
-        private bool isPrimary = false;
+        /// <summary>
+        /// 
+        /// </summary>
         public bool IsPrimary
         {
             get => isPrimary;
             set
             {
                 isPrimary = value;
-                UpdateBackground();
+                Dispatcher.Invoke(() =>
+                {
+                    UpdateBackground();
+                });
             }
         }
 
@@ -306,7 +317,7 @@ namespace dvmconsole.Controls
                 OnPropertyChanged(nameof(VolumeMeterLevel));
                 Dispatcher.Invoke(() =>
                 {
-                    VolumeMeter.Value = 100 * value;
+                    VolumeMeter.ViewModel.Level = value;
                 });
             }
         }
@@ -340,8 +351,8 @@ namespace dvmconsole.Controls
                 EndPoint = new Point(0.5, 1)
             };
 
-            DARK_GRAY_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0979797"), 0.485));
-            DARK_GRAY_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0686767"), 0.517));
+            DARK_GRAY_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0979797"), 0.535));
+            DARK_GRAY_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0686767"), 0.567));
 
             BLUE_GRADIENT = new LinearGradientBrush
             {
@@ -349,8 +360,8 @@ namespace dvmconsole.Controls
                 EndPoint = new Point(0.5, 1)
             };
 
-            BLUE_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0150189"), 0.485));
-            BLUE_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F00B004B"), 0.517));
+            BLUE_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0150189"), 0.535));
+            BLUE_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F00B004B"), 0.567));
 
             RED_GRADIENT = new LinearGradientBrush
             {
@@ -358,8 +369,8 @@ namespace dvmconsole.Controls
                 EndPoint = new Point(0.5, 1)
             };
 
-            RED_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0FF0000"), 0.485));
-            RED_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0C60000"), 0.517));
+            RED_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0FF0000"), 0.535));
+            RED_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0C60000"), 0.567));
 
             GREEN_GRADIENT = new LinearGradientBrush
             {
@@ -367,8 +378,8 @@ namespace dvmconsole.Controls
                 EndPoint = new Point(0.5, 1)
             };
 
-            GREEN_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F000AF00"), 0.485));
-            GREEN_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0008E00"), 0.517));
+            GREEN_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F000AF00"), 0.535));
+            GREEN_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0008E00"), 0.567));
 
             ORANGE_GRADIENT = new LinearGradientBrush
             {
@@ -376,8 +387,8 @@ namespace dvmconsole.Controls
                 EndPoint = new Point(0.5, 1)
             };
 
-            ORANGE_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0FFAF00"), 0.485));
-            ORANGE_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0C68700"), 0.517));
+            ORANGE_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0FFAF00"), 0.535));
+            ORANGE_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0C68700"), 0.567));
             BORDER_DEFAULT = new Border
             {
                 BorderBrush = new SolidColorBrush(Colors.LightGray),
@@ -418,6 +429,9 @@ namespace dvmconsole.Controls
             DstId = dstId;
             SystemName = $"System: {systemName}";
             LastSrcId = $"Last ID: {LastSrcId}";
+
+            VolumeMeter.ViewModel = new VuMeterViewModel();
+            VolumeMeter.ViewModel.Level = 0;
 
             UpdateBackground();
 
@@ -544,6 +558,23 @@ namespace dvmconsole.Controls
                     ControlBorder.BorderBrush = BORDER_DEFAULT.BorderBrush;
             else
                 ControlBorder.BorderBrush = BORDER_DEFAULT.BorderBrush;
+
+            SetVolumeMeterBg(ControlBorder.Background);
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="bg"></param>
+        private void SetVolumeMeterBg(Brush bg)
+        {
+            if (bg is LinearGradientBrush)
+            {
+                LinearGradientBrush gradient = bg as LinearGradientBrush;
+                VolumeMeter.SetBackground(new SolidColorBrush(gradient.GradientStops[0].Color));
+            }
+            else
+                VolumeMeter.SetBackground(bg);
         }
 
         /// <summary>
