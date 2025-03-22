@@ -17,7 +17,7 @@ The DDC software requires the library dependancies below. Generally, the softwar
 
 ### Build Instructions
 
-1. Clone the repository. `git clone https://github.com/DVMProject/dvmconsole.git`
+1. Clone the repository. `git clone --recurse-submodules https://github.com/DVMProject/dvmconsole.git`
 2. Switch into the "dvmconsole" folder.
 3. Open the "dvmconsole.sln" with Visual Studio.
 4. Select "x86" as the CPU type.
