@@ -307,6 +307,7 @@ namespace dvmconsole
             catch (Exception ex)
             {
                 MessageBox.Show($"Error loading codeplug: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                Log.StackTrace(ex, false);
                 DisableControls();
             }
         }
@@ -394,9 +395,10 @@ namespace dvmconsole
                         {
                             peer.Start();
                         }
-                        catch (Exception e)
+                        catch (Exception ex)
                         {
                             MessageBox.Show($"Fatal error while connecting to server. {e.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                            Log.StackTrace(ex, false);
                         }
                     });
 
@@ -747,6 +749,7 @@ namespace dvmconsole
                 catch (Exception ex)
                 {
                     MessageBox.Show($"Failed to process alert tone: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    Log.StackTrace(ex, false);
                 }
             }
             else
@@ -2496,6 +2499,7 @@ namespace dvmconsole
             catch (Exception ex)
             {
                 Log.WriteLine($"Audio Decode Exception: {ex.Message}");
+                Log.StackTrace(ex, false);
             }
         }
 
@@ -2624,9 +2628,10 @@ namespace dvmconsole
                 Buffer.BlockCopy(ambe, 0, channel.ambeBuffer, channel.ambeCount * 9, FneSystemBase.AMBE_BUF_LEN);
 
                 channel.ambeCount++;
-            } catch (Exception ex)
+            } 
+            catch (Exception ex)
             {
-                Log.StackTrace(ex);
+                Log.StackTrace(ex, false);
             }
         }
 
@@ -2688,6 +2693,7 @@ namespace dvmconsole
             catch (Exception ex)
             {
                 Log.WriteError($"Audio Decode Exception: {ex.Message}");
+                Log.StackTrace(ex, false);
             }
         }
 
