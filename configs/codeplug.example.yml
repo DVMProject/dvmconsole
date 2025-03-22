@@ -42,7 +42,7 @@ zones:
         tgid: "2001"
         # Encryption Key Id (If 0 or blank, will be assumed clear)
         keyId: 0x50
-        # Algorithm AES ("aes"), ADP/ARC4 ("arc4"), None ("none")
+        # Algorithm AES ("aes"), DES-OFB ("des"), ADP/ARC4 ("arc4"), None ("none")
         algo: "aes"
         # Ignored now, we use dvmfne KMM support (This will be used in the future to ovveride FNE KMM support)
         encryptionKey: null

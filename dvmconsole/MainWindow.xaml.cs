@@ -651,122 +651,125 @@ namespace dvmconsole
             {
                 try
                 {
-                    var channel = selectedChannelsManager.PrimaryChannel;
-                    if (channel == null)
+                    ChannelBox primaryChannel = selectedChannelsManager.PrimaryChannel;
+                    List<ChannelBox> channelsToProcess = primaryChannel != null
+                        ? new List<ChannelBox> { primaryChannel }
+                        : selectedChannelsManager.GetSelectedChannels().ToList();
+
+                    foreach (ChannelBox channel in channelsToProcess)
                     {
-                        return;
-                    }
 
-                    if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
-                        return;
+                        if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                            return;
 
-                    Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
-                    if (system == null)
-                    {
-                        Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
-                        channel.IsSelected = false;
-                        selectedChannelsManager.RemoveSelectedChannel(channel);
-                        return;
-                    }
+                        Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
+                        if (system == null)
+                        {
+                            Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
+                            channel.IsSelected = false;
+                            selectedChannelsManager.RemoveSelectedChannel(channel);
+                            return;
+                        }
 
-                    Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                    if (cpgChannel == null)
-                    {
-                        Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
-                        channel.IsSelected = false;
-                        selectedChannelsManager.RemoveSelectedChannel(channel);
-                        return;
-                    }
+                        Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
+                        if (cpgChannel == null)
+                        {
+                            Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
+                            channel.IsSelected = false;
+                            selectedChannelsManager.RemoveSelectedChannel(channel);
+                            return;
+                        }
 
-                    PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
-                    if (fne == null)
-                    {
-                        Log.WriteLine($"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
-                        channel.IsSelected = false;
-                        selectedChannelsManager.RemoveSelectedChannel(channel);
-                        return;
-                    }
+                        PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
+                        if (fne == null)
+                        {
+                            Log.WriteLine($"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
+                            channel.IsSelected = false;
+                            selectedChannelsManager.RemoveSelectedChannel(channel);
+                            return;
+                        }
 
-                    //
-                    if (channel.PageState || (forHold && channel.HoldState))
-                    {
-                        byte[] pcmData;
+                        if (channel.PageState || (forHold && channel.HoldState) || primaryChannel != null)
+                        {
+                            byte[] pcmData;
 
-                        Task.Run(async () => {
-                            using (var waveReader = new WaveFileReader(filePath))
+                            Task.Run(async () =>
                             {
-                                if (waveReader.WaveFormat.Encoding != WaveFormatEncoding.Pcm ||
-                                    waveReader.WaveFormat.SampleRate != 8000 ||
-                                    waveReader.WaveFormat.BitsPerSample != 16 ||
-                                    waveReader.WaveFormat.Channels != 1)
+                                using (var waveReader = new WaveFileReader(filePath))
                                 {
-                                    MessageBox.Show("The alert tone must be PCM 16-bit, Mono, 8000Hz format.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                                    return;
-                                }
-
-                                using (MemoryStream ms = new MemoryStream())
-                                {
-                                    waveReader.CopyTo(ms);
-                                    pcmData = ms.ToArray();
-                                }
-                            }
-
-                            int chunkSize = 1600;
-                            int totalChunks = (pcmData.Length + chunkSize - 1) / chunkSize;
-
-                            if (pcmData.Length % chunkSize != 0)
-                            {
-                                byte[] paddedData = new byte[totalChunks * chunkSize];
-                                Buffer.BlockCopy(pcmData, 0, paddedData, 0, pcmData.Length);
-                                pcmData = paddedData;
-                            }
-
-                            Task.Run(() =>
-                            {
-                                audioManager.AddTalkgroupStream(cpgChannel.Tgid, pcmData);
-                            });
-
-                            DateTime startTime = DateTime.UtcNow;
-
-                            for (int i = 0; i < totalChunks; i++)
-                            {
-                                int offset = i * chunkSize;
-                                byte[] chunk = new byte[chunkSize];
-                                Buffer.BlockCopy(pcmData, offset, chunk, 0, chunkSize);
-
-                                channel.chunkedPCM = AudioConverter.SplitToChunks(chunk);
-
-                                foreach (byte[] audioChunk in channel.chunkedPCM)
-                                {
-                                    if (audioChunk.Length == PCM_SAMPLES_LENGTH)
+                                    if (waveReader.WaveFormat.Encoding != WaveFormatEncoding.Pcm ||
+                                        waveReader.WaveFormat.SampleRate != 8000 ||
+                                        waveReader.WaveFormat.BitsPerSample != 16 ||
+                                        waveReader.WaveFormat.Channels != 1)
                                     {
-                                        if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                                            P25EncodeAudioFrame(audioChunk, fne, channel, cpgChannel, system);
-                                        else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                                            DMREncodeAudioFrame(audioChunk, fne, channel, cpgChannel, system);
+                                        MessageBox.Show("The alert tone must be PCM 16-bit, Mono, 8000Hz format.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                                        return;
+                                    }
+
+                                    using (MemoryStream ms = new MemoryStream())
+                                    {
+                                        waveReader.CopyTo(ms);
+                                        pcmData = ms.ToArray();
                                     }
                                 }
 
-                                DateTime nextPacketTime = startTime.AddMilliseconds((i + 1) * 100);
-                                TimeSpan waitTime = nextPacketTime - DateTime.UtcNow;
+                                int chunkSize = 1600;
+                                int totalChunks = (pcmData.Length + chunkSize - 1) / chunkSize;
 
-                                if (waitTime.TotalMilliseconds > 0)
-                                    await Task.Delay(waitTime);
-                            }
+                                if (pcmData.Length % chunkSize != 0)
+                                {
+                                    byte[] paddedData = new byte[totalChunks * chunkSize];
+                                    Buffer.BlockCopy(pcmData, 0, paddedData, 0, pcmData.Length);
+                                    pcmData = paddedData;
+                                }
 
-                            double totalDurationMs = ((double)pcmData.Length / 16000) + 250;
-                            await Task.Delay((int)totalDurationMs + 3000);
+                                Task.Run(() =>
+                                {
+                                    audioManager.AddTalkgroupStream(cpgChannel.Tgid, pcmData);
+                                });
 
-                            fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
+                                DateTime startTime = DateTime.UtcNow;
 
-                            Dispatcher.Invoke(() =>
-                            {
-                                if (forHold)
-                                    channel.PttButton.Background = ChannelBox.GRAY_GRADIENT;
-                                else
-                                    channel.PageState = false;
+                                for (int i = 0; i < totalChunks; i++)
+                                {
+                                    int offset = i * chunkSize;
+                                    byte[] chunk = new byte[chunkSize];
+                                    Buffer.BlockCopy(pcmData, offset, chunk, 0, chunkSize);
+
+                                    channel.chunkedPCM = AudioConverter.SplitToChunks(chunk);
+
+                                    foreach (byte[] audioChunk in channel.chunkedPCM)
+                                    {
+                                        if (audioChunk.Length == PCM_SAMPLES_LENGTH)
+                                        {
+                                            if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                                                P25EncodeAudioFrame(audioChunk, fne, channel, cpgChannel, system);
+                                            else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                                                DMREncodeAudioFrame(audioChunk, fne, channel, cpgChannel, system);
+                                        }
+                                    }
+
+                                    DateTime nextPacketTime = startTime.AddMilliseconds((i + 1) * 100);
+                                    TimeSpan waitTime = nextPacketTime - DateTime.UtcNow;
+
+                                    if (waitTime.TotalMilliseconds > 0)
+                                        await Task.Delay(waitTime);
+                                }
+
+                                double totalDurationMs = ((double)pcmData.Length / 16000) + 250;
+                                await Task.Delay((int)totalDurationMs + 3000);
+
+                                fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
+
+                                Dispatcher.Invoke(() =>
+                                {
+                                    if (forHold)
+                                        channel.PttButton.Background = ChannelBox.GRAY_GRADIENT;
+                                    else
+                                        channel.PageState = false;
+                                });
                             });
-                        });
+                        }
                     }
                 }
                 catch (Exception ex)

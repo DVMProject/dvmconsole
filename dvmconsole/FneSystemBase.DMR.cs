@@ -11,11 +11,8 @@
 *
 */
 
-using System.Diagnostics;
 using fnecore;
 using fnecore.DMR;
-
-using NAudio.Wave;
 
 namespace dvmconsole
 {

@@ -206,6 +206,8 @@ namespace dvmconsole
                 {
                     case "aes":
                         return P25Defines.P25_ALGO_AES;
+                    case "des":
+                        return P25Defines.P25_ALGO_DES;
                     case "arc4":
                         return P25Defines.P25_ALGO_ARC4;
                     default:
