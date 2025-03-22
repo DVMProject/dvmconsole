@@ -632,6 +632,24 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// Helper to reset channel states.
+        /// </summary>
+        /// <param name="e"></param>
+        private void ResetChannel(ChannelBox e)
+        {
+            // reset values
+            e.p25SeqNo = 0;
+            e.p25N = 0;
+
+            e.dmrSeqNo = 0;
+            e.dmrN = 0;
+
+            e.pktSeq = 0;
+
+            e.TxStreamId = 0;
+        }
+
+        /// <summary>
         /// 
         /// </summary>
         /// <param name="e"></param>
@@ -730,6 +748,13 @@ namespace dvmconsole
 
                                 DateTime startTime = DateTime.UtcNow;
 
+                                if (channel.TxStreamId != 0)
+                                    Log.WriteWarning($"{channel.ChannelName} CHANNEL still had a TxStreamId? This shouldn't happen.");
+
+                                channel.TxStreamId = fne.NewStreamId();
+                                Log.WriteLine($"({system.Name}) {channel.ChannelMode.ToUpperInvariant()} Traffic *ALRT TONE      * TGID {channel.DstId} [STREAM ID {channel.TxStreamId}]");
+                                channel.VolumeMeterLevel = 0;
+
                                 for (int i = 0; i < totalChunks; i++)
                                 {
                                     int offset = i * chunkSize;
@@ -760,6 +785,8 @@ namespace dvmconsole
                                 await Task.Delay((int)totalDurationMs + 3000);
 
                                 fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
+
+                                ResetChannel(channel);
 
                                 Dispatcher.Invoke(() =>
                                 {
@@ -1644,15 +1671,7 @@ namespace dvmconsole
                     fne.SendDMRTerminator(srcId, dstId, 1, e.dmrSeqNo, e.dmrN, e.embeddedData);
 
                 // reset values
-                e.p25SeqNo = 0;
-                e.p25N = 0;
-
-                e.dmrSeqNo = 0;
-                e.dmrN = 0;
-
-                e.pktSeq = 0;
-
-                e.TxStreamId = 0;
+                ResetChannel(e);
             }
         }
 
@@ -1770,16 +1789,7 @@ namespace dvmconsole
                 else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
                     fne.SendDMRTerminator(srcId, dstId, 1, e.dmrSeqNo, e.dmrN, e.embeddedData);
 
-                // reset values
-                e.p25SeqNo = 0;
-                e.p25N = 0;
-
-                e.dmrSeqNo = 0;
-                e.dmrN = 0;
-
-                e.pktSeq = 0;
-
-                e.TxStreamId = 0;
+                ResetChannel(e);
             }
         }
 
