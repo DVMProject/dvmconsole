@@ -1462,13 +1462,37 @@ namespace dvmconsole
                 return;
 
             Codeplug.System system = Codeplug.GetSystemForChannel(e.ChannelName);
+            if (system == null)
+            {
+                MessageBox.Show($"{e.ChannelName} refers to an {INVALID_SYSTEM} {e.SystemName}. {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                e.IsSelected = false;
+                selectedChannelsManager.RemoveSelectedChannel(e);
+                return;
+            }
+
             Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(e.ChannelName);
-            PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
+            if (cpgChannel == null)
+            {
+                // bryanb: this should actually never happen...
+                MessageBox.Show($"{e.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                e.IsSelected = false;
+                selectedChannelsManager.RemoveSelectedChannel(e);
+                return;
+            }
+
+            PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
+            if (fne == null)
+            {
+                MessageBox.Show($"{e.ChannelName} has a {ERR_INVALID_FNE_REF}. {PLEASE_RESTART_CONSOLE}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                e.IsSelected = false;
+                selectedChannelsManager.RemoveSelectedChannel(e);
+                return;
+            }
 
             if (e.PageState)
-                handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
+                fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
             else
-                handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
+                fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
         }
 
         /// <summary>
@@ -1482,8 +1506,32 @@ namespace dvmconsole
                 return;
 
             Codeplug.System system = Codeplug.GetSystemForChannel(e.ChannelName);
+            if (system == null)
+            {
+                MessageBox.Show($"{e.ChannelName} refers to an {INVALID_SYSTEM} {e.SystemName}. {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                e.IsSelected = false;
+                selectedChannelsManager.RemoveSelectedChannel(e);
+                return;
+            }
+
             Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(e.ChannelName);
-            PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
+            if (cpgChannel == null)
+            {
+                // bryanb: this should actually never happen...
+                MessageBox.Show($"{e.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                e.IsSelected = false;
+                selectedChannelsManager.RemoveSelectedChannel(e);
+                return;
+            }
+
+            PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
+            if (fne == null)
+            {
+                MessageBox.Show($"{e.ChannelName} has a {ERR_INVALID_FNE_REF}. {PLEASE_RESTART_CONSOLE}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                e.IsSelected = false;
+                selectedChannelsManager.RemoveSelectedChannel(e);
+                return;
+            }
 
             if (!e.IsSelected)
                 return;
@@ -1495,17 +1543,24 @@ namespace dvmconsole
 
             if (e.PttState)
             {
-                e.TxStreamId = handler.NewStreamId();
+                if (e.TxStreamId != 0)
+                    Log.WriteWarning($"{e.ChannelName} CHANNEL still had a TxStreamId? This shouldn't happen.");
+
+                e.TxStreamId = fne.NewStreamId();
+                Log.WriteLine($"({system.Name}) {e.ChannelMode.ToUpperInvariant()} Traffic *CALL START     * SRC_ID {srcId} TGID {dstId} [STREAM ID {e.TxStreamId}]");
                 e.VolumeMeterLevel = 0;
-                handler.SendP25TDU(srcId, dstId, true);
+                if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                    fne.SendP25TDU(srcId, dstId, true);
             }
             else
             {
                 e.VolumeMeterLevel = 0;
+                Log.WriteLine($"({system.Name}) {e.ChannelMode.ToUpperInvariant()} Traffic *CALL END       * SRC_ID {srcId} TGID {dstId} [STREAM ID {e.TxStreamId}]");
                 if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                    handler.SendP25TDU(srcId, dstId, false);
+                    fne.SendP25TDU(srcId, dstId, false);
                 else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                    handler.SendDMRTerminator(srcId, dstId, 1, e.dmrSeqNo, e.dmrN, e.embeddedData);
+                    fne.SendDMRTerminator(srcId, dstId, 1, e.dmrSeqNo, e.dmrN, e.embeddedData);
+                e.TxStreamId = 0;
             }
         }
 
@@ -1558,9 +1613,14 @@ namespace dvmconsole
                 uint srcId = uint.Parse(system.Rid);
                 uint dstId = uint.Parse(cpgChannel.Tgid);
 
+                if (e.TxStreamId != 0)
+                    Log.WriteWarning($"{e.ChannelName} CHANNEL still had a TxStreamId? This shouldn't happen.");
+
                 e.TxStreamId = fne.NewStreamId();
+                Log.WriteLine($"({system.Name}) {e.ChannelMode.ToUpperInvariant()} Traffic *CALL START     * SRC_ID {srcId} TGID {dstId} [STREAM ID {e.TxStreamId}]");
                 e.VolumeMeterLevel = 0;
-                fne.SendP25TDU(srcId, dstId, true);
+                if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                    fne.SendP25TDU(srcId, dstId, true);
             }
         }
 
@@ -1611,8 +1671,13 @@ namespace dvmconsole
                 uint srcId = uint.Parse(system.Rid);
                 uint dstId = uint.Parse(cpgChannel.Tgid);
 
+                Log.WriteLine($"({system.Name}) {e.ChannelMode.ToUpperInvariant()} Traffic *CALL END       * SRC_ID {srcId} TGID {dstId} [STREAM ID {e.TxStreamId}]");
                 e.VolumeMeterLevel = 0;
-                fne.SendP25TDU(srcId, dstId, false);
+                if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                    fne.SendP25TDU(srcId, dstId, false);
+                else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                    fne.SendDMRTerminator(srcId, dstId, 1, e.dmrSeqNo, e.dmrN, e.embeddedData);
+                e.TxStreamId = 0;
             }
         }
 
@@ -1991,7 +2056,12 @@ namespace dvmconsole
         /// <summary>
         /// Helper to encode and transmit PCM audio as P25 IMBE frames.
         /// </summary>
-        private void P25EncodeAudioFrame(byte[] pcm, PeerSystem handler, ChannelBox channel, Codeplug.Channel cpgChannel, Codeplug.System system)
+        /// <param name="pcm"></param>
+        /// <param name="fne"></param>
+        /// <param name="channel"></param>
+        /// <param name="cpgChannel"></param>
+        /// <param name="system"></param>
+        private void P25EncodeAudioFrame(byte[] pcm, PeerSystem fne, ChannelBox channel, Codeplug.Channel cpgChannel, Codeplug.System system)
         {
             bool encryptCall = true; // TODO: make this dynamic somewhere?
 
@@ -2176,13 +2246,17 @@ namespace dvmconsole
             uint srcId = uint.Parse(system.Rid);
             uint dstId = uint.Parse(cpgChannel.Tgid);
 
-            FnePeer peer = handler.peer;
+            FnePeer peer = fne.peer;
             RemoteCallData callData = new RemoteCallData()
             {
                 SrcId = srcId,
                 DstId = dstId,
                 LCO = P25Defines.LC_GROUP
             };
+
+            // make sure we have a valid stream ID
+            if (channel.TxStreamId == 0)
+                Log.WriteWarning($"({channel.SystemName}) P25D: Traffic *VOICE FRAME    * Stream ID not set for traffic? Shouldn't happen.");
 
             // send P25 LDU1
             if (channel.p25N == 8U)
@@ -2193,11 +2267,11 @@ namespace dvmconsole
                 else
                     pktSeq = peer.pktSeq();
 
-                Log.WriteLine($"({channel.SystemName}) P25D: Traffic *VOICE FRAME    * PEER {handler.PeerId} SRC_ID {srcId} TGID {dstId} [STREAM ID {channel.TxStreamId}]");
+                Log.WriteLine($"({channel.SystemName}) P25D: Traffic *VOICE FRAME LDU1* PEER {fne.PeerId} SRC_ID {srcId} TGID {dstId} [STREAM ID {channel.TxStreamId}]");
 
                 byte[] payload = new byte[200];
-                handler.CreateNewP25MessageHdr((byte)P25DUID.LDU1, callData, ref payload, cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
-                handler.CreateP25LDU1Message(channel.netLDU1, ref payload, srcId, dstId);
+                fne.CreateNewP25MessageHdr((byte)P25DUID.LDU1, callData, ref payload, cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
+                fne.CreateP25LDU1Message(channel.netLDU1, ref payload, srcId, dstId);
 
                 peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_P25), payload, pktSeq, channel.TxStreamId);
             }
@@ -2211,11 +2285,11 @@ namespace dvmconsole
                 else
                     pktSeq = peer.pktSeq();
 
-                Log.WriteLine($"({channel.SystemName}) P25D: Traffic *VOICE FRAME    * PEER {handler.PeerId} SRC_ID {srcId} TGID {dstId} [STREAM ID {channel.TxStreamId}]");
+                Log.WriteLine($"({channel.SystemName}) P25D: Traffic *VOICE FRAME LDU2* PEER {fne.PeerId} SRC_ID {srcId} TGID {dstId} [STREAM ID {channel.TxStreamId}]");
 
                 byte[] payload = new byte[200];
-                handler.CreateNewP25MessageHdr((byte)P25DUID.LDU2, callData, ref payload, cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
-                handler.CreateP25LDU2Message(channel.netLDU2, ref payload, new CryptoParams { AlgId = cpgChannel.GetAlgoId(), KeyId = cpgChannel.GetKeyId(), MI = channel.mi });
+                fne.CreateNewP25MessageHdr((byte)P25DUID.LDU2, callData, ref payload, cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
+                fne.CreateP25LDU2Message(channel.netLDU2, ref payload, new CryptoParams { AlgId = cpgChannel.GetAlgoId(), KeyId = cpgChannel.GetKeyId(), MI = channel.mi });
 
                 peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_P25), payload, pktSeq, channel.TxStreamId);
             }
@@ -2229,6 +2303,10 @@ namespace dvmconsole
         /// </summary>
         /// <param name="ldu"></param>
         /// <param name="e"></param>
+        /// <param name="system"></param>
+        /// <param name="channel"></param>
+        /// <param name="emergency"></param>
+        /// <param name="duid"></param>
         private void P25DecodeAudioFrame(byte[] ldu, P25DataReceivedEvent e, PeerSystem system, ChannelBox channel, bool emergency = false, P25DUID duid = P25DUID.LDU1)
         {
             try
@@ -2295,7 +2373,7 @@ namespace dvmconsole
 
                     if (samples != null)
                     {
-                        //Log.WriteLine($"P25D: Traffic *VOICE FRAME    * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} VC{n} [STREAM ID {e.StreamId}]");
+                        Log.WriteLine($"P25D: Traffic *VOICE FRAME    * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} VC{n} [STREAM ID {e.StreamId}]");
 
                         channel.VolumeMeterLevel = 0;
 
@@ -2340,10 +2418,16 @@ namespace dvmconsole
         /// Helper to encode and transmit PCM audio as DMR AMBE frames.
         /// </summary>
         /// <param name="pcm"></param>
-        /// <param name="forcedSrcId"></param>
-        /// <param name="forcedDstId"></param>
-        private void DMREncodeAudioFrame(byte[] pcm, PeerSystem handler, ChannelBox channel, Codeplug.Channel cpgChannel, Codeplug.System system)
+        /// <param name="fne"></param>
+        /// <param name="channel"></param>
+        /// <param name="cpgChannel"></param>
+        /// <param name="system"></param>
+        private void DMREncodeAudioFrame(byte[] pcm, PeerSystem fne, ChannelBox channel, Codeplug.Channel cpgChannel, Codeplug.System system)
         {
+            // make sure we have a valid stream ID
+            if (channel.TxStreamId == 0)
+                Log.WriteWarning($"({channel.SystemName}) DMRD: Traffic *VOICE FRAME    * Stream ID not set for traffic? Shouldn't happen.");
+
             try
             {
                 byte slot = 1; // TODO: Support both time slots
@@ -2357,7 +2441,7 @@ namespace dvmconsole
                     // is this the intitial sequence?
                     if (channel.dmrSeqNo == 0)
                     {
-                        pktSeq = handler.peer.pktSeq(true);
+                        pktSeq = fne.peer.pktSeq(true);
 
                         // send DMR voice header
                         data = new byte[FneSystemBase.DMR_FRAME_LENGTH_BYTES];
@@ -2378,15 +2462,15 @@ namespace dvmconsole
 
                         // generate DMR network frame
                         dmrpkt = new byte[FneSystemBase.DMR_PACKET_SIZE];
-                        handler.CreateDMRMessage(ref dmrpkt, uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), slot, FrameType.VOICE_SYNC, (byte)channel.dmrSeqNo, 0);
+                        fne.CreateDMRMessage(ref dmrpkt, uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), slot, FrameType.VOICE_SYNC, (byte)channel.dmrSeqNo, 0);
                         Buffer.BlockCopy(data, 0, dmrpkt, 20, FneSystemBase.DMR_FRAME_LENGTH_BYTES);
 
-                        handler.peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_DMR), dmrpkt, pktSeq, channel.TxStreamId);
+                        fne.peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_DMR), dmrpkt, pktSeq, channel.TxStreamId);
 
                         channel.dmrSeqNo++;
                     }
 
-                    pktSeq = handler.peer.pktSeq();
+                    pktSeq = fne.peer.pktSeq();
 
                     // send DMR voice
                     data = new byte[FneSystemBase.DMR_FRAME_LENGTH_BYTES];
@@ -2414,10 +2498,10 @@ namespace dvmconsole
 
                     // generate DMR network frame
                     dmrpkt = new byte[FneSystemBase.DMR_PACKET_SIZE];
-                    handler.CreateDMRMessage(ref dmrpkt, uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), 1, frameType, (byte)channel.dmrSeqNo, channel.dmrN);
+                    fne.CreateDMRMessage(ref dmrpkt, uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), 1, frameType, (byte)channel.dmrSeqNo, channel.dmrN);
                     Buffer.BlockCopy(data, 0, dmrpkt, 20, FneSystemBase.DMR_FRAME_LENGTH_BYTES);
 
-                    handler.peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_DMR), dmrpkt, pktSeq, channel.TxStreamId);
+                    fne.peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_DMR), dmrpkt, pktSeq, channel.TxStreamId);
 
                     channel.dmrSeqNo++;
 
@@ -2465,6 +2549,8 @@ namespace dvmconsole
         /// </summary>
         /// <param name="ambe"></param>
         /// <param name="e"></param>
+        /// <param name="system"></param>
+        /// <param name="channel"></param>
         private void DMRDecodeAudioFrame(byte[] ambe, DMRDataReceivedEvent e, PeerSystem system, ChannelBox channel)
         {
             try

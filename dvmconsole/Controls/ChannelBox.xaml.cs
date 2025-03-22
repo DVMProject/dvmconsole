@@ -585,8 +585,8 @@ namespace dvmconsole.Controls
                 PttButton_Click(sender, e);
             else
             {
-                PttState = true;
                 PTTButtonPressed?.Invoke(sender, this);
+                PttState = true;
             }
         }
 
