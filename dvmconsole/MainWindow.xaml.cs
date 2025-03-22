@@ -10,7 +10,7 @@
 *   Copyright (C) 2024-2025 Caleb, K4PHP
 *   Copyright (C) 2025 J. Dean
 *   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
-*   Copyright (C) 2025 Steven Jennison, KD8RHO  
+*   Copyright (C) 2025 Steven Jennison, KD8RHO
 *
 */
 
@@ -46,8 +46,8 @@ namespace dvmconsole
     public class ChannelPosition
     {
         /*
-        ** Properties
-        */
+         ** Properties
+         */
 
         /// <summary>
         /// X
@@ -120,8 +120,8 @@ namespace dvmconsole
         private bool selectAll = false;
 
         /*
-        ** Properties
-        */
+         ** Properties
+         */
 
         /// <summary>
         /// Codeplug
@@ -129,8 +129,8 @@ namespace dvmconsole
         public Codeplug Codeplug { get; set; }
 
         /*
-        ** Methods
-        */
+         ** Methods
+         */
 
         /// <summary>
         /// Initializes a new instance of the <see cref="MainWindow"/> class.
@@ -168,8 +168,21 @@ namespace dvmconsole
             btnGlobalPtt.MouseRightButtonDown += btnGlobalPtt_MouseRightButtonDown;
 
             selectedChannelsManager.SelectedChannelsChanged += SelectedChannelsChanged;
+            selectedChannelsManager.PrimaryChannelChanged += PrimaryChannelChanged;
             SizeChanged += MainWindow_SizeChanged;
             Loaded += MainWindow_Loaded;
+        }
+
+        private void PrimaryChannelChanged()
+        {
+            var primaryChannel = selectedChannelsManager.PrimaryChannel;
+            foreach (UIElement element in channelsCanvas.Children)
+            {
+                if (element is ChannelBox box)
+                {
+                    box.IsPrimary = box == primaryChannel;
+                }
+            }
         }
 
         /// <summary>
@@ -631,119 +644,122 @@ namespace dvmconsole
             {
                 try
                 {
-                    foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
+                    var channel = selectedChannelsManager.PrimaryChannel;
+                    if (channel == null)
                     {
-                        if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
-                            continue;
+                        return;
+                    }
 
-                        Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
-                        if (system == null)
-                        {
-                            Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
-                            channel.IsSelected = false;
-                            selectedChannelsManager.RemoveSelectedChannel(channel);
-                            continue;
-                        }
+                    if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                        return;
 
-                        Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                        if (cpgChannel == null)
-                        {
-                            Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
-                            channel.IsSelected = false;
-                            selectedChannelsManager.RemoveSelectedChannel(channel);
-                            continue;
-                        }
+                    Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
+                    if (system == null)
+                    {
+                        Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
+                        channel.IsSelected = false;
+                        selectedChannelsManager.RemoveSelectedChannel(channel);
+                        return;
+                    }
 
-                        PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
-                        if (fne == null)
-                        {
-                            Log.WriteLine($"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
-                            channel.IsSelected = false;
-                            selectedChannelsManager.RemoveSelectedChannel(channel);
-                            continue;
-                        }
+                    Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
+                    if (cpgChannel == null)
+                    {
+                        Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
+                        channel.IsSelected = false;
+                        selectedChannelsManager.RemoveSelectedChannel(channel);
+                        return;
+                    }
 
-                        //
-                        if (channel.PageState || (forHold && channel.HoldState))
-                        {
-                            byte[] pcmData;
+                    PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
+                    if (fne == null)
+                    {
+                        Log.WriteLine($"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
+                        channel.IsSelected = false;
+                        selectedChannelsManager.RemoveSelectedChannel(channel);
+                        return;
+                    }
 
-                            Task.Run(async () => {
-                                using (var waveReader = new WaveFileReader(filePath))
+                    //
+                    if (channel.PageState || (forHold && channel.HoldState))
+                    {
+                        byte[] pcmData;
+
+                        Task.Run(async () => {
+                            using (var waveReader = new WaveFileReader(filePath))
+                            {
+                                if (waveReader.WaveFormat.Encoding != WaveFormatEncoding.Pcm ||
+                                    waveReader.WaveFormat.SampleRate != 8000 ||
+                                    waveReader.WaveFormat.BitsPerSample != 16 ||
+                                    waveReader.WaveFormat.Channels != 1)
                                 {
-                                    if (waveReader.WaveFormat.Encoding != WaveFormatEncoding.Pcm ||
-                                        waveReader.WaveFormat.SampleRate != 8000 ||
-                                        waveReader.WaveFormat.BitsPerSample != 16 ||
-                                        waveReader.WaveFormat.Channels != 1)
-                                    {
-                                        MessageBox.Show("The alert tone must be PCM 16-bit, Mono, 8000Hz format.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                                        return;
-                                    }
-
-                                    using (MemoryStream ms = new MemoryStream())
-                                    {
-                                        waveReader.CopyTo(ms);
-                                        pcmData = ms.ToArray();
-                                    }
+                                    MessageBox.Show("The alert tone must be PCM 16-bit, Mono, 8000Hz format.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                                    return;
                                 }
 
-                                int chunkSize = 1600;
-                                int totalChunks = (pcmData.Length + chunkSize - 1) / chunkSize;
-
-                                if (pcmData.Length % chunkSize != 0)
+                                using (MemoryStream ms = new MemoryStream())
                                 {
-                                    byte[] paddedData = new byte[totalChunks * chunkSize];
-                                    Buffer.BlockCopy(pcmData, 0, paddedData, 0, pcmData.Length);
-                                    pcmData = paddedData;
+                                    waveReader.CopyTo(ms);
+                                    pcmData = ms.ToArray();
                                 }
+                            }
 
-                                Task.Run(() =>
-                                {
-                                    audioManager.AddTalkgroupStream(cpgChannel.Tgid, pcmData);
-                                });
+                            int chunkSize = 1600;
+                            int totalChunks = (pcmData.Length + chunkSize - 1) / chunkSize;
 
-                                DateTime startTime = DateTime.UtcNow;
+                            if (pcmData.Length % chunkSize != 0)
+                            {
+                                byte[] paddedData = new byte[totalChunks * chunkSize];
+                                Buffer.BlockCopy(pcmData, 0, paddedData, 0, pcmData.Length);
+                                pcmData = paddedData;
+                            }
 
-                                for (int i = 0; i < totalChunks; i++)
-                                {
-                                    int offset = i * chunkSize;
-                                    byte[] chunk = new byte[chunkSize];
-                                    Buffer.BlockCopy(pcmData, offset, chunk, 0, chunkSize);
-
-                                    channel.chunkedPCM = AudioConverter.SplitToChunks(chunk);
-
-                                    foreach (byte[] audioChunk in channel.chunkedPCM)
-                                    {
-                                        if (audioChunk.Length == PCM_SAMPLES_LENGTH)
-                                        {
-                                            if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                                                P25EncodeAudioFrame(audioChunk, fne, channel, cpgChannel, system);
-                                            else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                                                DMREncodeAudioFrame(audioChunk, fne, channel, cpgChannel, system);
-                                        }
-                                    }
-
-                                    DateTime nextPacketTime = startTime.AddMilliseconds((i + 1) * 100);
-                                    TimeSpan waitTime = nextPacketTime - DateTime.UtcNow;
-
-                                    if (waitTime.TotalMilliseconds > 0)
-                                        await Task.Delay(waitTime);
-                                }
-
-                                double totalDurationMs = ((double)pcmData.Length / 16000) + 250;
-                                await Task.Delay((int)totalDurationMs + 3000);
-
-                                fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
-
-                                Dispatcher.Invoke(() =>
-                                {
-                                    if (forHold)
-                                        channel.PttButton.Background = ChannelBox.GRAY_GRADIENT;
-                                    else
-                                        channel.PageState = false;
-                                });
+                            Task.Run(() =>
+                            {
+                                audioManager.AddTalkgroupStream(cpgChannel.Tgid, pcmData);
                             });
-                        }
+
+                            DateTime startTime = DateTime.UtcNow;
+
+                            for (int i = 0; i < totalChunks; i++)
+                            {
+                                int offset = i * chunkSize;
+                                byte[] chunk = new byte[chunkSize];
+                                Buffer.BlockCopy(pcmData, offset, chunk, 0, chunkSize);
+
+                                channel.chunkedPCM = AudioConverter.SplitToChunks(chunk);
+
+                                foreach (byte[] audioChunk in channel.chunkedPCM)
+                                {
+                                    if (audioChunk.Length == PCM_SAMPLES_LENGTH)
+                                    {
+                                        if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                                            P25EncodeAudioFrame(audioChunk, fne, channel, cpgChannel, system);
+                                        else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                                            DMREncodeAudioFrame(audioChunk, fne, channel, cpgChannel, system);
+                                    }
+                                }
+
+                                DateTime nextPacketTime = startTime.AddMilliseconds((i + 1) * 100);
+                                TimeSpan waitTime = nextPacketTime - DateTime.UtcNow;
+
+                                if (waitTime.TotalMilliseconds > 0)
+                                    await Task.Delay(waitTime);
+                            }
+
+                            double totalDurationMs = ((double)pcmData.Length / 16000) + 250;
+                            await Task.Delay((int)totalDurationMs + 3000);
+
+                            fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
+
+                            Dispatcher.Invoke(() =>
+                            {
+                                if (forHold)
+                                    channel.PttButton.Background = ChannelBox.GRAY_GRADIENT;
+                                else
+                                    channel.PageState = false;
+                            });
+                        });
                     }
                 }
                 catch (Exception ex)
@@ -1917,61 +1933,12 @@ namespace dvmconsole
         {
             if (globalPttState)
                 await Task.Delay(500);
-
-            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
+            ChannelBox channel = selectedChannelsManager.PrimaryChannel;
+            if (channel == null)
             {
-                if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
-                    continue;
-
-                Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
-                if (system == null)
-                {
-                    Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}.");
-                    channel.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(channel);
-                    continue;
-                }
-
-                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                if (cpgChannel == null)
-                {
-                    Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.");
-                    channel.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(channel);
-                    continue;
-                }
-
-                PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
-                if (fne == null)
-                {
-                    Log.WriteLine($"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {ERR_INVALID_CODEPLUG}.");
-                    channel.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(channel);
-                    continue;
-                }
-
-                channel.TxStreamId = fne.NewStreamId();
-                if (globalPttState)
-                {
-                    Dispatcher.Invoke(() =>
-                    {
-                        btnGlobalPtt.Background = ChannelBox.RED_GRADIENT;
-                        channel.PttState = true;
-                    });
-
-                    fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
-                }
-                else
-                {
-                    Dispatcher.Invoke(() =>
-                    {
-                        btnGlobalPtt.Background = ChannelBox.GRAY_GRADIENT;
-                        channel.PttState = false;
-                    });
-
-                    fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
-                }
+                return;
             }
+            channel.PttButton_Click(sender,e);
         }
 
         /// <summary>
@@ -2982,122 +2949,122 @@ namespace dvmconsole
                     switch (e.DUID)
                     {
                         case P25DUID.LDU1:
+                        {
+                            // The '62', '63', '64', '65', '66', '67', '68', '69', '6A' records are LDU1
+                            if ((data[0U] == 0x62U) && (data[22U] == 0x63U) &&
+                                (data[36U] == 0x64U) && (data[53U] == 0x65U) &&
+                                (data[70U] == 0x66U) && (data[87U] == 0x67U) &&
+                                (data[104U] == 0x68U) && (data[121U] == 0x69U) &&
+                                (data[138U] == 0x6AU))
                             {
-                                // The '62', '63', '64', '65', '66', '67', '68', '69', '6A' records are LDU1
-                                if ((data[0U] == 0x62U) && (data[22U] == 0x63U) &&
-                                    (data[36U] == 0x64U) && (data[53U] == 0x65U) &&
-                                    (data[70U] == 0x66U) && (data[87U] == 0x67U) &&
-                                    (data[104U] == 0x68U) && (data[121U] == 0x69U) &&
-                                    (data[138U] == 0x6AU))
-                                {
-                                    // The '62' record - IMBE Voice 1
-                                    Buffer.BlockCopy(data, count, channel.netLDU1, 0, 22);
-                                    count += 22;
+                                // The '62' record - IMBE Voice 1
+                                Buffer.BlockCopy(data, count, channel.netLDU1, 0, 22);
+                                count += 22;
 
-                                    // The '63' record - IMBE Voice 2
-                                    Buffer.BlockCopy(data, count, channel.netLDU1, 25, 14);
-                                    count += 14;
+                                // The '63' record - IMBE Voice 2
+                                Buffer.BlockCopy(data, count, channel.netLDU1, 25, 14);
+                                count += 14;
 
-                                    // The '64' record - IMBE Voice 3 + Link Control
-                                    Buffer.BlockCopy(data, count, channel.netLDU1, 50, 17);
-                                    byte serviceOptions = data[count + 3];
-                                    isEmergency = (serviceOptions & 0x80) == 0x80;
-                                    count += 17;
+                                // The '64' record - IMBE Voice 3 + Link Control
+                                Buffer.BlockCopy(data, count, channel.netLDU1, 50, 17);
+                                byte serviceOptions = data[count + 3];
+                                isEmergency = (serviceOptions & 0x80) == 0x80;
+                                count += 17;
 
-                                    // The '65' record - IMBE Voice 4 + Link Control
-                                    Buffer.BlockCopy(data, count, channel.netLDU1, 75, 17);
-                                    count += 17;
+                                // The '65' record - IMBE Voice 4 + Link Control
+                                Buffer.BlockCopy(data, count, channel.netLDU1, 75, 17);
+                                count += 17;
 
-                                    // The '66' record - IMBE Voice 5 + Link Control
-                                    Buffer.BlockCopy(data, count, channel.netLDU1, 100, 17);
-                                    count += 17;
+                                // The '66' record - IMBE Voice 5 + Link Control
+                                Buffer.BlockCopy(data, count, channel.netLDU1, 100, 17);
+                                count += 17;
 
-                                    // The '67' record - IMBE Voice 6 + Link Control
-                                    Buffer.BlockCopy(data, count, channel.netLDU1, 125, 17);
-                                    count += 17;
+                                // The '67' record - IMBE Voice 6 + Link Control
+                                Buffer.BlockCopy(data, count, channel.netLDU1, 125, 17);
+                                count += 17;
 
-                                    // The '68' record - IMBE Voice 7 + Link Control
-                                    Buffer.BlockCopy(data, count, channel.netLDU1, 150, 17);
-                                    count += 17;
+                                // The '68' record - IMBE Voice 7 + Link Control
+                                Buffer.BlockCopy(data, count, channel.netLDU1, 150, 17);
+                                count += 17;
 
-                                    // The '69' record - IMBE Voice 8 + Link Control
-                                    Buffer.BlockCopy(data, count, channel.netLDU1, 175, 17);
-                                    count += 17;
+                                // The '69' record - IMBE Voice 8 + Link Control
+                                Buffer.BlockCopy(data, count, channel.netLDU1, 175, 17);
+                                count += 17;
 
-                                    // The '6A' record - IMBE Voice 9 + Low Speed Data
-                                    Buffer.BlockCopy(data, count, channel.netLDU1, 200, 16);
-                                    count += 16;
+                                // The '6A' record - IMBE Voice 9 + Low Speed Data
+                                Buffer.BlockCopy(data, count, channel.netLDU1, 200, 16);
+                                count += 16;
 
-                                    // decode 9 IMBE codewords into PCM samples
-                                    P25DecodeAudioFrame(channel.netLDU1, e, handler, channel, isEmergency);
-                                }
+                                // decode 9 IMBE codewords into PCM samples
+                                P25DecodeAudioFrame(channel.netLDU1, e, handler, channel, isEmergency);
                             }
+                        }
                             break;
                         case P25DUID.LDU2:
+                        {
+                            // The '6B', '6C', '6D', '6E', '6F', '70', '71', '72', '73' records are LDU2
+                            if ((data[0U] == 0x6BU) && (data[22U] == 0x6CU) &&
+                                (data[36U] == 0x6DU) && (data[53U] == 0x6EU) &&
+                                (data[70U] == 0x6FU) && (data[87U] == 0x70U) &&
+                                (data[104U] == 0x71U) && (data[121U] == 0x72U) &&
+                                (data[138U] == 0x73U))
                             {
-                                // The '6B', '6C', '6D', '6E', '6F', '70', '71', '72', '73' records are LDU2
-                                if ((data[0U] == 0x6BU) && (data[22U] == 0x6CU) &&
-                                    (data[36U] == 0x6DU) && (data[53U] == 0x6EU) &&
-                                    (data[70U] == 0x6FU) && (data[87U] == 0x70U) &&
-                                    (data[104U] == 0x71U) && (data[121U] == 0x72U) &&
-                                    (data[138U] == 0x73U))
-                                {
-                                    // The '6B' record - IMBE Voice 10
-                                    Buffer.BlockCopy(data, count, channel.netLDU2, 0, 22);
-                                    count += 22;
+                                // The '6B' record - IMBE Voice 10
+                                Buffer.BlockCopy(data, count, channel.netLDU2, 0, 22);
+                                count += 22;
 
-                                    // The '6C' record - IMBE Voice 11
-                                    Buffer.BlockCopy(data, count, channel.netLDU2, 25, 14);
-                                    count += 14;
+                                // The '6C' record - IMBE Voice 11
+                                Buffer.BlockCopy(data, count, channel.netLDU2, 25, 14);
+                                count += 14;
 
-                                    // The '6D' record - IMBE Voice 12 + Encryption Sync
-                                    Buffer.BlockCopy(data, count, channel.netLDU2, 50, 17);
-                                    newMI[0] = data[count + 1];
-                                    newMI[1] = data[count + 2];
-                                    newMI[2] = data[count + 3];
-                                    count += 17;
+                                // The '6D' record - IMBE Voice 12 + Encryption Sync
+                                Buffer.BlockCopy(data, count, channel.netLDU2, 50, 17);
+                                newMI[0] = data[count + 1];
+                                newMI[1] = data[count + 2];
+                                newMI[2] = data[count + 3];
+                                count += 17;
 
-                                    // The '6E' record - IMBE Voice 13 + Encryption Sync
-                                    Buffer.BlockCopy(data, count, channel.netLDU2, 75, 17);
-                                    newMI[3] = data[count + 1];
-                                    newMI[4] = data[count + 2];
-                                    newMI[5] = data[count + 3];
-                                    count += 17;
+                                // The '6E' record - IMBE Voice 13 + Encryption Sync
+                                Buffer.BlockCopy(data, count, channel.netLDU2, 75, 17);
+                                newMI[3] = data[count + 1];
+                                newMI[4] = data[count + 2];
+                                newMI[5] = data[count + 3];
+                                count += 17;
 
-                                    // The '6F' record - IMBE Voice 14 + Encryption Sync
-                                    Buffer.BlockCopy(data, count, channel.netLDU2, 100, 17);
-                                    newMI[6] = data[count + 1];
-                                    newMI[7] = data[count + 2];
-                                    newMI[8] = data[count + 3];
-                                    count += 17;
+                                // The '6F' record - IMBE Voice 14 + Encryption Sync
+                                Buffer.BlockCopy(data, count, channel.netLDU2, 100, 17);
+                                newMI[6] = data[count + 1];
+                                newMI[7] = data[count + 2];
+                                newMI[8] = data[count + 3];
+                                count += 17;
 
-                                    // The '70' record - IMBE Voice 15 + Encryption Sync
-                                    Buffer.BlockCopy(data, count, channel.netLDU2, 125, 17);
-                                    channel.algId = data[count + 1];                                    // Algorithm ID
-                                    channel.kId = (ushort)((data[count + 2] << 8) | data[count + 3]);   // Key ID
-                                    count += 17;
+                                // The '70' record - IMBE Voice 15 + Encryption Sync
+                                Buffer.BlockCopy(data, count, channel.netLDU2, 125, 17);
+                                channel.algId = data[count + 1];                                    // Algorithm ID
+                                channel.kId = (ushort)((data[count + 2] << 8) | data[count + 3]);   // Key ID
+                                count += 17;
 
-                                    // The '71' record - IMBE Voice 16 + Encryption Sync
-                                    Buffer.BlockCopy(data, count, channel.netLDU2, 150, 17);
-                                    count += 17;
+                                // The '71' record - IMBE Voice 16 + Encryption Sync
+                                Buffer.BlockCopy(data, count, channel.netLDU2, 150, 17);
+                                count += 17;
 
-                                    // The '72' record - IMBE Voice 17 + Encryption Sync
-                                    Buffer.BlockCopy(data, count, channel.netLDU2, 175, 17);
-                                    count += 17;
+                                // The '72' record - IMBE Voice 17 + Encryption Sync
+                                Buffer.BlockCopy(data, count, channel.netLDU2, 175, 17);
+                                count += 17;
 
-                                    // The '73' record - IMBE Voice 18 + Low Speed Data
-                                    Buffer.BlockCopy(data, count, channel.netLDU2, 200, 16);
-                                    count += 16;
+                                // The '73' record - IMBE Voice 18 + Low Speed Data
+                                Buffer.BlockCopy(data, count, channel.netLDU2, 200, 16);
+                                count += 16;
 
-                                    if (channel.p25Errs > 0) // temp, need to actually get errors I guess
-                                        P25Crypto.CycleP25Lfsr(channel.mi);
-                                    else
-                                        Array.Copy(newMI, channel.mi, P25Defines.P25_MI_LENGTH);
+                                if (channel.p25Errs > 0) // temp, need to actually get errors I guess
+                                    P25Crypto.CycleP25Lfsr(channel.mi);
+                                else
+                                    Array.Copy(newMI, channel.mi, P25Defines.P25_MI_LENGTH);
 
-                                    // decode 9 IMBE codewords into PCM samples
-                                    P25DecodeAudioFrame(channel.netLDU2, e, handler, channel, isEmergency, P25DUID.LDU2);
-                                }
+                                // decode 9 IMBE codewords into PCM samples
+                                P25DecodeAudioFrame(channel.netLDU2, e, handler, channel, isEmergency, P25DUID.LDU2);
                             }
+                        }
                             break;
                     }
 

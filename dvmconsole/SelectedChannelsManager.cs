@@ -8,6 +8,7 @@
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
 *   Copyright (C) 2024 Caleb, K4PHP
+*   Copyright (C) 2025 Steven Jennison, KD8RHO
 *
 */
 
@@ -20,8 +21,11 @@ namespace dvmconsole
     /// </summary>
     public class SelectedChannelsManager
     {
+        private ChannelBox primaryChannel;
+        
         private readonly HashSet<ChannelBox> selectedChannels;
 
+        public ChannelBox PrimaryChannel => primaryChannel;
         public IReadOnlyCollection<ChannelBox> GetSelectedChannels() => selectedChannels;
 
         /*
@@ -33,6 +37,10 @@ namespace dvmconsole
         /// </summary>
         public event Action SelectedChannelsChanged;
 
+        /// <summary>
+        /// Triggered when primary channel is changed
+        /// </summary>
+        public event Action PrimaryChannelChanged;
         /*
         ** Methods
         */
@@ -54,7 +62,7 @@ namespace dvmconsole
             if (selectedChannels.Add(channel))
             {
                 channel.IsSelected = true;
-                SelectedChannelsChanged.Invoke();
+                SelectedChannelsChanged?.Invoke();
             }
         }
 
@@ -66,8 +74,13 @@ namespace dvmconsole
         {
             if (selectedChannels.Remove(channel))
             {
+                if (primaryChannel == channel)
+                {
+                    ClearPrimaryChannel();
+                }
+                channel.IsPrimary = false;
                 channel.IsSelected = false;
-                SelectedChannelsChanged.Invoke();
+                SelectedChannelsChanged?.Invoke();
             }
         }
 
@@ -80,7 +93,27 @@ namespace dvmconsole
                 channel.IsSelected = false;
 
             selectedChannels.Clear();
-            SelectedChannelsChanged.Invoke();
+            SelectedChannelsChanged?.Invoke();
+        }
+
+        /// <summary>
+        /// Sets primary channel to the passed ChannelBox
+        /// </summary>
+        /// <param name="channel"></param>
+        public void SetPrimaryChannel(ChannelBox channel)
+        {
+            Log.WriteLine($"Setting primary channel to {channel.ChannelName}");
+            primaryChannel = channel;
+            PrimaryChannelChanged?.Invoke();
+        }
+        
+        /// <summary>
+        /// Clears the primary channel selection, setting it to null
+        /// </summary>
+        public void ClearPrimaryChannel()
+        {
+            primaryChannel = null;
+            PrimaryChannelChanged?.Invoke();
         }
     } // public class SelectedChannelsManager
 } // namespace dvmconsole

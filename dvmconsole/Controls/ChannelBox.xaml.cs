@@ -9,6 +9,7 @@
 *
 *   Copyright (C) 2025 Caleb, K4PHP
 *   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
+*   Copyright (C) 2025 Steven Jennison, KD8RHO
 *
 */
 
@@ -29,6 +30,8 @@ namespace dvmconsole.Controls
     /// </summary>
     public partial class ChannelBox : UserControl, INotifyPropertyChanged
     {
+        public readonly static Border BORDER_DEFAULT;
+        public readonly static Border BORDER_GREEN;
         public readonly static LinearGradientBrush GRAY_GRADIENT;
         public readonly static LinearGradientBrush DARK_GRAY_GRADIENT;      // Delected/Disconnected Color
         public readonly static LinearGradientBrush BLUE_GRADIENT;           // Selected Channel Color
@@ -265,6 +268,17 @@ namespace dvmconsole.Controls
             }
         }
 
+        private bool isPrimary = false;
+        public bool IsPrimary
+        {
+            get => isPrimary;
+            set
+            {
+                isPrimary = value;
+                UpdateBackground();
+            }
+        }
+
         /// <summary>
         /// Current volume for this channel.
         /// </summary>
@@ -364,6 +378,19 @@ namespace dvmconsole.Controls
 
             ORANGE_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0FFAF00"), 0.485));
             ORANGE_GRADIENT.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#F0C68700"), 0.517));
+            BORDER_DEFAULT = new Border
+            {
+                BorderBrush = new SolidColorBrush(Colors.LightGray),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8)
+            };
+            
+            BORDER_GREEN = new Border
+            {
+                BorderBrush = new SolidColorBrush(Colors.Green),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8)
+            };
         }
 
         /// <summary>
@@ -510,6 +537,13 @@ namespace dvmconsole.Controls
             }
 
             ControlBorder.Background = IsSelected ? BLUE_GRADIENT : DARK_GRAY_GRADIENT;
+            if (IsSelected)
+                if (IsPrimary)
+                    ControlBorder.BorderBrush = BORDER_GREEN.BorderBrush;
+                else
+                    ControlBorder.BorderBrush = BORDER_DEFAULT.BorderBrush;
+            else
+                ControlBorder.BorderBrush = BORDER_DEFAULT.BorderBrush;
         }
 
         /// <summary>
@@ -530,6 +564,28 @@ namespace dvmconsole.Controls
         /// <param name="e"></param>
         private void ChannelBox_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
+            if (IsSelected)
+            {
+                // Check if either CTRL key is down, if so toggle PRIMARY state instead of deselecting
+                if (Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl))
+                {
+                    // If current channel is PRIMARY, clear it, otherwise set current to primary
+                    if (selectedChannelsManager.PrimaryChannel == this)
+                    {
+                        selectedChannelsManager.ClearPrimaryChannel();
+                        IsPrimary = false;
+                    }
+                    else
+                    {
+                        selectedChannelsManager.SetPrimaryChannel(this);
+                        IsPrimary = true;
+                    }
+                    // Shortcut return, do not run the rest of this method
+                    return;
+                }
+            }
+            
+            
             IsSelected = !IsSelected;
             ControlBorder.Background = IsSelected ? BLUE_GRADIENT : DARK_GRAY_GRADIENT;
 
@@ -544,7 +600,7 @@ namespace dvmconsole.Controls
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void PttButton_Click(object sender, RoutedEventArgs e)
+        public void PttButton_Click(object sender, RoutedEventArgs e)
         {
             if (!IsSelected)
                 return;
