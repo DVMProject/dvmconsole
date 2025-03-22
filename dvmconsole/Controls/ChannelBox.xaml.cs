@@ -58,6 +58,7 @@ namespace dvmconsole.Controls
 
         public byte dmrN = 0;
         public int dmrSeqNo = 0;
+
         public int ambeCount = 0;
         public byte[] ambeBuffer = new byte[FneSystemBase.DMR_AMBE_LENGTH_BYTES];
         public EmbeddedData embeddedData = new EmbeddedData();

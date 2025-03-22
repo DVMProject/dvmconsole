@@ -1605,6 +1605,13 @@ namespace dvmconsole
                     fne.SendP25TDU(srcId, dstId, false);
                 else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
                     fne.SendDMRTerminator(srcId, dstId, 1, e.dmrSeqNo, e.dmrN, e.embeddedData);
+
+                e.p25SeqNo = 0;
+                e.p25N = 0;
+
+                e.dmrSeqNo = 0;
+                e.dmrN = 0;
+
                 e.TxStreamId = 0;
             }
         }
@@ -1722,6 +1729,13 @@ namespace dvmconsole
                     fne.SendP25TDU(srcId, dstId, false);
                 else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
                     fne.SendDMRTerminator(srcId, dstId, 1, e.dmrSeqNo, e.dmrN, e.embeddedData);
+
+                e.p25SeqNo = 0;
+                e.p25N = 0;
+
+                e.dmrSeqNo = 0;
+                e.dmrN = 0;
+
                 e.TxStreamId = 0;
             }
         }
@@ -2312,7 +2326,7 @@ namespace dvmconsole
                 else
                     pktSeq = peer.pktSeq();
 
-                Log.WriteLine($"({channel.SystemName}) P25D: Traffic *VOICE FRAME LDU1* PEER {fne.PeerId} SRC_ID {srcId} TGID {dstId} [STREAM ID {channel.TxStreamId}]");
+                Log.WriteLine($"({channel.SystemName}) P25D: Traffic *VOICE FRAME LDU1* PEER {fne.PeerId} SRC_ID {srcId} TGID {dstId} [STREAM ID {channel.TxStreamId} SEQ {channel.p25SeqNo}]");
 
                 byte[] payload = new byte[200];
                 fne.CreateNewP25MessageHdr((byte)P25DUID.LDU1, callData, ref payload, cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
@@ -2330,7 +2344,7 @@ namespace dvmconsole
                 else
                     pktSeq = peer.pktSeq();
 
-                Log.WriteLine($"({channel.SystemName}) P25D: Traffic *VOICE FRAME LDU2* PEER {fne.PeerId} SRC_ID {srcId} TGID {dstId} [STREAM ID {channel.TxStreamId}]");
+                Log.WriteLine($"({channel.SystemName}) P25D: Traffic *VOICE FRAME LDU2* PEER {fne.PeerId} SRC_ID {srcId} TGID {dstId} [STREAM ID {channel.TxStreamId} SEQ {channel.p25SeqNo}]");
 
                 byte[] payload = new byte[200];
                 fne.CreateNewP25MessageHdr((byte)P25DUID.LDU2, callData, ref payload, cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
@@ -2905,7 +2919,10 @@ namespace dvmconsole
                             channel.LastSrcId = "Last: " + alias;
 
                         if (channel.algId != P25Defines.P25_ALGO_UNENCRYPT)
+                        {
                             channel.Background = ChannelBox.ORANGE_GRADIENT;
+                            Log.WriteLine($"({system.Name}) P25D: Traffic *CALL ENC PARMS * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
+                        }
                         else
                             channel.Background = ChannelBox.GREEN_GRADIENT;
                     }
