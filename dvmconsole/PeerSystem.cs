@@ -74,6 +74,9 @@ namespace dvmconsole
 
             string software = $"CONSOLE_R{_SEM_VERSION.Major.ToString("D2")}A{_SEM_VERSION.Minor.ToString("D2")}";
 
+            if (system.Identity.Length == 0)
+                system.Identity = system.PeerId.ToString();
+
             // set configuration parameters
             peer.Passphrase = system.Password;
             peer.Information = new PeerInformation

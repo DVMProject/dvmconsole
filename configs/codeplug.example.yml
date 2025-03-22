@@ -10,7 +10,7 @@ systems:
     # Textual name for internal and external reference to this system
   - name: "System 1"
     # Textual name to idenitify this peer in the FNE
-    Identity: "CONS OP1"
+    identity: "CONS OP1"
     # FNE Address
     address: "127.0.0.1"
     # FNE Port
