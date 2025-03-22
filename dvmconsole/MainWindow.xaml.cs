@@ -397,7 +397,7 @@ namespace dvmconsole
                         }
                         catch (Exception ex)
                         {
-                            MessageBox.Show($"Fatal error while connecting to server. {e.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                            MessageBox.Show($"Fatal error while connecting to server. {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                             Log.StackTrace(ex, false);
                         }
                     });
