@@ -158,6 +158,10 @@ namespace dvmconsole
             /// 
             /// </summary>
             public string KeyId { get; set; }
+            /// <summary>
+            /// 
+            /// </summary>
+            public string Mode { get; set; } = "p25";
 
             /*
             ** Methods
@@ -200,7 +204,31 @@ namespace dvmconsole
 
                 return EncryptionKey.Split(',').Select(s => Convert.ToByte(s.Trim(), 16)).ToArray();
             }
+
+            /// <summary>
+            /// 
+            /// </summary>
+            /// <returns></returns>
+            public ChannelMode GetChannelMode()
+            {
+                if (Enum.TryParse(typeof(ChannelMode), Mode, ignoreCase: true, out var result))
+                {
+                    return (ChannelMode)result;
+                }
+
+                return ChannelMode.P25;
+            }
         } // public class Channel
+
+        /// <summary>
+        /// 
+        /// </summary>
+        public enum ChannelMode
+        {
+            DMR = 0,
+            NXDN = 1,
+            P25 = 2
+        } // public enum ChannelMode
 
         /// <summary>
         /// Helper to return a system by looking up a <see cref="Channel"/>

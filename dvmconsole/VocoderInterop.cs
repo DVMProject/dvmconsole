@@ -11,7 +11,9 @@
 *
 */
 
+using System.Diagnostics;
 using System.Runtime.InteropServices;
+using fnecore;
 
 namespace dvmconsole
 {
@@ -319,19 +321,22 @@ namespace dvmconsole
                 throw new NullReferenceException("Input MBE codeword is null!");
 
             char[] bits = null;
+            int bitCount = 0;
 
             // Set up based on mode
             if (mode == MBE_MODE.DMR_AMBE)
             {
                 if (codeword.Length != AMBE_CODEWORD_SAMPLES)
                     throw new ArgumentOutOfRangeException($"AMBE codeword length is != {AMBE_CODEWORD_SAMPLES}");
-                bits = new char[AMBE_CODEWORD_BITS];
+                bitCount = AMBE_CODEWORD_BITS;
+                bits = new char[bitCount];
             }
             else if (mode == MBE_MODE.IMBE_88BIT)
             {
                 if (codeword.Length != IMBE_CODEWORD_SAMPLES)
                     throw new ArgumentOutOfRangeException($"IMBE codeword length is != {IMBE_CODEWORD_SAMPLES}");
-                bits = new char[IMBE_CODEWORD_BITS];
+                bitCount = IMBE_CODEWORD_BITS;
+                bits = new char[bitCount];
             }
 
             if (bits == null)
@@ -341,19 +346,8 @@ namespace dvmconsole
             int errs = decoder.decodeBits(codeword, bits);
 
             // Copy
-            if (mode == MBE_MODE.DMR_AMBE)
-            {
-                // Copy bits
-                mbeBits = new byte[AMBE_CODEWORD_BITS];
-                Array.Copy(bits, mbeBits, AMBE_CODEWORD_BITS);
-
-            }
-            else if (mode == MBE_MODE.IMBE_88BIT)
-            {
-                // Copy bits
-                mbeBits = new byte[IMBE_CODEWORD_BITS];
-                Array.Copy(bits, mbeBits, IMBE_CODEWORD_BITS);
-            }
+            for (int i = 0; i < bitCount; i++)
+                mbeBits[i] = (byte)(bits[i] & 0x01);
 
             return errs;
         }
@@ -369,7 +363,9 @@ namespace dvmconsole
         public void Encode([In] byte[] mbeBits, [Out] byte[] codeword)
         {
             if (mbeBits == null)
+            {
                 throw new NullReferenceException("Input MBE bit array is null!");
+            }
 
             char[] bits = null;
 
@@ -377,45 +373,49 @@ namespace dvmconsole
             if (mode == MBE_MODE.DMR_AMBE)
             {
                 if (mbeBits.Length != AMBE_CODEWORD_BITS)
+                {
                     throw new ArgumentOutOfRangeException($"AMBE codeword bit length is != {AMBE_CODEWORD_BITS}");
+                }
                 bits = new char[AMBE_CODEWORD_BITS];
-                Array.Copy(mbeBits, bits, AMBE_CODEWORD_BITS);
+                for (int i = 0; i < mbeBits.Length; i++)
+                    bits[i] = (char)(mbeBits[i] & 0x01);
             }
             else if (mode == MBE_MODE.IMBE_88BIT)
             {
                 if (mbeBits.Length != IMBE_CODEWORD_BITS)
-                    throw new ArgumentOutOfRangeException($"IMBE codeword bit length is != {AMBE_CODEWORD_BITS}");
+                {
+                    throw new ArgumentOutOfRangeException($"IMBE codeword bit length is != {IMBE_CODEWORD_BITS}");
+                }
                 bits = new char[IMBE_CODEWORD_BITS];
-                Array.Copy(mbeBits, bits, IMBE_CODEWORD_BITS);
+                for (int i = 0; i < mbeBits.Length; i++)
+                    bits[i] = (char)(mbeBits[i] & 0x01);
             }
 
             if (bits == null)
+            {
                 throw new ArgumentException("Bit array did not get set up properly!");
+            }
 
             // Encode samples
             if (mode == MBE_MODE.DMR_AMBE)
             {
                 // Create output array
                 byte[] codewords = new byte[AMBE_CODEWORD_SAMPLES];
-                
                 // Encode
                 encoder.encodeBits(bits, codewords);
-                
                 // Copy
-                codeword = new byte[AMBE_CODEWORD_SAMPLES];
-                Array.Copy(codewords, codeword, IMBE_CODEWORD_SAMPLES);
+                for (int i = 0; i < AMBE_CODEWORD_SAMPLES; i++)
+                    codeword[i] = codewords[i];
             }
             else if (mode == MBE_MODE.IMBE_88BIT)
             {
                 // Create output array
                 byte[] codewords = new byte[IMBE_CODEWORD_SAMPLES];
-                
                 // Encode
                 encoder.encodeBits(bits, codewords);
-                
                 // Copy
-                codeword = new byte[IMBE_CODEWORD_SAMPLES];
-                Array.Copy(codewords, codeword, IMBE_CODEWORD_SAMPLES);
+                for (int i = 0; i < IMBE_CODEWORD_SAMPLES; i++)
+                    codeword[i] = codewords[i];
             }
         }
     } // public class MBEInterleaver

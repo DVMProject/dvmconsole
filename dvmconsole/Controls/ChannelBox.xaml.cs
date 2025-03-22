@@ -19,7 +19,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-
+using fnecore.DMR;
 using fnecore.P25;
 
 namespace dvmconsole.Controls
@@ -52,9 +52,15 @@ namespace dvmconsole.Controls
         public byte[] netLDU1 = new byte[9 * 25];
         public byte[] netLDU2 = new byte[9 * 25];
 
-        public int p25N { get; set; } = 0;
-        public int p25SeqNo { get; set; } = 0;
-        public int p25Errs { get; set; } = 0;
+        public int p25N = 0;
+        public int p25SeqNo = 0;
+        public int p25Errs = 0;
+
+        public byte dmrN = 0;
+        public int dmrSeqNo = 0;
+        public int ambeCount = 0;
+        public byte[] ambeBuffer = new byte[FneSystemBase.DMR_AMBE_LENGTH_BYTES];
+        public EmbeddedData embeddedData = new EmbeddedData();
 
         public byte[] mi = new byte[P25Defines.P25_MI_LENGTH];     // Message Indicator
         public byte algId = 0;                                     // Algorithm ID

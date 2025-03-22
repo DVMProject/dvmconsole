@@ -11,7 +11,9 @@
 *
 */
 
+using System.Diagnostics;
 using System.Runtime.InteropServices;
+using fnecore;
 
 namespace dvmconsole
 {
@@ -356,7 +358,7 @@ namespace dvmconsole
         /// <param name="encodeDMR"></param>
         public void encode(short[] samples, out byte[] codeword, bool encodeDMR = false)
         {
-            codeword = new byte[this.frameLengthInBytes];
+            codeword = new byte[frameLengthInBytes];
 
             if (samples == null)
                 throw new NullReferenceException("samples");
@@ -402,6 +404,8 @@ namespace dvmconsole
             // is this to be a DMR codeword?
             if (mode == AmbeMode.HALF_RATE && encodeDMR)
             {
+                codeword = new byte[FneSystemBase.AMBE_BUF_LEN];
+
                 byte[] bits = new byte[49];
                 for (int i = 0; i < 49; i++)
                     bits[i] = (byte)codewordBits[i];

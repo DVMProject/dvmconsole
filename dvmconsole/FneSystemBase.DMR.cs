@@ -11,6 +11,7 @@
 *
 */
 
+using System.Diagnostics;
 using fnecore;
 using fnecore.DMR;
 
@@ -110,6 +111,15 @@ namespace dvmconsole
         /// <param name="e"></param>
         protected override void DMRDataReceived(object sender, DMRDataReceivedEvent e)
         {
+            DateTime pktTime = DateTime.Now;
+
+            byte[] data = new byte[DMR_FRAME_LENGTH_BYTES];
+            Buffer.BlockCopy(e.Data, 20, data, 0, DMR_FRAME_LENGTH_BYTES);
+            byte bits = e.Data[15];
+
+            if (e.CallType == CallType.GROUP)
+                mainWindow.DMRDataReceived(e, pktTime);
+
             return;
         }
     } // public abstract partial class FneSystemBase : fnecore.FneSystemBase

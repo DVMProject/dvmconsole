@@ -45,6 +45,8 @@ zones:
         algo: "aes"
         # Ignored now, we use dvmfne KMM support (This will be used in the future to ovveride FNE KMM support)
         encryptionKey: null
+        # Voice mode DMR ("dmr"), P25 ("p25")
+        mode: "p25"
       - name: "Channel 2"
         system: "System 1"
         tgid: "15002"
