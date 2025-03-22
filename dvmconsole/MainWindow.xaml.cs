@@ -70,7 +70,7 @@ namespace dvmconsole
         public const int PCM_SAMPLES_LENGTH = 320; // MBE_SAMPLES_LENGTH * 2
 
         public const int MAX_SYSTEM_NAME_LEN = 10;
-        public const int MAX_CHANNEL_NAME_LEN = 15;
+        public const int MAX_CHANNEL_NAME_LEN = 21;
 
         private const string INVALID_SYSTEM = "INVALID SYSTEM";
         private const string INVALID_CODEPLUG_CHANNEL = "INVALID CODEPLUG CHANNEL";
