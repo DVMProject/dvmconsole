@@ -7,7 +7,7 @@
 * @package DVM / Audio Bridge
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
-*   Copyright (C) 2022-2024 Bryan Biedenkapp, N2PLL
+*   Copyright (C) 2022-2025 Bryan Biedenkapp, N2PLL
 *   Copyright (C) 2025 Caleb, K4PHP
 *
 */
@@ -19,29 +19,6 @@ using fnecore.P25.LC.TSBK;
 
 namespace dvmconsole
 {
-    /// <summary>
-    /// 
-    /// </summary>
-    public class CryptoParams
-    {
-        /*
-        ** Properties
-        */
-
-        /// <summary>
-        /// Message Indicator
-        /// </summary>
-        public byte[] MI { get; set; } = new byte[P25Defines.P25_MI_LENGTH];
-        /// <summary>
-        /// Algorithm ID.
-        /// </summary>
-        public byte AlgId { get; set; } = P25Defines.P25_ALGO_UNENCRYPT;
-        /// <summary>
-        /// Key ID.
-        /// </summary>
-        public ushort KeyId { get; set; }
-    } // public class CryptoParams
-
     /// <summary>
     /// Implements a FNE system base.
     /// </summary>
@@ -78,30 +55,6 @@ namespace dvmconsole
         protected override void P25DataPreprocess(object sender, P25DataReceivedEvent e)
         {
             return;
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="duid"></param>
-        /// <param name="callData"></param>
-        /// <param name="data"></param>
-        /// <param name="algId"></param>
-        /// <param name="kId"></param>
-        /// <param name="mi"></param>
-        public void CreateNewP25MessageHdr(byte duid, RemoteCallData callData, ref byte[] data, byte algId = 0, ushort kId = 0, byte[] mi = null)
-        {
-            CreateP25MessageHdr(duid, callData, ref data);
-
-            // if an MI is present, this is an encrypted header
-            if (mi != null)
-            {
-                data[14U] |= 0x08;                                                          // Control bit
-
-                data[181U] = algId;                                                         // Algorithm ID
-                FneUtils.WriteBytes(kId, ref data, 182);                                    // Key ID
-                Array.Copy(mi, 0, data, 184, P25Defines.P25_MI_LENGTH);                     // Message Indicator
-            }
         }
 
         /// <summary>
@@ -387,7 +340,7 @@ namespace dvmconsole
                     break;
                 case P25DFSI.P25_DFSI_LDU2_VOICE15:
                     {
-                        dfsiFrame[1U] = cryptoParams.AlgId;                                 // Algorithm ID
+                        dfsiFrame[1U] = cryptoParams.AlgoId;                                // Algorithm ID
                         FneUtils.WriteBytes(cryptoParams.KeyId, ref dfsiFrame, 2);          // Key ID
                         Buffer.BlockCopy(imbe, 0, dfsiFrame, 5, IMBE_BUF_LEN);              // IMBE
                     }

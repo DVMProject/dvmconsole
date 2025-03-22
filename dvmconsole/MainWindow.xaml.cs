@@ -66,7 +66,7 @@ namespace dvmconsole
     {
         public const double MIN_WIDTH = 875;
         public const double MIN_HEIGHT = 700;
-        public const int MBE_SAMPLES_LENGTH = 160;
+
         public const int PCM_SAMPLES_LENGTH = 320; // MBE_SAMPLES_LENGTH * 2
 
         public const int MAX_SYSTEM_NAME_LEN = 10;
@@ -612,6 +612,7 @@ namespace dvmconsole
 
                                     KeysetItems[keyEntry.AlgId].AddKey(keyItem);
                                 }
+
                                 foreach (var eventData in KeysetItems.Select(keyValuePair => keyValuePair.Value).Select(keysetItem => new KeyResponseEvent(0, new KmmModifyKey
                                          {
                                              AlgId = 0,

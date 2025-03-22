@@ -239,6 +239,14 @@ namespace dvmconsole
             if (channel.TxStreamId == 0)
                 Log.WriteWarning($"({channel.SystemName}) P25D: Traffic *VOICE FRAME    * Stream ID not set for traffic? Shouldn't happen.");
 
+            CryptoParams cryptoParams = new CryptoParams();
+            if (cpgChannel.GetAlgoId() != P25Defines.P25_ALGO_UNENCRYPT && cpgChannel.GetKeyId() > 0)
+            {
+                cryptoParams.AlgoId = cpgChannel.GetAlgoId();
+                cryptoParams.KeyId = cpgChannel.GetKeyId();
+                Array.Copy(channel.mi, cryptoParams.MI, P25Defines.P25_MI_LENGTH);
+            }
+
             // send P25 LDU1
             if (channel.p25N == 8U)
             {
@@ -257,7 +265,7 @@ namespace dvmconsole
                 Log.WriteLine($"({channel.SystemName}) P25D: Traffic *VOICE FRAME LDU1* PEER {fne.PeerId} SRC_ID {srcId} TGID {dstId} [STREAM ID {channel.TxStreamId} SEQ {channel.p25SeqNo}]");
 
                 byte[] payload = new byte[200];
-                fne.CreateNewP25MessageHdr((byte)P25DUID.LDU1, callData, ref payload, cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
+                fne.CreateP25MessageHdr((byte)P25DUID.LDU1, callData, ref payload, cryptoParams);
                 fne.CreateP25LDU1Message(channel.netLDU1, ref payload, srcId, dstId);
 
                 peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_P25), payload, channel.pktSeq, channel.TxStreamId);
@@ -281,8 +289,10 @@ namespace dvmconsole
                 Log.WriteLine($"({channel.SystemName}) P25D: Traffic *VOICE FRAME LDU2* PEER {fne.PeerId} SRC_ID {srcId} TGID {dstId} [STREAM ID {channel.TxStreamId} SEQ {channel.p25SeqNo}]");
 
                 byte[] payload = new byte[200];
-                fne.CreateNewP25MessageHdr((byte)P25DUID.LDU2, callData, ref payload, cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
-                fne.CreateP25LDU2Message(channel.netLDU2, ref payload, new CryptoParams { AlgId = cpgChannel.GetAlgoId(), KeyId = cpgChannel.GetKeyId(), MI = channel.mi });
+
+
+                fne.CreateP25MessageHdr((byte)P25DUID.LDU2, callData, ref payload, cryptoParams);
+                fne.CreateP25LDU2Message(channel.netLDU2, ref payload, new CryptoParams { AlgoId = cpgChannel.GetAlgoId(), KeyId = cpgChannel.GetKeyId(), MI = channel.mi });
 
                 peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_P25), payload, channel.pktSeq, channel.TxStreamId);
             }
@@ -522,7 +532,11 @@ namespace dvmconsole
                     }
 
                     if ((channel.algId != cpgChannel.GetAlgoId() || channel.kId != cpgChannel.GetKeyId()) && channel.algId != P25Defines.P25_ALGO_UNENCRYPT)
+                    {
+                        channel.Background = ChannelBox.RED_GRADIENT;
+                        Log.WriteLine($"({system.Name}) P25D: Traffic *CALL DROPPED   * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} [STREAM ID {e.StreamId}]");
                         continue;
+                    }
 
                     byte[] newMI = new byte[P25Defines.P25_MI_LENGTH];
 

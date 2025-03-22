@@ -124,7 +124,7 @@ namespace dvmconsole
                 }
 
                 int smpIdx = 0;
-                short[] samples = new short[MBE_SAMPLES_LENGTH];
+                short[] samples = new short[FneSystemBase.MBE_SAMPLES_LENGTH];
                 for (int pcmIdx = 0; pcmIdx < pcm.Length; pcmIdx += 2)
                 {
                     samples[smpIdx] = (short)((pcm[pcmIdx + 1] << 8) + pcm[pcmIdx + 0]);
