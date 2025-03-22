@@ -1940,12 +1940,77 @@ namespace dvmconsole
         {
             if (globalPttState)
                 await Task.Delay(500);
-            ChannelBox channel = selectedChannelsManager.PrimaryChannel;
-            if (channel == null)
+
+            ChannelBox primaryChannel = selectedChannelsManager.PrimaryChannel;
+
+            if (primaryChannel != null)
             {
+                Dispatcher.Invoke(() =>
+                {
+                    if (globalPttState)
+                        btnGlobalPtt.Background = ChannelBox.RED_GRADIENT;
+                    else
+                        btnGlobalPtt.Background = ChannelBox.GRAY_GRADIENT;
+                });
+
+                primaryChannel.PttButton_Click(sender, e);
                 return;
             }
-            channel.PttButton_Click(sender,e);
+
+            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
+            {
+                if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                    continue;
+
+                Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
+                if (system == null)
+                {
+                    Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}.");
+                    channel.IsSelected = false;
+                    selectedChannelsManager.RemoveSelectedChannel(channel);
+                    continue;
+                }
+
+                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
+                if (cpgChannel == null)
+                {
+                    Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.");
+                    channel.IsSelected = false;
+                    selectedChannelsManager.RemoveSelectedChannel(channel);
+                    continue;
+                }
+
+                PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
+                if (fne == null)
+                {
+                    Log.WriteLine($"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {ERR_INVALID_CODEPLUG}.");
+                    channel.IsSelected = false;
+                    selectedChannelsManager.RemoveSelectedChannel(channel);
+                    continue;
+                }
+
+                channel.TxStreamId = fne.NewStreamId();
+                if (globalPttState)
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        btnGlobalPtt.Background = ChannelBox.RED_GRADIENT;
+                        channel.PttState = true;
+                    });
+
+                    fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
+                }
+                else
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        btnGlobalPtt.Background = ChannelBox.GRAY_GRADIENT;
+                        channel.PttState = false;
+                    });
+
+                    fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
+                }
+            }
         }
 
         /// <summary>
