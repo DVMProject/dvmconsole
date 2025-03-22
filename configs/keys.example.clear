@@ -1,0 +1,15 @@
+keys:
+  -
+    # The key ID, in hex, for this key
+    keyId: 0x1
+    # The algorithm ID, in hex, for this key
+    algId: 0x84
+    # The key material, as a hex string representation, for this key
+    key: "1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR"
+  -
+    # The key ID, in hex, for this key
+    keyId: 0x2
+    # The algorithm ID, in hex, for this key
+    algId: 0xAA
+    # The key material, as a hex string representation, for this key
+    key: "1234567890"

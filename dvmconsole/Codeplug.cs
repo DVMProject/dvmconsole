@@ -26,6 +26,10 @@ namespace dvmconsole
         */
 
         /// <summary>
+        /// The location of the YAML keyfile
+        /// </summary>
+        public string KeyFile { get; set; } = null;
+        /// <summary>
         /// 
         /// </summary>
         public List<System> Systems { get; set; }

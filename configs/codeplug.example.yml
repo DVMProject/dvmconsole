@@ -1,7 +1,8 @@
 #
 # Digital Voice Modem - Desktop Dispatch Console
 #
-
+# Full path to local key YAML file (see keys.example.clear for formatting)
+#keyFile: "Full/Path/To/Keyfile.clear"
 #
 # FNE Masters
 #

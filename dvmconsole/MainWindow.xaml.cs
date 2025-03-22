@@ -559,7 +559,52 @@ namespace dvmconsole
                     // if the channel is configured for encryption request the key from the FNE
                     uint newTgid = uint.Parse(cpgChannel.Tgid);
                     if (cpgChannel.GetAlgoId() != 0 && cpgChannel.GetKeyId() != 0)
+                    {
                         fne.peer.SendMasterKeyRequest(cpgChannel.GetAlgoId(), cpgChannel.GetKeyId());
+                        if (Codeplug.KeyFile != null)
+                        {
+                            if (!File.Exists(Codeplug.KeyFile))
+                            {
+                                MessageBox.Show($"Key file {Codeplug.KeyFile} not found. {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                            }
+                            else
+                            {
+                                var deserializer = new DeserializerBuilder()
+                                    .WithNamingConvention(CamelCaseNamingConvention.Instance)
+                                    .IgnoreUnmatchedProperties()
+                                    .Build();
+                                var keys = deserializer.Deserialize<KeyContainer>(File.ReadAllText(Codeplug.KeyFile));
+                                var KeysetItems = new Dictionary<int, KeysetItem>();
+
+                                foreach (var keyEntry in keys.Keys)
+                                {
+                                    var keyItem = new KeyItem();
+                                    keyItem.KeyId = keyEntry.KeyId;
+                                    var keyBytes = keyEntry.KeyBytes;
+                                    keyItem.SetKey(keyBytes,(uint)keyBytes.Length);
+                                    if (!KeysetItems.ContainsKey(keyEntry.AlgId))
+                                    {
+                                        var asByte = (byte)keyEntry.AlgId;
+                                        KeysetItems.Add(keyEntry.AlgId, new KeysetItem() { AlgId = asByte });
+                                    }
+
+
+                                    KeysetItems[keyEntry.AlgId].AddKey(keyItem);
+                                }
+                                foreach (var eventData in KeysetItems.Select(keyValuePair => keyValuePair.Value).Select(keysetItem => new KeyResponseEvent(0, new KmmModifyKey
+                                         {
+                                             AlgId = 0,
+                                             KeyId = 0,
+                                             MessageId = 0,
+                                             MessageLength = 0,
+                                             KeysetItem = keysetItem
+                                         }, [])))
+                                {
+                                    KeyResponseReceived(eventData);
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
