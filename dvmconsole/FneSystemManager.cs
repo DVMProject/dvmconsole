@@ -53,7 +53,8 @@ namespace dvmconsole
             if (peerHandlers.TryGetValue(systemId, out var handler))
                 return handler;
 
-            throw new KeyNotFoundException($"WebSocketHandler for system '{systemId}' not found.");
+            return null;
+            //throw new KeyNotFoundException($"WebSocketHandler for system '{systemId}' not found.");
         }
 
         /// <summary>

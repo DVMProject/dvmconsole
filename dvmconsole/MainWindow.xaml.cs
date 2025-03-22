@@ -14,7 +14,6 @@
 *
 */
 
-using System.Diagnostics;
 using System.IO;
 using System.Timers;
 using System.Windows;
@@ -38,7 +37,6 @@ using fnecore.DMR;
 using fnecore.P25;
 using fnecore.P25.KMM;
 using fnecore.P25.LC.TSBK;
-using static dvmconsole.Codeplug;
 
 namespace dvmconsole
 {
@@ -85,6 +83,7 @@ namespace dvmconsole
 
         private const string URI_RESOURCE_PATH = "pack://application:,,,/dvmconsole;component";
 
+        private bool isShuttingDown = false;
         private bool globalPttState = false;
 
         private const int GridSize = 5;
@@ -850,6 +849,12 @@ namespace dvmconsole
         /// <param name="e"></param>
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
+            isShuttingDown = true;
+
+            waveIn.StopRecording();
+
+            fneSystemManager.ClearAll();
+
             if (!noSaveSettingsOnClose)
             {
                 if (WindowState == WindowState.Maximized)
@@ -882,6 +887,8 @@ namespace dvmconsole
         private void WaveIn_DataAvailable(object sender, WaveInEventArgs e)
         {
             bool isAnyTgOn = false;
+            if (isShuttingDown)
+                return;
 
             foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
             {
@@ -1607,11 +1614,14 @@ namespace dvmconsole
                 else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
                     fne.SendDMRTerminator(srcId, dstId, 1, e.dmrSeqNo, e.dmrN, e.embeddedData);
 
+                // reset values
                 e.p25SeqNo = 0;
                 e.p25N = 0;
 
                 e.dmrSeqNo = 0;
                 e.dmrN = 0;
+
+                e.pktSeq = 0;
 
                 e.TxStreamId = 0;
             }
@@ -1731,11 +1741,14 @@ namespace dvmconsole
                 else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
                     fne.SendDMRTerminator(srcId, dstId, 1, e.dmrSeqNo, e.dmrN, e.embeddedData);
 
+                // reset values
                 e.p25SeqNo = 0;
                 e.p25N = 0;
 
                 e.dmrSeqNo = 0;
                 e.dmrN = 0;
+
+                e.pktSeq = 0;
 
                 e.TxStreamId = 0;
             }
@@ -2321,11 +2334,17 @@ namespace dvmconsole
             // send P25 LDU1
             if (channel.p25N == 8U)
             {
-                ushort pktSeq = 0;
+                // bryanb: in multi-TG architecture we cannot use the pktSeq helper singleton in the FNE peer class otherwise we won't
+                //  maintain outgoing RTP packet sequences properly
                 if (channel.p25SeqNo == 0U)
-                    pktSeq = peer.pktSeq(true);
+                    channel.pktSeq = 0;
                 else
-                    pktSeq = peer.pktSeq();
+                {
+                    ushort curr = channel.pktSeq;
+                    ++channel.pktSeq;
+                    if (channel.pktSeq > (Constants.RtpCallEndSeq - 1))
+                        channel.pktSeq = 0;
+                }
 
                 Log.WriteLine($"({channel.SystemName}) P25D: Traffic *VOICE FRAME LDU1* PEER {fne.PeerId} SRC_ID {srcId} TGID {dstId} [STREAM ID {channel.TxStreamId} SEQ {channel.p25SeqNo}]");
 
@@ -2333,17 +2352,23 @@ namespace dvmconsole
                 fne.CreateNewP25MessageHdr((byte)P25DUID.LDU1, callData, ref payload, cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
                 fne.CreateP25LDU1Message(channel.netLDU1, ref payload, srcId, dstId);
 
-                peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_P25), payload, pktSeq, channel.TxStreamId);
+                peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_P25), payload, channel.pktSeq, channel.TxStreamId);
             }
 
             // send P25 LDU2
             if (channel.p25N == 17U)
             {
-                ushort pktSeq = 0;
+                // bryanb: in multi-TG architecture we cannot use the pktSeq helper singleton in the FNE peer class otherwise we won't
+                //  maintain outgoing RTP packet sequences properly
                 if (channel.p25SeqNo == 0U)
-                    pktSeq = peer.pktSeq(true);
+                    channel.pktSeq = 0;
                 else
-                    pktSeq = peer.pktSeq();
+                {
+                    ushort curr = channel.pktSeq;
+                    ++channel.pktSeq;
+                    if (channel.pktSeq > (Constants.RtpCallEndSeq - 1))
+                        channel.pktSeq = 0;
+                }
 
                 Log.WriteLine($"({channel.SystemName}) P25D: Traffic *VOICE FRAME LDU2* PEER {fne.PeerId} SRC_ID {srcId} TGID {dstId} [STREAM ID {channel.TxStreamId} SEQ {channel.p25SeqNo}]");
 
@@ -2351,7 +2376,7 @@ namespace dvmconsole
                 fne.CreateNewP25MessageHdr((byte)P25DUID.LDU2, callData, ref payload, cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
                 fne.CreateP25LDU2Message(channel.netLDU2, ref payload, new CryptoParams { AlgId = cpgChannel.GetAlgoId(), KeyId = cpgChannel.GetKeyId(), MI = channel.mi });
 
-                peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_P25), payload, pktSeq, channel.TxStreamId);
+                peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_P25), payload, channel.pktSeq, channel.TxStreamId);
             }
 
             channel.p25SeqNo++;
@@ -2496,12 +2521,10 @@ namespace dvmconsole
                 channel.dmrN = (byte)(channel.dmrSeqNo % 6);
                 if (channel.ambeCount == FneSystemBase.AMBE_PER_SLOT)
                 {
-                    ushort pktSeq = 0;
-
                     // is this the intitial sequence?
                     if (channel.dmrSeqNo == 0)
                     {
-                        pktSeq = fne.peer.pktSeq(true);
+                        channel.pktSeq = 0;
 
                         // send DMR voice header
                         data = new byte[FneSystemBase.DMR_FRAME_LENGTH_BYTES];
@@ -2525,12 +2548,15 @@ namespace dvmconsole
                         fne.CreateDMRMessage(ref dmrpkt, uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), slot, FrameType.VOICE_SYNC, (byte)channel.dmrSeqNo, 0);
                         Buffer.BlockCopy(data, 0, dmrpkt, 20, FneSystemBase.DMR_FRAME_LENGTH_BYTES);
 
-                        fne.peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_DMR), dmrpkt, pktSeq, channel.TxStreamId);
+                        fne.peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_DMR), dmrpkt, channel.pktSeq, channel.TxStreamId);
 
                         channel.dmrSeqNo++;
                     }
 
-                    pktSeq = fne.peer.pktSeq();
+                    ushort curr = channel.pktSeq;
+                    ++channel.pktSeq;
+                    if (channel.pktSeq > (Constants.RtpCallEndSeq - 1))
+                        channel.pktSeq = 0;
 
                     // send DMR voice
                     data = new byte[FneSystemBase.DMR_FRAME_LENGTH_BYTES];
@@ -2561,7 +2587,7 @@ namespace dvmconsole
                     fne.CreateDMRMessage(ref dmrpkt, uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), 1, frameType, (byte)channel.dmrSeqNo, channel.dmrN);
                     Buffer.BlockCopy(data, 0, dmrpkt, 20, FneSystemBase.DMR_FRAME_LENGTH_BYTES);
 
-                    fne.peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_DMR), dmrpkt, pktSeq, channel.TxStreamId);
+                    fne.peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_DMR), dmrpkt, channel.pktSeq, channel.TxStreamId);
 
                     channel.dmrSeqNo++;
 

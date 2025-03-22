@@ -52,6 +52,8 @@ namespace dvmconsole.Controls
         public byte[] netLDU1 = new byte[9 * 25];
         public byte[] netLDU2 = new byte[9 * 25];
 
+        public ushort pktSeq = 0;                               // RTP packet sequence
+
         public int p25N = 0;
         public int p25SeqNo = 0;
         public int p25Errs = 0;
