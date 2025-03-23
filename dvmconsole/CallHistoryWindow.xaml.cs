@@ -8,6 +8,7 @@
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
 *   Copyright (C) 2025 Caleb, K4PHP
+*   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
 *
 */
 
@@ -24,6 +25,8 @@ namespace dvmconsole
     {
         public static readonly DependencyProperty BackgroundColorProperty =
             DependencyProperty.Register(nameof(BackgroundColor), typeof(Brush), typeof(CallEntry), new PropertyMetadata(Brushes.Transparent));
+        public static readonly DependencyProperty ForegroundColorProperty =
+            DependencyProperty.Register(nameof(ForegroundColor), typeof(Brush), typeof(CallEntry), new PropertyMetadata(Brushes.White));
 
         /*
         ** Properties
@@ -54,6 +57,15 @@ namespace dvmconsole
         {
             get { return (Brush)GetValue(BackgroundColorProperty); }
             set { SetValue(BackgroundColorProperty, value); }
+        }
+
+        /// <summary>
+        /// Foreground color for call entry.
+        /// </summary>
+        public Brush ForegroundColor
+        {
+            get { return (Brush)GetValue(ForegroundColorProperty); }
+            set { SetValue(ForegroundColorProperty, value); }
         }
     } // public class CallEntry : DependencyObject
 
@@ -89,6 +101,9 @@ namespace dvmconsole
     /// </summary>
     public partial class CallHistoryWindow : Window
     {
+        private const int MAX_CALL_HISTORY = 200;
+        private SettingsManager settingsManager;
+
         /*
         ** Properties
         */
@@ -105,9 +120,10 @@ namespace dvmconsole
         /// <summary>
         /// Initializes a new instance of the <see cref="CallHistoryWindow"/> class.
         /// </summary>
-        public CallHistoryWindow()
+        public CallHistoryWindow(SettingsManager settingsManager)
         {
             InitializeComponent();
+            this.settingsManager = settingsManager;
             ViewModel = new CallHistoryViewModel();
             DataContext = ViewModel;
         }
@@ -132,6 +148,9 @@ namespace dvmconsole
         {
             Dispatcher.Invoke(() =>
             {
+                if (ViewModel.CallHistory.Count == MAX_CALL_HISTORY)
+                    ViewModel.CallHistory.RemoveAt(MAX_CALL_HISTORY - 1);
+
                 ViewModel.CallHistory.Insert(0, new CallEntry
                 {
                     Channel = channel,
@@ -155,6 +174,8 @@ namespace dvmconsole
             {
                 foreach (var entry in ViewModel.CallHistory.Where(c => c.Channel == channel && c.SrcId == srcId))
                 {
+                    entry.ForegroundColor = Brushes.Black;
+
                     if (!encrypted)
                         entry.BackgroundColor = Brushes.LightGreen;
                     else
@@ -174,6 +195,10 @@ namespace dvmconsole
             {
                 foreach (var entry in ViewModel.CallHistory.Where(c => c.Channel == channel && c.SrcId == srcId))
                 {
+                    if (settingsManager.DarkMode)
+                        entry.ForegroundColor = Brushes.White;
+                    else
+                        entry.ForegroundColor = Brushes.Black;
                     entry.BackgroundColor = Brushes.Transparent;
                 }
             });

@@ -28,7 +28,7 @@
         <TextBox HorizontalAlignment="Left" Name="DstIdText" Margin="10,46,0,0" TextWrapping="Wrap" Text="" MaxLength="8" VerticalAlignment="Top" Width="150" Grid.Row="0" Grid.Column="1"/>
 
         <Button x:Name="SendButton" Width="150" Height="24" HorizontalAlignment="Left" Margin="108,20,0,0" VerticalAlignment="Top" Click="SendButton_Click" Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
-                IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}" >
+                IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
             <TextBlock TextAlignment="Center">Send</TextBlock>
         </Button>
     </Grid>

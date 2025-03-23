@@ -1,12 +1,17 @@
 ﻿<Window x:Class="dvmconsole.WidgetSelectionWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Icon="/dvmconsole;component/Assets/select.png"
-        Title="Select Widgets" Height="200" Width="300" WindowStartupLocation="CenterOwner">
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        TextElement.Foreground="{DynamicResource MaterialDesignBody}" TextElement.FontWeight="Regular" TextElement.FontSize="13"
+        Style="{StaticResource MaterialDesignWindow}" Background="{DynamicResource MaterialDesignPaper}" FontFamily="{DynamicResource MaterialDesignFont}"
+        Title="Select Widgets" Height="220" Width="300" WindowStartupLocation="CenterOwner">
     <StackPanel Margin="20">
         <TextBlock Text="Select Widgets to Display:" FontWeight="Bold" Margin="0,0,0,10" />
         <CheckBox x:Name="SystemStatusCheckBox" Content="System Status" IsChecked="True" />
         <CheckBox x:Name="ChannelCheckBox" Content="Channels" IsChecked="True" />
         <CheckBox x:Name="AlertToneCheckBox" Content="Alert Tones" IsChecked="True" />
-        <Button Content="Apply" Width="80" Margin="0,20,0,0" HorizontalAlignment="Center" Click="ApplyButton_Click" />
+        
+        <Button Content="Apply" Width="80" Margin="0,20,0,0" HorizontalAlignment="Center" Click="ApplyButton_Click" 
+                IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}"/>
     </StackPanel>
 </Window>
