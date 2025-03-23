@@ -14,13 +14,14 @@
             <DataGrid.RowStyle>
                 <Style TargetType="DataGridRow">
                     <Setter Property="Background" Value="{Binding BackgroundColor}" />
+                    <Setter Property="Foreground" Value="{Binding ForegroundColor}" />
                 </Style>
             </DataGrid.RowStyle>
             <DataGrid.Columns>
-                <DataGridTextColumn Header="Channel" Binding="{Binding Channel}" Width="*" />
+                <DataGridTextColumn Header="Channel" Binding="{Binding Channel}" Width="150" />
                 <DataGridTextColumn Header="Radio ID" Binding="{Binding SrcId}" Width="*" />
                 <DataGridTextColumn Header="Talkgroup" Binding="{Binding DstId}" Width="*" />
-                <DataGridTextColumn Header="Timestamp" Binding="{Binding Timestamp}" Width="*" />
+                <DataGridTextColumn Header="Timestamp" Binding="{Binding Timestamp}" Width="150" />
             </DataGrid.Columns>
         </DataGrid>
     </Grid>

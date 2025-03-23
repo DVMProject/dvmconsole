@@ -514,12 +514,7 @@ namespace dvmconsole
                             channel.LastSrcId = "Last: " + alias;
 
                         if (channel.algId != P25Defines.P25_ALGO_UNENCRYPT)
-                        {
-                            channel.Background = ChannelBox.ORANGE_GRADIENT;
                             Log.WriteLine($"({system.Name}) P25D: Traffic *CALL ENC PARMS * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
-                        }
-                        else
-                            channel.Background = ChannelBox.GREEN_GRADIENT;
                     }
 
                     // is the call over?
@@ -533,6 +528,12 @@ namespace dvmconsole
                         callHistoryWindow.ChannelUnkeyed(cpgChannel.Name, (int)e.SrcId);
                         return;
                     }
+
+                    // do background updates here -- this catches late entry
+                    if (channel.algId != P25Defines.P25_ALGO_UNENCRYPT)
+                        channel.Background = ChannelBox.ORANGE_GRADIENT;
+                    else
+                        channel.Background = ChannelBox.GREEN_GRADIENT;
 
                     byte[] newMI = new byte[P25Defines.P25_MI_LENGTH];
 

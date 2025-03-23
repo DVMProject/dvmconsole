@@ -108,7 +108,7 @@ namespace dvmconsole
 
         private ChannelBox playbackChannelBox;
 
-        CallHistoryWindow callHistoryWindow = new CallHistoryWindow();
+        CallHistoryWindow callHistoryWindow;
 
         public static string PLAYBACKTG = "LOCPLAYBACK";
         public static string PLAYBACKSYS = "Local Playback";
@@ -150,6 +150,7 @@ namespace dvmconsole
             DisableControls();
 
             settingsManager.LoadSettings();
+            callHistoryWindow = new CallHistoryWindow(settingsManager);
 
             selectedChannelsManager = new SelectedChannelsManager();
             flashingManager = new FlashingBackgroundManager(null, channelsCanvas, null, this);
