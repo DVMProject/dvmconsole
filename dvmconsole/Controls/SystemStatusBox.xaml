@@ -7,8 +7,8 @@
     </UserControl.Effect>
     <Border x:Name="ControlBorder" BorderBrush="LightGray" BorderThickness="1,1,1,1" CornerRadius="6">
         <StackPanel Margin="2,2,2,2">
-            <TextBlock Text="{Binding ConnectionState}" Margin="0,2,0,0" Foreground="Gold" FontSize="10" TextAlignment="Center" />
-            <TextBlock Text="{Binding SystemName}" Margin="0,4,0,0" FontWeight="Bold" Foreground="White" FontSize="16" TextAlignment="Center" />
+            <TextBlock Text="{Binding SystemName}" Margin="0,1,0,0" FontWeight="Bold" Foreground="White" FontSize="16" TextAlignment="Center" />
+            <TextBlock Text="{Binding ConnectionState}" Margin="0,4,0,0" Foreground="Gold" FontSize="10" TextAlignment="Center" />
         </StackPanel>
     </Border>
 </UserControl>

@@ -14,15 +14,20 @@
 
 using System.IO;
 using System.Reflection;
+using System.Text;
 using System.Windows;
+
+using fnecore.Utility;
 
 namespace dvmconsole
 {
     /// <summary>
-    /// 
+    /// Encapsulates a Windows Presentation Foundation application.
     /// </summary>
     public partial class App : Application
     {
+        public static string USER_PROFILE_PATH_OVERRIDE = string.Empty;
+
         /*
         ** Methods
         */
@@ -43,6 +48,59 @@ namespace dvmconsole
                 Application.Current.Shutdown();
                 return;
             }
+        }
+
+        /// <summary>
+        /// Internal helper to prints the program usage.
+        /// </summary>
+        private static void Usage(OptionSet p)
+        {
+            string messageBoxText = "[-h | --help][--userprofile <path for UserProfile.yaml>]\r\nOptions:\r\n";
+
+            using (MemoryStream ms = new MemoryStream())
+            {
+                using (TextWriter writer = new StreamWriter(ms))
+                    p.WriteOptionDescriptions(writer);
+
+                messageBoxText += Encoding.UTF8.GetString(ms.ToArray());
+            }
+
+            MessageBox.Show(messageBoxText, "Digital Voice Modem - Desktop Dispatch Console",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+
+            Application.Current.Shutdown();
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void Application_Startup(object sender, StartupEventArgs e)
+        {
+            bool showHelp = false;
+            string configFile = string.Empty;
+
+            // command line parameters
+            OptionSet options = new OptionSet()
+            {
+                { "h|help", "show this message and exit", v => showHelp = v != null },
+                { "userprofile=", "sets the path to the UserProfile.yaml", v => USER_PROFILE_PATH_OVERRIDE = v },
+            };
+
+            // attempt to parse the commandline
+            try
+            {
+                options.Parse(e.Args);
+            }
+            catch (OptionException)
+            {
+                /* ignore */
+            }
+
+            // show help?
+            if (showHelp)
+                Usage(options);
         }
     } // public partial class App : Application
 } // namespace dvmconsole

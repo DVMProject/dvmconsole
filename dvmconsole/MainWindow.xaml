@@ -2,35 +2,29 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:dvmconsole.Controls"
-        Title="Digital Voice Modem - Desktop Dispatch Console" Height="600" Width="875" Background="#FFF2F2F2" 
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        Title="Digital Voice Modem - Desktop Dispatch Console" Height="600" Width="1024"
+        TextElement.Foreground="{DynamicResource MaterialDesignBody}" TextElement.FontWeight="Regular" TextElement.FontSize="13"
+        Style="{StaticResource MaterialDesignWindow}" Background="{DynamicResource MaterialDesignPaper}" FontFamily="{DynamicResource MaterialDesignFont}"
         Icon="/dvmconsole;component/Assets/AppIcon.ico">
-    <Grid Background="#FFF2F2F2">
+    <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="497*"/>
             <ColumnDefinition Width="3*"/>
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="24"/>
             <RowDefinition Height="52" />
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
-
-        <Border BorderBrush="#FFB7B7B7" BorderThickness="1" Grid.Row="1" Grid.ColumnSpan="2">
-            <Border.Background>
-                <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-                    <GradientStop Color="White"/>
-                    <GradientStop Color="#FFDFDFDF" Offset="1"/>
-                </LinearGradientBrush>
-            </Border.Background>
-        </Border>
-
-        <Menu VerticalAlignment="Center" Height="25" Background="White" Grid.ColumnSpan="2">
-            <MenuItem Header="File">
+        
+        <Menu materialDesign:MenuAssist.TopLevelMenuItemHeight="24" Grid.ColumnSpan="2">
+            <MenuItem Header="_File">
                 <MenuItem Header="_Open Codeplug..." Click="OpenCodeplug_Click" />
                 <Separator />
                 <MenuItem Header="_Exit" Click="Exit_Click" />
             </MenuItem>
-            <MenuItem Header="Commands">
+            <MenuItem Header="_Commands">
                 <MenuItem Header="_Page Subscriber" Click="PageRID_Click" x:Name="menuPageSubscriber" />
                 <MenuItem Header="Radio _Check Subscriber" Click="RadioCheckRID_Click" x:Name="menuRadioCheckSubscriber" />
                 <Separator />
@@ -39,7 +33,7 @@
                 <Separator />
                 <MenuItem Header="_QuickCall II" Click="ManualPage_Click" x:Name="menuQuickCall2" />
             </MenuItem>
-            <MenuItem Header="Settings">
+            <MenuItem Header="_Settings">
                 <MenuItem Header="_Toggle Push To Talk Mode" IsCheckable="True" Checked="TogglePTTMode_Click" Unchecked="TogglePTTMode_Click" x:Name="menuTogglePTTMode" />
                 <Separator />
                 <MenuItem Header="_Audio Settings" Click="AudioSettings_Click" />
@@ -51,7 +45,7 @@
                     <MenuItem Header="Add Alert Tone" Click="AddAlertTone_Click" />
                 </MenuItem>
             </MenuItem>
-            <MenuItem Header="View">
+            <MenuItem Header="_View">
                 <MenuItem Header="Select _User Background..." Click="OpenUserBackground_Click" x:Name="menuUserBackground" />
                 <Separator />
                 <MenuItem Header="_Dark Mode" IsCheckable="True" Checked="ToggleDarkMode_Click" Unchecked="ToggleDarkMode_Click" x:Name="menuDarkMode" />
@@ -63,434 +57,117 @@
             </MenuItem>
         </Menu>
 
+        <ToolBarTray Grid.Row="1">
+            <ToolBar ClipToBounds="False" Style="{StaticResource MaterialDesignToolBar}">
+                <!-- Application Banner -->
+                <Image Width="224" Height="50" VerticalAlignment="Center" HorizontalAlignment="Left" Source="/dvmconsole;component/Assets/logo.png" Stretch="UniformToFill">
+                    <Image.RenderTransform>
+                        <TransformGroup>
+                            <ScaleTransform/>
+                            <SkewTransform AngleY="-0.164"/>
+                            <RotateTransform/>
+                            <TranslateTransform Y="-0.247"/>
+                        </TransformGroup>
+                    </Image.RenderTransform>
+                </Image>
+
+                <Separator />
+
+                <!-- Open Codeplug -->
+                <Button Height="42" Width="42" Click="OpenCodeplug_Click" ToolTip="Open Codeplug" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
+                    <Image HorizontalAlignment="Left" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/config.png" IsHitTestVisible="False" />
+                </Button>
+
+                <Separator />
+
+                <!-- Global PTT -->
+                <Button x:Name="btnGlobalPtt" Height="42" Width="110" ToolTip="Global PTT" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
+                    <Image HorizontalAlignment="Center" VerticalAlignment="Center" Width="64" Height="48" Source="/dvmconsole;component/Assets/instantptt.png" IsHitTestVisible="False">
+                        <Image.OpacityMask>
+                            <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
+                                <GradientStop Color="Black"/>
+                                <GradientStop Color="White" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Image.OpacityMask>
+                    </Image>
+                </Button>
+
+                <Separator />
+
+                <!-- Alert Tone 1, 2 and 3 -->
+                <Button x:Name="btnAlert1" Height="42" Width="42" Click="btnAlert1_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 1" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
+                    <StackPanel Width="42">
+                        <Image HorizontalAlignment="Center" Width="32" Height="30" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" />
+                        <TextBlock TextAlignment="Center">1</TextBlock>
+                    </StackPanel>
+                </Button>
+                <Button x:Name="btnAlert2" Height="42" Width="42" Click="btnAlert2_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 2" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
+                    <StackPanel Width="42">
+                        <Image HorizontalAlignment="Center" Width="32" Height="30" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" />
+                        <TextBlock TextAlignment="Center">2</TextBlock>
+                    </StackPanel>
+                </Button>
+                <Button x:Name="btnAlert3" Height="42" Width="42" Click="btnAlert3_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 3" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
+                    <StackPanel Width="42">
+                        <Image HorizontalAlignment="Center" Width="32" Height="30" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" />
+                        <TextBlock TextAlignment="Center">3</TextBlock>
+                    </StackPanel>
+                </Button>
+
+                <Separator />
+
+                <!-- Page Subscriber -->
+                <Button x:Name="btnPageSub" Height="42" Width="42" Click="PageRID_Click" ToolTip="Page Subscriber" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
+                    <Image HorizontalAlignment="Left" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/page.png" IsHitTestVisible="False" />
+                </Button>
+
+                <Separator />
+
+                <!-- Select/Unselect All -->
+                <Button x:Name="btnSelectAll" Height="42" Width="42" Click="SelectAll_Click" ToolTip="Select All/Unselect All" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
+                    <Image HorizontalAlignment="Left" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/select.png" IsHitTestVisible="False" />
+                </Button>
+
+                <Separator />
+
+                <!-- Encryption Key Information -->
+                <Button x:Name="btnKeyStatus" Height="42" Width="42" Click="KeyStatus_Click" ToolTip="Encryption Key Information" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
+                    <Image HorizontalAlignment="Left" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/key.png" IsHitTestVisible="False" />
+                </Button>
+
+                <Separator />
+
+                <!-- Call History -->
+                <Button x:Name="btnCallHistory" Height="42" Width="42" Click="CallHist_Click" ToolTip="Call History" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
+                    <Image HorizontalAlignment="Left" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/history.png" IsHitTestVisible="False" />
+                </Button>
+
+                <Separator />
+
+                <!-- Audio Settings -->
+                <Button x:Name="btnAudioSettings" Height="42" Width="42" Click="AudioSettings_Click" ToolTip="Audio Settings" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
+                    <Image HorizontalAlignment="Left" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/audio.png" IsHitTestVisible="False" />
+                </Button>
+            </ToolBar>
+        </ToolBarTray>
+
         <!-- Channel Widget Canvas -->
-        <ScrollViewer x:Name="canvasScrollViewer" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" Grid.Row="2" Grid.ColumnSpan="2">
+        <ScrollViewer x:Name="canvasScrollViewer" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" Grid.Row="3" Grid.ColumnSpan="2">
             <Canvas x:Name="channelsCanvas" VerticalAlignment="Top">
                 <Canvas.Background>
                     <ImageBrush x:Name="channelsCanvasBg" ImageSource="/dvmconsole;component/Assets/bg_main_hd_light.png" Stretch="UniformToFill" />
                 </Canvas.Background>
             </Canvas>
         </ScrollViewer>
-
-        <!-- Application Banner -->
-        <Image Height="50" Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Left" Source="/dvmconsole;component/Assets/logo.png" Stretch="UniformToFill" Margin="5,0,0,0" RenderTransformOrigin="0.5,0.5" Width="224">
-            <Image.RenderTransform>
-                <TransformGroup>
-                    <ScaleTransform/>
-                    <SkewTransform AngleY="-0.164"/>
-                    <RotateTransform/>
-                    <TranslateTransform Y="-0.247"/>
-                </TransformGroup>
-            </Image.RenderTransform>
-        </Image>
-
-        <!-- Open Codeplug -->
-        <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" Margin="238,0,0,0" VerticalAlignment="Center" Height="46" Width="45" Click="OpenCodeplug_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial"
-                ToolTip="Open Codeplug">
-            <Button.Style>
-                <Style TargetType="Button">
-                    <Setter Property="Template">
-                        <Setter.Value>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="OpenCodeplugBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="OpenCodeplugBorder" Property="BorderBrush" Value="#FF0AC6FB"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Setter.Value>
-                    </Setter>
-                </Style>
-            </Button.Style>
-            <Button.Resources>
-                <Style TargetType="{x:Type Border}">
-                    <Setter Property="CornerRadius" Value="2"/>
-                </Style>
-            </Button.Resources>
-            <Button.Background>
-                <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-                    <GradientStop Color="#FFF0F0F0" Offset="0.485"/>
-                    <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
-                </LinearGradientBrush>
-            </Button.Background>
-            <Image HorizontalAlignment="Left" Width="41" Source="/dvmconsole;component/Assets/config.png" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.598" Height="46"/>
-        </Button>
-
-        <!-- Global PTT -->
-        <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" x:Name="btnGlobalPtt" VerticalAlignment="Center" Height="46" Width="82" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial" Margin="285,0,0,0"
-                ToolTip="Global PTT">
-            <Button.Style>
-                <Style TargetType="Button">
-                    <Setter Property="Template">
-                        <Setter.Value>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="OpenCodeplugBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="OpenCodeplugBorder" Property="BorderBrush" Value="#FF0AC6FB"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Setter.Value>
-                    </Setter>
-                </Style>
-            </Button.Style>
-            <Button.Resources>
-                <Style TargetType="{x:Type Border}">
-                    <Setter Property="CornerRadius" Value="2"/>
-                </Style>
-            </Button.Resources>
-            <Button.Background>
-                <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-                    <GradientStop Color="#FFF0F0F0" Offset="0.485"/>
-                    <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
-                </LinearGradientBrush>
-            </Button.Background>
-            <Image HorizontalAlignment="Center" Width="62" Source="/dvmconsole;component/Assets/instantptt.png" IsHitTestVisible="False" Height="45" >
-                <Image.OpacityMask>
-                    <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-                        <GradientStop Color="Black"/>
-                        <GradientStop Color="White" Offset="1"/>
-                    </LinearGradientBrush>
-                </Image.OpacityMask>
-            </Image>
-        </Button>
-
-        <!-- Alert Tone 1, 2 and 3 -->
-        <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" Margin="369,0,0,0" VerticalAlignment="Center" Height="46" Width="45" x:Name="btnAlert1" Click="btnAlert1_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial"
-                ToolTip="Alert Tone 1">
-            <Button.Style>
-                <Style TargetType="Button">
-                    <Setter Property="Template">
-                        <Setter.Value>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="OpenCodeplugBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="OpenCodeplugBorder" Property="BorderBrush" Value="#FF0AC6FB"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Setter.Value>
-                    </Setter>
-                </Style>
-            </Button.Style>
-            <Button.Resources>
-                <Style TargetType="{x:Type Border}">
-                    <Setter Property="CornerRadius" Value="2"/>
-                </Style>
-            </Button.Resources>
-            <Button.Background>
-                <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-                    <GradientStop Color="#FFF0F0F0" Offset="0.485"/>
-                    <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
-                </LinearGradientBrush>
-            </Button.Background>
-            <StackPanel>
-                <Image HorizontalAlignment="Center" Width="37" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" Height="32"/>
-                <TextBlock TextAlignment="Center">1</TextBlock>
-            </StackPanel>
-        </Button>
-        <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" Margin="416,0,0,0" VerticalAlignment="Center" Height="46" Width="45" x:Name="btnAlert2" Click="btnAlert2_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial"
-                ToolTip="Alert Tone 2">
-            <Button.Style>
-                <Style TargetType="Button">
-                    <Setter Property="Template">
-                        <Setter.Value>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="OpenCodeplugBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="OpenCodeplugBorder" Property="BorderBrush" Value="#FF0AC6FB"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Setter.Value>
-                    </Setter>
-                </Style>
-            </Button.Style>
-            <Button.Resources>
-                <Style TargetType="{x:Type Border}">
-                    <Setter Property="CornerRadius" Value="2"/>
-                </Style>
-            </Button.Resources>
-            <Button.Background>
-                <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-                    <GradientStop Color="#FFF0F0F0" Offset="0.485"/>
-                    <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
-                </LinearGradientBrush>
-            </Button.Background>
-            <StackPanel>
-                <Image HorizontalAlignment="Center" Width="37" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" Height="32"/>
-                <TextBlock TextAlignment="Center">2</TextBlock>
-            </StackPanel>
-        </Button>
-        <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" Margin="463,0,0,0" VerticalAlignment="Center" x:Name="btnAlert3" Height="46" Width="45" Click="btnAlert3_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial"
-                ToolTip="Alert Tone 3">
-            <Button.Style>
-                <Style TargetType="Button">
-                    <Setter Property="Template">
-                        <Setter.Value>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="OpenCodeplugBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="OpenCodeplugBorder" Property="BorderBrush" Value="#FF0AC6FB"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Setter.Value>
-                    </Setter>
-                </Style>
-            </Button.Style>
-            <Button.Resources>
-                <Style TargetType="{x:Type Border}">
-                    <Setter Property="CornerRadius" Value="2"/>
-                </Style>
-            </Button.Resources>
-            <Button.Background>
-                <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-                    <GradientStop Color="#FFF0F0F0" Offset="0.485"/>
-                    <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
-                </LinearGradientBrush>
-            </Button.Background>
-            <StackPanel>
-                <Image HorizontalAlignment="Center" Width="37" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" Height="32"/>
-                <TextBlock TextAlignment="Center">3</TextBlock>
-            </StackPanel>
-        </Button>
-
-        <!-- Page Subscriber -->
-        <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" Margin="510,0,0,0" VerticalAlignment="Center" Height="46" Width="44" x:Name="btnPageSub" Click="PageRID_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial"
-                ToolTip="Page Subscriber">
-            <Button.Style>
-                <Style TargetType="Button">
-                    <Setter Property="Template">
-                        <Setter.Value>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="OpenCodeplugBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="OpenCodeplugBorder" Property="BorderBrush" Value="#FF0AC6FB"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Setter.Value>
-                    </Setter>
-                </Style>
-            </Button.Style>
-            <Button.Resources>
-                <Style TargetType="{x:Type Border}">
-                    <Setter Property="CornerRadius" Value="2"/>
-                </Style>
-            </Button.Resources>
-            <Button.Background>
-                <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-                    <GradientStop Color="#FFF0F0F0" Offset="0.485"/>
-                    <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
-                </LinearGradientBrush>
-            </Button.Background>
-            <Image HorizontalAlignment="Left" Width="38" Source="/dvmconsole;component/Assets/page.png" IsHitTestVisible="False" Height="46"/>
-        </Button>
-
-        <!-- Clear Emergency (disabled) -->
-        <Button VerticalContentAlignment="Bottom" HorizontalAlignment="Left" Margin="559,0,0,0" VerticalAlignment="Center" Height="46" Width="45" x:Name="btnClearEmergency" Click="ClearEmergency_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial"
-                ToolTip="Clear Emergency" Visibility="Hidden">
-            <Button.Style>
-                <Style TargetType="Button">
-                    <Setter Property="Template">
-                        <Setter.Value>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="OpenCodeplugBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="OpenCodeplugBorder" Property="BorderBrush" Value="#FF0AC6FB"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Setter.Value>
-                    </Setter>
-                </Style>
-            </Button.Style>
-            <Button.Resources>
-                <Style TargetType="{x:Type Border}">
-                    <Setter Property="CornerRadius" Value="2"/>
-                </Style>
-            </Button.Resources>
-
-            <Button.Background>
-                <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-                    <GradientStop Color="#FFF0F0F0" Offset="0.485"/>
-                    <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
-                </LinearGradientBrush>
-            </Button.Background>
-            <Image HorizontalAlignment="Left" Width="37" Source="/dvmconsole;component/Assets/clearemerg.png" IsHitTestVisible="False" Height="46"/>
-        </Button>
-
-        <!-- Select/Unselect All -->
-        <Button VerticalContentAlignment="Center" HorizontalAlignment="Left" Margin="609,0,0,0" VerticalAlignment="Center" Height="46" x:Name="btnSelectAll" Click="SelectAll_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" FontSize="10" FontFamily="Arial" Grid.Row="1"
-                ToolTip="Select All/Unselect All">
-            <Button.Style>
-                <Style TargetType="Button">
-                    <Setter Property="Template">
-                        <Setter.Value>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="OpenCodeplugBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="OpenCodeplugBorder" Property="BorderBrush" Value="#FF0AC6FB"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Setter.Value>
-                    </Setter>
-                </Style>
-            </Button.Style>
-            <Button.Resources>
-                <Style TargetType="{x:Type Border}">
-                    <Setter Property="CornerRadius" Value="2"/>
-                </Style>
-            </Button.Resources>
-            <Button.Background>
-                <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-                    <GradientStop Color="#FFF0F0F0" Offset="0.485"/>
-                    <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
-                </LinearGradientBrush>
-            </Button.Background>
-            <Image HorizontalAlignment="Left" Width="41" Source="/dvmconsole;component/Assets/select.png" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.598" Height="46"/>
-        </Button>
-
-        <!-- Encryption Key Information -->
-        <Button VerticalContentAlignment="Center" HorizontalAlignment="Left" Margin="656,0,0,0" VerticalAlignment="Center" Height="46" Width="44" x:Name="btnKeyStatus" Click="KeyStatus_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" FontSize="10" FontFamily="Arial" Grid.Row="1"
-                ToolTip="Encryption Key Information">
-            <Button.Style>
-                <Style TargetType="Button">
-                    <Setter Property="Template">
-                        <Setter.Value>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="OpenCodeplugBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="OpenCodeplugBorder" Property="BorderBrush" Value="#FF0AC6FB"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Setter.Value>
-                    </Setter>
-                </Style>
-            </Button.Style>
-            <Button.Resources>
-                <Style TargetType="{x:Type Border}">
-                    <Setter Property="CornerRadius" Value="2"/>
-                </Style>
-            </Button.Resources>
-            <Button.Background>
-                <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-                    <GradientStop Color="#FFF0F0F0" Offset="0.485"/>
-                    <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
-                </LinearGradientBrush>
-            </Button.Background>
-            <Image HorizontalAlignment="Left" Width="41" Source="/dvmconsole;component/Assets/key.png" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.598" Height="46"/>
-        </Button>
-
-        <!-- Call History -->
-        <Button VerticalContentAlignment="Center" HorizontalAlignment="Left" Margin="703,0,0,0" VerticalAlignment="Center" Height="46" Width="44" x:Name="btnCallHistory" Click="CallHist_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" FontSize="10" FontFamily="Arial" Grid.Row="1"
-                ToolTip="Call History">
-            <Button.Style>
-                <Style TargetType="Button">
-                    <Setter Property="Template">
-                        <Setter.Value>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="OpenCodeplugBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="OpenCodeplugBorder" Property="BorderBrush" Value="#FF0AC6FB"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Setter.Value>
-                    </Setter>
-                </Style>
-            </Button.Style>
-            <Button.Resources>
-                <Style TargetType="{x:Type Border}">
-                    <Setter Property="CornerRadius" Value="2"/>
-                </Style>
-            </Button.Resources>
-            <Button.Background>
-                <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-                    <GradientStop Color="#FFF0F0F0" Offset="0.485"/>
-                    <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
-                </LinearGradientBrush>
-            </Button.Background>
-            <Image HorizontalAlignment="Left" Width="41" Source="/dvmconsole;component/Assets/history.png" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.598" Height="46"/>
-        </Button>
-
-        <!-- Audio Settings -->
-        <Button VerticalContentAlignment="Bottom" VerticalAlignment="Center" Height="46" x:Name="btnAudioSettings" Click="AudioSettings_Click" BorderBrush="#FFC1C1C1" BorderThickness="1,1,1,1" Grid.Row="1" FontSize="10" FontFamily="Arial"
-                ToolTip="Audio Settings" HorizontalAlignment="Left" Width="54" Margin="800,0,0,0">
-            <Button.Style>
-                <Style TargetType="Button">
-                    <Setter Property="Template">
-                        <Setter.Value>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="OpenCodeplugBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="OpenCodeplugBorder" Property="BorderBrush" Value="#FF0AC6FB"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Setter.Value>
-                    </Setter>
-                </Style>
-            </Button.Style>
-            <Button.Resources>
-                <Style TargetType="{x:Type Border}">
-                    <Setter Property="CornerRadius" Value="2"/>
-                </Style>
-            </Button.Resources>
-            <Button.Background>
-                <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-                    <GradientStop Color="#FFF0F0F0" Offset="0.485"/>
-                    <GradientStop Color="#FFDBDBDB" Offset="0.517"/>
-                </LinearGradientBrush>
-            </Button.Background>
-            <Image HorizontalAlignment="Left" Width="42" Source="/dvmconsole;component/Assets/audio.png" IsHitTestVisible="False" Height="46"/>
-        </Button>
     </Grid>
 </Window>
