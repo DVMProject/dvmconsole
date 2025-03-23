@@ -146,6 +146,8 @@ namespace dvmconsole
                     if (channel.Encoder == null)
                         channel.Encoder = new MBEEncoder(MBE_MODE.DMR_AMBE);
 
+                    ambe = new byte[FneSystemBase.AMBE_BUF_LEN];
+
                     channel.Encoder.encode(samples, ambe);
                 }
 
