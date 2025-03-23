@@ -43,6 +43,11 @@ namespace dvmconsole
         public int DstId { get; set; }
 
         /// <summary>
+        /// Timestamp for entry.
+        /// </summary>
+        public string Timestamp { get; set; }
+
+        /// <summary>
         /// Background color for call entry.
         /// </summary>
         public Brush BackgroundColor
@@ -123,7 +128,7 @@ namespace dvmconsole
         /// <param name="channel"></param>
         /// <param name="srcId"></param>
         /// <param name="dstId"></param>
-        public void AddCall(string channel, int srcId, int dstId)
+        public void AddCall(string channel, int srcId, int dstId, string timestamp)
         {
             Dispatcher.Invoke(() =>
             {
@@ -132,6 +137,7 @@ namespace dvmconsole
                     Channel = channel,
                     SrcId = srcId,
                     DstId = dstId,
+                    Timestamp = timestamp,
                     BackgroundColor = Brushes.Transparent
                 });
             });

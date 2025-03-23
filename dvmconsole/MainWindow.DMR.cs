@@ -282,7 +282,7 @@ namespace dvmconsole
                         systemStatuses[cpgChannel.Name + e.Slot].DMR_RxPILC = new PrivacyLC();
                         Log.WriteLine($"({system.Name}) TS {e.Slot + 1} [STREAM ID {e.StreamId}] RX_LC {FneUtils.HexDump(systemStatuses[cpgChannel.Name + e.Slot].DMR_RxLC.GetBytes())}");
 
-                        callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId);
+                        callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, DateTime.Now.ToString());
                         callHistoryWindow.ChannelKeyed(cpgChannel.Name, (int)e.SrcId, false); // TODO: Encrypted state
 
                         string alias = string.Empty;

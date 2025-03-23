@@ -169,10 +169,15 @@ namespace dvmconsole
 
             selectedChannelsManager.SelectedChannelsChanged += SelectedChannelsChanged;
             selectedChannelsManager.PrimaryChannelChanged += PrimaryChannelChanged;
+
+            LocationChanged += MainWindow_LocationChanged;
             SizeChanged += MainWindow_SizeChanged;
             Loaded += MainWindow_Loaded;
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
         private void PrimaryChannelChanged()
         {
             var primaryChannel = selectedChannelsManager.PrimaryChannel;
@@ -248,6 +253,11 @@ namespace dvmconsole
         private void LoadCodeplug(string filePath)
         {
             DisableControls();
+
+            channelsCanvas.Children.Clear();
+            systemStatuses.Clear();
+
+            fneSystemManager.ClearAll();
 
             try
             {
@@ -914,7 +924,11 @@ namespace dvmconsole
             if (!noSaveSettingsOnClose)
             {
                 if (WindowState == WindowState.Maximized)
+                {
                     settingsManager.Maximized = true;
+                    if (settingsManager.SnapCallHistoryToWindow)
+                        menuSnapCallHistory.IsChecked = false;
+                }
 
                 settingsManager.SaveSettings();
             }
@@ -1013,6 +1027,22 @@ namespace dvmconsole
         /// <param name="sender"></param>
         /// <param name="e"></param>
         /// <exception cref="NotImplementedException"></exception>
+        private void MainWindow_LocationChanged(object sender, EventArgs e)
+        {
+            if (settingsManager.SnapCallHistoryToWindow && callHistoryWindow.Visibility == Visibility.Visible && 
+                WindowState != WindowState.Maximized)
+            {
+                callHistoryWindow.Left = Left + ActualWidth + 5;
+                callHistoryWindow.Top = Top;
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        /// <exception cref="NotImplementedException"></exception>
         private void MainWindow_SizeChanged(object sender, SizeChangedEventArgs e)
         {
             const double widthOffset = 16;
@@ -1042,6 +1072,14 @@ namespace dvmconsole
             else
                 settingsManager.Maximized = false;
 
+            if (settingsManager.SnapCallHistoryToWindow && callHistoryWindow.Visibility == Visibility.Visible && 
+                WindowState != WindowState.Maximized)
+            {
+                callHistoryWindow.Height = ActualHeight;
+                callHistoryWindow.Left = Left + ActualWidth + 5;
+                callHistoryWindow.Top = Top;
+            }
+
             settingsManager.CanvasWidth = channelsCanvas.ActualWidth;
             settingsManager.CanvasHeight = channelsCanvas.ActualHeight;
 
@@ -1061,6 +1099,7 @@ namespace dvmconsole
 
             // set PTT toggle mode (this must be done before channel widgets are defined)
             menuToggleLockWidgets.IsChecked = settingsManager.LockWidgets;
+            menuSnapCallHistory.IsChecked = settingsManager.SnapCallHistoryToWindow;
             menuTogglePTTMode.IsChecked = settingsManager.TogglePTTMode;
 
             if (!string.IsNullOrEmpty(settingsManager.LastCodeplugPath) && File.Exists(settingsManager.LastCodeplugPath))
@@ -1513,6 +1552,19 @@ namespace dvmconsole
                 return;
 
             settingsManager.LockWidgets = !settingsManager.LockWidgets;
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void ToggleSnapCallHistory_Click(object sender, RoutedEventArgs e)
+        {
+            if (!windowLoaded)
+                return;
+
+            settingsManager.SnapCallHistoryToWindow = !settingsManager.SnapCallHistoryToWindow;
         }
 
         /// <summary>
@@ -2176,7 +2228,21 @@ namespace dvmconsole
         private void CallHist_Click(object sender, RoutedEventArgs e)
         {
             callHistoryWindow.Owner = this;
-            callHistoryWindow.Show();
+            if (callHistoryWindow.Visibility == Visibility.Visible)
+                callHistoryWindow.Hide();
+            else
+            {
+                callHistoryWindow.Show();
+
+                if (settingsManager.SnapCallHistoryToWindow && WindowState != WindowState.Maximized)
+                {
+                    if (ActualHeight > callHistoryWindow.Height)
+                        callHistoryWindow.Height = ActualHeight;
+
+                    callHistoryWindow.Left = Left + ActualWidth + 5;
+                    callHistoryWindow.Top = Top;
+                }
+            }
         }
 
         /** fnecore Hooks / Helpers */

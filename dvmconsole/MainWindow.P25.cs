@@ -458,6 +458,9 @@ namespace dvmconsole
                     if (cpgChannel.Tgid != e.DstId.ToString())
                         continue;
 
+                    if (e.DUID == P25DUID.TSDU || e.DUID == P25DUID.PDU)
+                        continue;
+
                     if (!systemStatuses.ContainsKey(cpgChannel.Name))
                         systemStatuses[cpgChannel.Name] = new SlotStatus();
 
@@ -494,7 +497,7 @@ namespace dvmconsole
 
                         FneUtils.Memset(channel.mi, 0x00, P25Defines.P25_MI_LENGTH);
 
-                        callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId);
+                        callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, DateTime.Now.ToString());
                         callHistoryWindow.ChannelKeyed(cpgChannel.Name, (int)e.SrcId, encrypted);
 
                         string alias = string.Empty;
@@ -533,6 +536,7 @@ namespace dvmconsole
 
                     if ((channel.algId != cpgChannel.GetAlgoId() || channel.kId != cpgChannel.GetKeyId()) && channel.algId != P25Defines.P25_ALGO_UNENCRYPT)
                     {
+                        slot.RxStreamId = e.StreamId;
                         channel.Background = ChannelBox.RED_GRADIENT;
                         Log.WriteLine($"({system.Name}) P25D: Traffic *CALL DROPPED   * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} [STREAM ID {e.StreamId}]");
                         continue;

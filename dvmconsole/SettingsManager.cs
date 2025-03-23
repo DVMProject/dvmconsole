@@ -90,6 +90,10 @@ namespace dvmconsole
         /// Flag indicating channel and other widgets are locked in place.
         /// </summary>
         public bool LockWidgets { get; set; } = true;
+        /// <summary>
+        /// Flag indicating whether or not the call history window should be snapped to the right of the main window.
+        /// </summary>
+        public bool SnapCallHistoryToWindow { get; set; } = false;
 
         /// <summary>
         /// Flag indicating window maximized state.
@@ -159,6 +163,7 @@ namespace dvmconsole
                     ChannelOutputDevices = loadedSettings.ChannelOutputDevices ?? new Dictionary<string, int>();
                     TogglePTTMode = loadedSettings.TogglePTTMode;
                     LockWidgets = loadedSettings.LockWidgets;
+                    SnapCallHistoryToWindow = loadedSettings.SnapCallHistoryToWindow;
                     Maximized = loadedSettings.Maximized;
                     DarkMode = loadedSettings.DarkMode;
                     WindowWidth = loadedSettings.WindowWidth;

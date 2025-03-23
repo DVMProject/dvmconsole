@@ -58,6 +58,7 @@
                 <Separator />
                 <MenuItem Header="_Lock Widgets" IsCheckable="True" Checked="ToggleLockWidgets_Click" Unchecked="ToggleLockWidgets_Click" x:Name="menuToggleLockWidgets" />
                 <MenuItem Header="_Fit Channel Display to Window Size" Click="ResizeCanvasToWindow_Click" x:Name="menuFitToWindow" />
+                <MenuItem Header="_Snap Call History To Window" IsCheckable="True" Checked="ToggleSnapCallHistory_Click" Unchecked="ToggleSnapCallHistory_Click" x:Name="menuSnapCallHistory" />
             </MenuItem>
         </Menu>
 

@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:dvmconsole"
         mc:Ignorable="d" Icon="/dvmconsole;component/Assets/history.png"
-        Title="Call History" Height="450" Width="351" WindowStartupLocation="CenterOwner">
+        Title="Call History" Height="450" Width="551" WindowStartupLocation="CenterOwner">
     <Grid>
         <DataGrid ItemsSource="{Binding CallHistory}" AutoGenerateColumns="False" IsReadOnly="True" Margin="10">
             <DataGrid.RowStyle>
@@ -17,6 +17,7 @@
                 <DataGridTextColumn Header="Channel" Binding="{Binding Channel}" Width="*" />
                 <DataGridTextColumn Header="Radio ID" Binding="{Binding SrcId}" Width="*" />
                 <DataGridTextColumn Header="Talkgroup" Binding="{Binding DstId}" Width="*" />
+                <DataGridTextColumn Header="Timestamp" Binding="{Binding Timestamp}" Width="*" />
             </DataGrid.Columns>
         </DataGrid>
     </Grid>
