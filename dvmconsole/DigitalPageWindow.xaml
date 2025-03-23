@@ -4,15 +4,32 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:dvmconsole"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        TextElement.Foreground="{DynamicResource MaterialDesignBody}" TextElement.FontWeight="Regular" TextElement.FontSize="13"
+        Style="{StaticResource MaterialDesignWindow}" Background="{DynamicResource MaterialDesignPaper}" FontFamily="{DynamicResource MaterialDesignFont}"
         mc:Ignorable="d" Icon="/dvmconsole;component/Assets/page.png"
-        Title="Page Subscriber" Height="141" Width="330" WindowStartupLocation="CenterOwner">
+        Title="Page Subscriber" Height="181" Width="340" WindowStartupLocation="CenterOwner">
     <Grid>
-        <Button Name="SendPageButton" HorizontalAlignment="Left" Margin="108,66,0,0" VerticalAlignment="Top" Click="SendPageButton_Click" Width="120" Height="24">
-            <TextBlock TextAlignment="Center" Margin="0,-21,0,0">Send</TextBlock>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="100"/>
+            <ColumnDefinition Width="200"/>
+        </Grid.ColumnDefinitions>
+
+        <Grid.RowDefinitions>
+            <RowDefinition Height="auto"/>
+            <RowDefinition Height="auto"/>
+            <RowDefinition Height="auto"/>
+        </Grid.RowDefinitions>
+
+        <Label Content="System:" HorizontalAlignment="Left" Margin="45,16,0,0" VerticalAlignment="Top" Grid.Row="0" Grid.Column="0" />
+        <ComboBox HorizontalAlignment="Left"  Name="SystemCombo" Margin="10,16,0,0" VerticalAlignment="Top" Width="150" Grid.Row="0" Grid.Column="1" />
+
+        <Label Content="Radio ID:" HorizontalAlignment="Left" Margin="40,46,0,0" VerticalAlignment="Top" Grid.Row="0" Grid.Column="0" />
+        <TextBox HorizontalAlignment="Left" Name="DstIdText" Margin="10,46,0,0" TextWrapping="Wrap" Text="" MaxLength="8" VerticalAlignment="Top" Width="150" Grid.Row="0" Grid.Column="1"/>
+
+        <Button x:Name="SendButton" Width="150" Height="24" HorizontalAlignment="Left" Margin="108,20,0,0" VerticalAlignment="Top" Click="SendButton_Click" Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}" >
+            <TextBlock TextAlignment="Center">Send</TextBlock>
         </Button>
-        <TextBox HorizontalAlignment="Left" Name="DstIdText" Margin="108,43,0,0" TextWrapping="Wrap" Text="" MaxLength="12" VerticalAlignment="Top" Width="120"/>
-        <Label Content="Radio ID:" HorizontalAlignment="Left" Margin="45,39,0,0" VerticalAlignment="Top"/>
-        <ComboBox HorizontalAlignment="Left"  Name="SystemCombo" Margin="108,16,0,0" VerticalAlignment="Top" Width="120"/>
-        <Label Content="System:" HorizontalAlignment="Left" Margin="53,14,0,0" VerticalAlignment="Top"/>
     </Grid>
 </Window>

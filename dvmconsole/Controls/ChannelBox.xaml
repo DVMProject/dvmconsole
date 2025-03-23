@@ -2,12 +2,13 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:dvmconsole.Controls"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
              Width="220" Height="110">
     <UserControl.Effect>
         <DropShadowEffect ShadowDepth="1" BlurRadius="16" Color="#FF686767" Opacity="0.3" />
     </UserControl.Effect>
     <!-- Border wraps the entire Grid -->
-    <Border x:Name="ControlBorder" BorderBrush="LightGray" BorderThickness="1,1,1,1" CornerRadius="8">
+    <Border x:Name="ControlBorder" BorderBrush="LightGray" BorderThickness="2,2,2,2" CornerRadius="8">
         <Grid Margin="0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="41"/>
@@ -23,7 +24,7 @@
             </Grid.RowDefinitions>
 
             <!-- Volume Meter -->
-            <local:VuMeterControl x:Name="VolumeMeter" HorizontalAlignment="Center" Width="219" Height="10" Grid.RowSpan="2" Grid.ColumnSpan="3" Margin="0,-58,0,0" />
+            <local:VuMeterControl x:Name="VolumeMeter" HorizontalAlignment="Center" Width="220" Height="10" Grid.RowSpan="2" Grid.ColumnSpan="3" Margin="0,-60,0,0" />
 
             <!-- Main Info Section -->
             <StackPanel Grid.Column="1" HorizontalAlignment="Left" Width="147" Height="50" Margin="22,5,0,4" Grid.ColumnSpan="2" Grid.Row="1">
@@ -40,14 +41,14 @@
             </StackPanel>
 
             <!-- PTT Button -->
-            <Button x:Name="PttButton" HorizontalAlignment="Left" Width="42" Height="42" Margin="12,5,0,4" Grid.ColumnSpan="2" BorderThickness="0,0,0,0" BorderBrush="#FFC1C1C1" UseLayoutRounding="False" Grid.RowSpan="2" Background="#FFEEA400"
-                    ToolTip="Push To Talk">
+            <Button x:Name="PttButton" Width="42" Height="42" HorizontalAlignment="Left" Margin="12,5,0,4" Grid.ColumnSpan="2" BorderThickness="0,0,0,0" BorderBrush="#FFC1C1C1" UseLayoutRounding="False" Grid.RowSpan="2" Background="#FFEEA400"
+                    ToolTip="Push To Talk" Padding="0">
                 <Button.Resources>
                     <Style TargetType="{x:Type Border}">
                         <Setter Property="CornerRadius" Value="2"/>
                     </Style>
                 </Button.Resources>
-                <Image Source="/dvmconsole;component/Assets/instantptt.png" Width="39" Height="40" Stretch="Fill" Margin="0,0,0,1"/>
+                <Image Source="/dvmconsole;component/Assets/instantptt.png" Width="39" Height="40" Stretch="Fill" Margin="0,1,0,1"/>
             </Button>
 
             <!-- Volume Slider Background -->
@@ -101,22 +102,12 @@
 
             <!-- Bottom Buttons -->
             <StackPanel Grid.Column="1" Grid.Row="2" Orientation="Horizontal" Margin="87,-8,-2,0" Grid.RowSpan="2" Grid.ColumnSpan="2">
-                <Button Width="40" Height="40" x:Name="PageSelectButton" Click="PageSelectButton_Click" BorderThickness="0,0,0,0"
-                        ToolTip="Select for Alert Tone">
-                    <Button.Resources>
-                        <Style TargetType="{x:Type Border}">
-                            <Setter Property="CornerRadius" Value="2"/>
-                        </Style>
-                    </Button.Resources>
+                <Button x:Name="PageSelectButton" Width="40" Height="40" Click="PageSelectButton_Click" ToolTip="Select for Alert Tone" Padding="0"
+                        Style="{StaticResource MaterialDesignPaperDarkButton}">
                     <Image Source="/dvmconsole;component/Assets/pageselect.png" Width="39" Height="39" Margin="1.5,2,0,0"/>
                 </Button>
-                <Button Width="40" Height="40" x:Name="ChannelMarkerBtn" Click="ChannelMarkerBtn_Click" BorderThickness="0,0,0,0" Margin="5,0,0,0"
-                        ToolTip="Transmit Channel Marker">
-                    <Button.Resources>
-                        <Style TargetType="{x:Type Border}">
-                            <Setter Property="CornerRadius" Value="2"/>
-                        </Style>
-                    </Button.Resources>
+                <Button x:Name="ChannelMarkerBtn" Width="40" Height="40" Click="ChannelMarkerBtn_Click" Margin="5,0,0,0" ToolTip="Transmit Channel Marker" Padding="0"
+                        Style="{StaticResource MaterialDesignPaperDarkButton}">
                     <Image Source="/dvmconsole;component/Assets/channelmarker.png" Width="36" Height="40"/>
                 </Button>
             </StackPanel>

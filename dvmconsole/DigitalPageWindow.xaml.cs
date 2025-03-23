@@ -52,7 +52,7 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void SendPageButton_Click(object sender, RoutedEventArgs e)
+        private void SendButton_Click(object sender, RoutedEventArgs e)
         {
             RadioSystem = SystemCombo.SelectedItem as Codeplug.System;
             DstId = DstIdText.Text;

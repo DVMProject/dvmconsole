@@ -32,7 +32,9 @@ namespace dvmconsole.Controls
     {
         public readonly static Border BORDER_DEFAULT;
         public readonly static Border BORDER_GREEN;
+
         public readonly static LinearGradientBrush GRAY_GRADIENT;
+
         public readonly static LinearGradientBrush DARK_GRAY_GRADIENT;      // Delected/Disconnected Color
         public readonly static LinearGradientBrush BLUE_GRADIENT;           // Selected Channel Color
         public readonly static LinearGradientBrush RED_GRADIENT;            // Playback Selected Color
@@ -547,6 +549,7 @@ namespace dvmconsole.Controls
             if (SystemName == MainWindow.PLAYBACKSYS || ChannelName == MainWindow.PLAYBACKCHNAME || DstId == MainWindow.PLAYBACKTG)
             {
                 ControlBorder.Background = IsSelected ? RED_GRADIENT : DARK_GRAY_GRADIENT;
+                SetVolumeMeterBg(ControlBorder.Background);
                 return;
             }
 

@@ -19,12 +19,15 @@ using System.Timers;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
 using Microsoft.Win32;
 
 using NAudio.Wave;
 using NWaves.Signals;
+
+using MaterialDesignThemes.Wpf;
 
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
@@ -100,6 +103,8 @@ namespace dvmconsole
         private SelectedChannelsManager selectedChannelsManager;
         private FlashingBackgroundManager flashingManager;
         private WaveFilePlaybackManager emergencyAlertPlayback;
+
+        private Brush btnGlobalPttDefaultBg;
 
         private ChannelBox playbackChannelBox;
 
@@ -856,6 +861,17 @@ namespace dvmconsole
         /// </summary>
         private void UpdateBackground()
         {
+            // set the UI theme
+            PaletteHelper paletteHelper = new PaletteHelper();
+            Theme theme = paletteHelper.GetTheme();
+
+            if (settingsManager.DarkMode)
+                theme.SetBaseTheme(BaseTheme.Dark);
+            else
+                theme.SetBaseTheme(BaseTheme.Light);
+
+            paletteHelper.SetTheme(theme);
+
             BitmapImage bg = new BitmapImage();
 
             // do we have a user defined background?
@@ -1111,6 +1127,8 @@ namespace dvmconsole
             menuDarkMode.IsChecked = settingsManager.DarkMode;
             UpdateBackground();
 
+            btnGlobalPttDefaultBg = btnGlobalPtt.Background;
+
             // set window configuration
             if (settingsManager.Maximized)
             {
@@ -1184,7 +1202,14 @@ namespace dvmconsole
 
             if (pageWindow.ShowDialog() == true)
             {
-                PeerSystem handler = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
+                // throw an error if the user does the dumb...
+                if (pageWindow.DstId == string.Empty)
+                {
+                    MessageBox.Show($"Must supply a destination ID.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+
+                PeerSystem fne = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
                 IOSP_CALL_ALRT callAlert = new IOSP_CALL_ALRT(uint.Parse(pageWindow.DstId), uint.Parse(pageWindow.RadioSystem.Rid));
 
                 RemoteCallData callData = new RemoteCallData
@@ -1198,7 +1223,7 @@ namespace dvmconsole
 
                 callAlert.Encode(ref tsbk);
 
-                handler.SendP25TSBK(callData, tsbk);
+                fne.SendP25TSBK(callData, tsbk);
             }
         }
 
@@ -1215,7 +1240,14 @@ namespace dvmconsole
 
             if (pageWindow.ShowDialog() == true)
             {
-                PeerSystem handler = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
+                // throw an error if the user does the dumb...
+                if (pageWindow.DstId == string.Empty)
+                {
+                    MessageBox.Show($"Must supply a destination ID.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+
+                PeerSystem fne = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
                 IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.CHECK, uint.Parse(pageWindow.RadioSystem.Rid), uint.Parse(pageWindow.DstId));
 
                 RemoteCallData callData = new RemoteCallData
@@ -1229,7 +1261,7 @@ namespace dvmconsole
 
                 extFunc.Encode(ref tsbk);
 
-                handler.SendP25TSBK(callData, tsbk);
+                fne.SendP25TSBK(callData, tsbk);
             }
         }
 
@@ -1246,7 +1278,14 @@ namespace dvmconsole
 
             if (pageWindow.ShowDialog() == true)
             {
-                PeerSystem handler = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
+                // throw an error if the user does the dumb...
+                if (pageWindow.DstId == string.Empty)
+                {
+                    MessageBox.Show($"Must supply a destination ID.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+
+                PeerSystem fne = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
                 IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.INHIBIT, P25Defines.WUID_FNE, uint.Parse(pageWindow.DstId));
 
                 RemoteCallData callData = new RemoteCallData
@@ -1260,7 +1299,7 @@ namespace dvmconsole
 
                 extFunc.Encode(ref tsbk);
 
-                handler.SendP25TSBK(callData, tsbk);
+                fne.SendP25TSBK(callData, tsbk);
             }
         }
 
@@ -1277,7 +1316,14 @@ namespace dvmconsole
 
             if (pageWindow.ShowDialog() == true)
             {
-                PeerSystem handler = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
+                // throw an error if the user does the dumb...
+                if (pageWindow.DstId == string.Empty)
+                {
+                    MessageBox.Show($"Must supply a destination ID.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+
+                PeerSystem fne = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
                 IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.UNINHIBIT, P25Defines.WUID_FNE, uint.Parse(pageWindow.DstId));
 
                 RemoteCallData callData = new RemoteCallData
@@ -1291,7 +1337,7 @@ namespace dvmconsole
 
                 extFunc.Encode(ref tsbk);
 
-                handler.SendP25TSBK(callData, tsbk);
+                fne.SendP25TSBK(callData, tsbk);
             }
         }
 
@@ -2015,7 +2061,7 @@ namespace dvmconsole
                     if (globalPttState)
                         btnGlobalPtt.Background = ChannelBox.RED_GRADIENT;
                     else
-                        btnGlobalPtt.Background = ChannelBox.GRAY_GRADIENT;
+                        btnGlobalPtt.Background = btnGlobalPttDefaultBg;
                 });
 
                 primaryChannel.PttButton_Click(sender, e);
@@ -2069,7 +2115,7 @@ namespace dvmconsole
                 {
                     Dispatcher.Invoke(() =>
                     {
-                        btnGlobalPtt.Background = ChannelBox.GRAY_GRADIENT;
+                        btnGlobalPtt.Background = btnGlobalPttDefaultBg;
                         channel.PttState = false;
                     });
 
