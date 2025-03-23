@@ -31,9 +31,9 @@ namespace dvmconsole
             Environment.SpecialFolder.ApplicationData);
 
         public static readonly string RootAppDataPath = "DVMProject" + Path.DirectorySeparatorChar + "dvmconsole";
-        public static readonly string UserAppDataPath = UserAppData + Path.DirectorySeparatorChar + RootAppDataPath;
+        public static string UserAppDataPath = UserAppData + Path.DirectorySeparatorChar + RootAppDataPath;
 
-        private static readonly string SettingsFilePath = UserAppDataPath + Path.DirectorySeparatorChar + "UserSettings.json";
+        private static string SettingsFilePath = UserAppDataPath + Path.DirectorySeparatorChar + "UserSettings.json";
 
         /*
         ** Properties
@@ -139,8 +139,17 @@ namespace dvmconsole
         /// </summary>
         public bool LoadSettings()
         {
-            if (!Directory.Exists(UserAppDataPath))
-                Directory.CreateDirectory(UserAppDataPath);
+            // was the user profile path being overridden?
+            if (App.USER_PROFILE_PATH_OVERRIDE != string.Empty)
+            {
+                UserAppDataPath = App.USER_PROFILE_PATH_OVERRIDE;
+                SettingsFilePath = UserAppDataPath + Path.DirectorySeparatorChar + "UserSettings.json";
+            }
+            else
+            {
+                if (!Directory.Exists(UserAppDataPath))
+                    Directory.CreateDirectory(UserAppDataPath);
+            }
 
             if (!File.Exists(SettingsFilePath))
                 return false;
