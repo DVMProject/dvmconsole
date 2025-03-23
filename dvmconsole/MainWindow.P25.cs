@@ -534,14 +534,6 @@ namespace dvmconsole
                         return;
                     }
 
-                    if ((channel.algId != cpgChannel.GetAlgoId() || channel.kId != cpgChannel.GetKeyId()) && channel.algId != P25Defines.P25_ALGO_UNENCRYPT)
-                    {
-                        slot.RxStreamId = e.StreamId;
-                        channel.Background = ChannelBox.RED_GRADIENT;
-                        Log.WriteLine($"({system.Name}) P25D: Traffic *CALL DROPPED   * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} [STREAM ID {e.StreamId}]");
-                        continue;
-                    }
-
                     byte[] newMI = new byte[P25Defines.P25_MI_LENGTH];
 
                     int count = 0;
