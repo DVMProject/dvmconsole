@@ -308,9 +308,8 @@ namespace dvmconsole
         /// <param name="e"></param>
         /// <param name="system"></param>
         /// <param name="channel"></param>
-        /// <param name="emergency"></param>
         /// <param name="duid"></param>
-        private void P25DecodeAudioFrame(byte[] ldu, P25DataReceivedEvent e, PeerSystem system, ChannelBox channel, bool emergency = false, P25DUID duid = P25DUID.LDU1)
+        private void P25DecodeAudioFrame(byte[] ldu, P25DataReceivedEvent e, PeerSystem system, ChannelBox channel, P25DUID duid = P25DUID.LDU1)
         {
             try
             {
@@ -365,14 +364,6 @@ namespace dvmconsole
                     }
                     else
                         channel.p25Errs = channel.Decoder.decode(imbe, samples);
-
-                    if (emergency && !channel.Emergency)
-                    {
-                        Task.Run(() =>
-                        {
-                            HandleEmergency(e.DstId.ToString(), e.SrcId.ToString());
-                        });
-                    }
 
                     if (samples != null)
                     {
@@ -447,7 +438,6 @@ namespace dvmconsole
                     if (cpgChannel.GetChannelMode() != Codeplug.ChannelMode.P25)
                         continue;
 
-                    bool isEmergency = false;
                     bool encrypted = false;
 
                     PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
@@ -561,7 +551,6 @@ namespace dvmconsole
                                     // The '64' record - IMBE Voice 3 + Link Control
                                     Buffer.BlockCopy(data, count, channel.netLDU1, 50, 17);
                                     byte serviceOptions = data[count + 3];
-                                    isEmergency = (serviceOptions & 0x80) == 0x80;
                                     count += 17;
 
                                     // The '65' record - IMBE Voice 4 + Link Control
@@ -589,7 +578,7 @@ namespace dvmconsole
                                     count += 16;
 
                                     // decode 9 IMBE codewords into PCM samples
-                                    P25DecodeAudioFrame(channel.netLDU1, e, handler, channel, isEmergency);
+                                    P25DecodeAudioFrame(channel.netLDU1, e, handler, channel);
                                 }
                             }
                             break;
@@ -655,7 +644,7 @@ namespace dvmconsole
                                         Array.Copy(newMI, channel.mi, P25Defines.P25_MI_LENGTH);
 
                                     // decode 9 IMBE codewords into PCM samples
-                                    P25DecodeAudioFrame(channel.netLDU2, e, handler, channel, isEmergency, P25DUID.LDU2);
+                                    P25DecodeAudioFrame(channel.netLDU2, e, handler, channel, P25DUID.LDU2);
                                 }
                             }
                             break;

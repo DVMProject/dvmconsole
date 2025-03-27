@@ -47,7 +47,6 @@ namespace dvmconsole.Controls
         private bool pttState;
         private bool pageState;
         private bool holdState;
-        private bool emergency;
         private string lastSrcId = "0";
         private double volume = 1.0;
         private bool isSelected;
@@ -229,26 +228,6 @@ namespace dvmconsole.Controls
         {
             get => pttToggleMode;
             set => pttToggleMode = value;
-        }
-
-        /// <summary>
-        /// Flag indicating the emergency state of this channel.
-        /// </summary>
-        public bool Emergency
-        {
-            get => emergency;
-            set
-            {
-                emergency = value;
-
-                Dispatcher.Invoke(() =>
-                {
-                    if (value)
-                        flashingBackgroundManager.Start();
-                    else
-                        flashingBackgroundManager.Stop();
-                });
-            }
         }
 
         /// <summary>

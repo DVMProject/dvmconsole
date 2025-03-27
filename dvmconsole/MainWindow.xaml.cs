@@ -102,7 +102,6 @@ namespace dvmconsole
         private SettingsManager settingsManager = new SettingsManager();
         private SelectedChannelsManager selectedChannelsManager;
         private FlashingBackgroundManager flashingManager;
-        private WaveFilePlaybackManager emergencyAlertPlayback;
 
         private Brush btnGlobalPttDefaultBg;
 
@@ -154,7 +153,6 @@ namespace dvmconsole
 
             selectedChannelsManager = new SelectedChannelsManager();
             flashingManager = new FlashingBackgroundManager(null, channelsCanvas, null, this);
-            emergencyAlertPlayback = new WaveFilePlaybackManager(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/emergency.wav"));
 
             channelHoldTimer = new System.Timers.Timer(10000);
             channelHoldTimer.Elapsed += OnHoldTimerElapsed;
@@ -823,38 +821,6 @@ namespace dvmconsole
             }
             else
                 MessageBox.Show("Alert file not set or file not found.", "Alert", MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="dstId"></param>
-        /// <param name="srcId"></param>
-        private void HandleEmergency(string dstId, string srcId)
-        {
-            bool forUs = false;
-
-            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
-            {
-                Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
-                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-
-                if (dstId == cpgChannel.Tgid)
-                {
-                    forUs = true;
-                    channel.Emergency = true;
-                    channel.LastSrcId = srcId;
-                }
-            }
-
-            if (forUs)
-            {
-                Dispatcher.Invoke(() =>
-                {
-                    flashingManager.Start();
-                    emergencyAlertPlayback.Start();
-                });
-            }
         }
 
         /// <summary>
@@ -2028,20 +1994,6 @@ namespace dvmconsole
         private void AlertTone_MouseMove(object sender, MouseEventArgs e) => ChannelBox_MouseMove(sender, e);
 
         /** WPF Ribbon Controls */
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void ClearEmergency_Click(object sender, RoutedEventArgs e)
-        {
-            emergencyAlertPlayback.Stop();
-            flashingManager.Stop();
-
-            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
-                channel.Emergency = false;
-        }
 
         /// <summary>
         /// 
