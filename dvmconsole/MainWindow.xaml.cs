@@ -1084,6 +1084,7 @@ namespace dvmconsole
             menuToggleLockWidgets.IsChecked = settingsManager.LockWidgets;
             menuSnapCallHistory.IsChecked = settingsManager.SnapCallHistoryToWindow;
             menuTogglePTTMode.IsChecked = settingsManager.TogglePTTMode;
+            menuKeepWindowOnTop.IsChecked = settingsManager.KeepWindowOnTop;
 
             if (!string.IsNullOrEmpty(settingsManager.LastCodeplugPath) && File.Exists(settingsManager.LastCodeplugPath))
                 LoadCodeplug(settingsManager.LastCodeplugPath);
@@ -1578,6 +1579,21 @@ namespace dvmconsole
                 return;
 
             settingsManager.SnapCallHistoryToWindow = !settingsManager.SnapCallHistoryToWindow;
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void ToggleKeepWindowOnTop_Click(object sender, RoutedEventArgs e)
+        {
+            this.Topmost = !this.Topmost;
+
+            if (!windowLoaded)
+                return;
+
+            settingsManager.KeepWindowOnTop = !settingsManager.KeepWindowOnTop;
         }
 
         /// <summary>
