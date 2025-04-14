@@ -96,6 +96,11 @@ namespace dvmconsole
         public bool SnapCallHistoryToWindow { get; set; } = false;
 
         /// <summary>
+        /// Flag indicating whether or not to keep the window on top.
+        /// </summary>
+        public bool KeepWindowOnTop { get; set; } = false;
+
+        /// <summary>
         /// Flag indicating window maximized state.
         /// </summary>
         public bool Maximized { get; set; } = false;
@@ -173,6 +178,7 @@ namespace dvmconsole
                     TogglePTTMode = loadedSettings.TogglePTTMode;
                     LockWidgets = loadedSettings.LockWidgets;
                     SnapCallHistoryToWindow = loadedSettings.SnapCallHistoryToWindow;
+                    KeepWindowOnTop = loadedSettings.KeepWindowOnTop;
                     Maximized = loadedSettings.Maximized;
                     DarkMode = loadedSettings.DarkMode;
                     WindowWidth = loadedSettings.WindowWidth;
