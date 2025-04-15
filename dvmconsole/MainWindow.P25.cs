@@ -458,6 +458,7 @@ namespace dvmconsole
                         channel.Decoder = new MBEDecoder(MBE_MODE.IMBE_88BIT);
 
                     SlotStatus slot = systemStatuses[cpgChannel.Name];
+                    channel.LastPktTime = pktTime;
 
                     // if this is an LDU1 see if this is the first LDU with HDU encryption data
                     if (e.DUID == P25DUID.LDU1)
@@ -498,6 +499,14 @@ namespace dvmconsole
                             Log.WriteLine($"({system.Name}) P25D: Traffic *CALL ENC PARMS * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
                     }
 
+                    // reset the channel state if we're not Rx
+                    if (!channel.IsReceiving)
+                    {
+                        channel.Background = ChannelBox.BLUE_GRADIENT;
+                        channel.VolumeMeterLevel = 0;
+                        continue;
+                    }
+
                     // is the call over?
                     if (((e.DUID == P25DUID.TDU) || (e.DUID == P25DUID.TDULC)) && (slot.RxType != fnecore.FrameType.TERMINATOR))
                     {
@@ -507,7 +516,7 @@ namespace dvmconsole
                         channel.Background = ChannelBox.BLUE_GRADIENT;
                         channel.VolumeMeterLevel = 0;
                         callHistoryWindow.ChannelUnkeyed(cpgChannel.Name, (int)e.SrcId);
-                        return;
+                        continue;
                     }
 
                     // do background updates here -- this catches late entry

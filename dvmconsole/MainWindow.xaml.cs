@@ -40,6 +40,7 @@ using fnecore.DMR;
 using fnecore.P25;
 using fnecore.P25.KMM;
 using fnecore.P25.LC.TSBK;
+using System.Net.Sockets;
 
 namespace dvmconsole
 {
@@ -123,9 +124,12 @@ namespace dvmconsole
 
         private bool selectAll = false;
 
+        private CancellationTokenSource maintainenceCancelToken = new CancellationTokenSource();
+        private Task maintainenceTask = null;
+
         /*
-         ** Properties
-         */
+        ** Properties
+        */
 
         /// <summary>
         /// Codeplug
@@ -133,8 +137,8 @@ namespace dvmconsole
         public Codeplug Codeplug { get; set; }
 
         /*
-         ** Methods
-         */
+        ** Methods
+        */
 
         /// <summary>
         /// Initializes a new instance of the <see cref="MainWindow"/> class.
@@ -418,6 +422,20 @@ namespace dvmconsole
                             DisableCommandControls();
                             systemStatusBox.Background = ChannelBox.RED_GRADIENT;
                             systemStatusBox.ConnectionState = "Disconnected";
+
+                            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
+                            {
+                                if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                                    continue;
+
+                                if (channel.IsReceiving || channel.IsReceivingEncrypted)
+                                {
+                                    channel.IsReceiving = false;
+                                    channel.IsReceivingEncrypted = false;
+                                    channel.Background = ChannelBox.BLUE_GRADIENT;
+                                    channel.VolumeMeterLevel = 0;
+                                }
+                            }
                         });
                     };
 
@@ -900,6 +918,22 @@ namespace dvmconsole
         {
             isShuttingDown = true;
 
+            // stop maintainence task
+            if (maintainenceTask != null)
+            {
+                maintainenceCancelToken.Cancel();
+
+                try
+                {
+                    maintainenceTask.GetAwaiter().GetResult();
+                }
+                catch (OperationCanceledException) { /* stub */ }
+                finally
+                {
+                    maintainenceCancelToken.Dispose();
+                }
+            }
+
             waveIn.StopRecording();
 
             fneSystemManager.ClearAll();
@@ -918,6 +952,57 @@ namespace dvmconsole
 
             base.OnClosing(e);
             Application.Current.Shutdown();
+        }
+
+        /// <summary>
+        /// Internal maintainence routine.
+        /// </summary>
+        private async void Maintainence()
+        {
+            CancellationToken ct = maintainenceCancelToken.Token;
+            while (!isShuttingDown)
+            {
+                foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
+                {
+                    if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                        continue;
+
+                    Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
+                    if (system == null)
+                        continue;
+
+                    Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
+                    if (cpgChannel == null)
+                        continue;
+
+                    PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
+                    if (fne == null)
+                        continue;
+
+                    // check if the channel is stuck reporting Rx
+                    if (channel.IsReceiving)
+                    {
+                        DateTime now = DateTime.Now;
+                        TimeSpan dt = now - channel.LastPktTime;
+                        if (dt.TotalMilliseconds > 2000) // 2 seconds is more then enough time -- the interpacket time for P25 is ~180ms and DMR is ~60ms
+                        {
+                            Log.WriteLine($"({system.Name}) P25D: Traffic *CALL TIMEOUT   * TGID {channel.DstId} ALGID {channel.algId} KID {channel.kId}");
+                            Dispatcher.Invoke(() =>
+                            {
+                                channel.IsReceiving = false;
+                                channel.Background = ChannelBox.BLUE_GRADIENT;
+                                channel.VolumeMeterLevel = 0;
+                            });
+                        }
+                    }
+                }
+
+                try
+                {
+                    await Task.Delay(1000, ct);
+                }
+                catch (TaskCanceledException) { /* stub */ }
+            }
         }
 
         /** NAudio Events */
@@ -1096,6 +1181,8 @@ namespace dvmconsole
             UpdateBackground();
 
             btnGlobalPttDefaultBg = btnGlobalPtt.Background;
+
+            maintainenceTask = Task.Factory.StartNew(Maintainence, maintainenceCancelToken.Token);
 
             // set window configuration
             if (settingsManager.Maximized)

@@ -261,6 +261,8 @@ namespace dvmconsole
                     Buffer.BlockCopy(e.Data, 20, data, 0, FneSystemBase.DMR_FRAME_LENGTH_BYTES);
                     byte bits = e.Data[15];
 
+                    channel.LastPktTime = pktTime;
+
                     // is this a new call stream?
                     if (e.StreamId != systemStatuses[cpgChannel.Name + e.Slot].RxStreamId)
                     {
@@ -290,18 +292,13 @@ namespace dvmconsole
                         channel.Background = ChannelBox.GREEN_GRADIENT;
                     }
 
-                    string alias = string.Empty;
-
-                    try
+                    // reset the channel state if we're not Rx
+                    if (!channel.IsReceiving)
                     {
-                        alias = AliasTools.GetAliasByRid(system.RidAlias, (int)e.SrcId);
+                        channel.Background = ChannelBox.BLUE_GRADIENT;
+                        channel.VolumeMeterLevel = 0;
+                        continue;
                     }
-                    catch (Exception) { }
-
-                    if (string.IsNullOrEmpty(alias))
-                        channel.LastSrcId = "Last ID: " + e.SrcId;
-                    else
-                        channel.LastSrcId = "Last: " + alias;
 
                     // if we can, use the PI LC from the PI voice header as to keep all options intact
                     if ((e.FrameType == FrameType.DATA_SYNC) && (e.DataType == DMRDataType.VOICE_PI_HEADER))
@@ -321,6 +318,19 @@ namespace dvmconsole
                         channel.VolumeMeterLevel = 0;
                         callHistoryWindow.ChannelUnkeyed(cpgChannel.Name, (int)e.SrcId);
                     }
+
+                    string alias = string.Empty;
+
+                    try
+                    {
+                        alias = AliasTools.GetAliasByRid(system.RidAlias, (int)e.SrcId);
+                    }
+                    catch (Exception) { }
+
+                    if (string.IsNullOrEmpty(alias))
+                        channel.LastSrcId = "Last ID: " + e.SrcId;
+                    else
+                        channel.LastSrcId = "Last: " + alias;
 
                     if (e.FrameType == FrameType.VOICE_SYNC || e.FrameType == FrameType.VOICE)
                     {

@@ -155,6 +155,11 @@ namespace dvmconsole.Controls
         public event PropertyChangedEventHandler PropertyChanged;
 
         /// <summary>
+        /// Last Packet Time
+        /// </summary>
+        public DateTime LastPktTime = DateTime.Now;
+
+        /// <summary>
         /// Flag indicating whether or not this channel is receiving.
         /// </summary>
         public bool IsReceiving { get; set; } = false;
