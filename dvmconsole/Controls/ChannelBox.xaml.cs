@@ -20,6 +20,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+
+using fnecore;
 using fnecore.DMR;
 using fnecore.P25;
 
@@ -410,6 +412,10 @@ namespace dvmconsole.Controls
             DstId = dstId;
             SystemName = $"System: {systemName}";
             LastSrcId = $"Last ID: {LastSrcId}";
+
+            algId = P25Defines.P25_ALGO_UNENCRYPT;
+            kId = 0;
+            FneUtils.Memset(mi, 0, P25Defines.P25_MI_LENGTH);
 
             VolumeMeter.ViewModel = new VuMeterViewModel();
             VolumeMeter.ViewModel.Level = 0;

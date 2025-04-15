@@ -260,6 +260,7 @@ namespace dvmconsole
         /// <param name="offset"></param>
         /// <param name="imbe"></param>
         /// <param name="frameType"></param>
+        /// <param name="cryptoParams"></param>
         private void EncodeLDU2(ref byte[] data, int offset, byte[] imbe, byte frameType, CryptoParams cryptoParams)
         {
             if (data == null)
@@ -386,6 +387,7 @@ namespace dvmconsole
         /// </summary>
         /// <param name="netLDU2">Input LDU data array</param>
         /// <param name="data">Output data array</param>
+        /// <param name="cryptoParams"></param>
         public void CreateP25LDU2Message(in byte[] netLDU2, ref byte[] data, CryptoParams cryptoParams = null)
         {
             if (cryptoParams == null)

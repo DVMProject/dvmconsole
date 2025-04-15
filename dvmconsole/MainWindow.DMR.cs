@@ -287,21 +287,21 @@ namespace dvmconsole
                         callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, DateTime.Now.ToString());
                         callHistoryWindow.ChannelKeyed(cpgChannel.Name, (int)e.SrcId, false); // TODO: Encrypted state
 
-                        string alias = string.Empty;
-
-                        try
-                        {
-                            alias = AliasTools.GetAliasByRid(system.RidAlias, (int)e.SrcId);
-                        }
-                        catch (Exception) { }
-
-                        if (string.IsNullOrEmpty(alias))
-                            channel.LastSrcId = "Last ID: " + e.SrcId;
-                        else
-                            channel.LastSrcId = "Last: " + alias;
-
                         channel.Background = ChannelBox.GREEN_GRADIENT;
                     }
+
+                    string alias = string.Empty;
+
+                    try
+                    {
+                        alias = AliasTools.GetAliasByRid(system.RidAlias, (int)e.SrcId);
+                    }
+                    catch (Exception) { }
+
+                    if (string.IsNullOrEmpty(alias))
+                        channel.LastSrcId = "Last ID: " + e.SrcId;
+                    else
+                        channel.LastSrcId = "Last: " + alias;
 
                     // if we can, use the PI LC from the PI voice header as to keep all options intact
                     if ((e.FrameType == FrameType.DATA_SYNC) && (e.DataType == DMRDataType.VOICE_PI_HEADER))

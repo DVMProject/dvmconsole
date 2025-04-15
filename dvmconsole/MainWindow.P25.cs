@@ -487,21 +487,12 @@ namespace dvmconsole
 
                         FneUtils.Memset(channel.mi, 0x00, P25Defines.P25_MI_LENGTH);
 
+                        // make channel enc parameters sane
+                        if (channel.algId == 0 && channel.kId == 0)
+                            channel.algId = P25Defines.P25_ALGO_UNENCRYPT;
+
                         callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, DateTime.Now.ToString());
                         callHistoryWindow.ChannelKeyed(cpgChannel.Name, (int)e.SrcId, encrypted);
-
-                        string alias = string.Empty;
-
-                        try
-                        {
-                            alias = AliasTools.GetAliasByRid(system.RidAlias, (int)e.SrcId);
-                        }
-                        catch (Exception) { }
-
-                        if (string.IsNullOrEmpty(alias))
-                            channel.LastSrcId = "Last ID: " + e.SrcId;
-                        else
-                            channel.LastSrcId = "Last: " + alias;
 
                         if (channel.algId != P25Defines.P25_ALGO_UNENCRYPT)
                             Log.WriteLine($"({system.Name}) P25D: Traffic *CALL ENC PARMS * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
@@ -525,8 +516,20 @@ namespace dvmconsole
                     else
                         channel.Background = ChannelBox.GREEN_GRADIENT;
 
-                    byte[] newMI = new byte[P25Defines.P25_MI_LENGTH];
+                    string alias = string.Empty;
 
+                    try
+                    {
+                        alias = AliasTools.GetAliasByRid(system.RidAlias, (int)e.SrcId);
+                    }
+                    catch (Exception) { }
+
+                    if (string.IsNullOrEmpty(alias))
+                        channel.LastSrcId = "Last ID: " + e.SrcId;
+                    else
+                        channel.LastSrcId = "Last: " + alias;
+
+                    byte[] newMI = new byte[P25Defines.P25_MI_LENGTH];
                     int count = 0;
 
                     switch (e.DUID)
