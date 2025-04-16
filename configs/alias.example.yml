@@ -1,0 +1,11 @@
+#
+# Digital Voice Modem - Desktop Dispatch Console
+#
+#
+# Radio Alias example
+#- alias: "System"
+#  rid: 1
+
+
+- alias: "Radio 1"
+  rid: 1
