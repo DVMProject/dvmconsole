@@ -26,7 +26,7 @@ systems:
     # Preshared FNE encryption key
     presharedKey: "123ABC1234"
     # Path to Radio Alias file for this system
-    aliasPath: "Full/Path/To/alias.yml"
+    #aliasPath: "Full/Path/To/alias.yml"
     
 #
 # Zones
