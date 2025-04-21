@@ -619,6 +619,14 @@ namespace dvmconsole.Controls
                 selectedChannelsManager.RemoveSelectedChannel(this);
         }
 
+        public void TriggerPTTState(bool pttState)
+        {
+            if (!IsSelected)
+                return;
+            PttState = pttState;
+            PTTButtonClicked?.Invoke(null, this);
+        }
+
         /// <summary>
         /// 
         /// </summary>

@@ -18,12 +18,10 @@ using System.IO;
 using System.Timers;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Forms;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-
-using Microsoft.Win32;
-
 using NAudio.Wave;
 using NWaves.Signals;
 
@@ -40,6 +38,11 @@ using fnecore.DMR;
 using fnecore.P25;
 using fnecore.P25.KMM;
 using fnecore.P25.LC.TSBK;
+using Application = System.Windows.Application;
+using Cursors = System.Windows.Input.Cursors;
+using MessageBox = System.Windows.MessageBox;
+using MouseEventArgs = System.Windows.Input.MouseEventArgs;
+using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
 using System.Net.Sockets;
 
 namespace dvmconsole
@@ -123,6 +126,7 @@ namespace dvmconsole
         private FneSystemManager fneSystemManager = new FneSystemManager();
 
         private bool selectAll = false;
+        private KeyboardManager keyboardManager;
 
         private CancellationTokenSource maintainenceCancelToken = new CancellationTokenSource();
         private Task maintainenceTask = null;
@@ -146,13 +150,14 @@ namespace dvmconsole
         public MainWindow()
         {
             InitializeComponent();
-
+            this.keyboardManager = new KeyboardManager();
             MinWidth = Width = MIN_WIDTH;
             MinHeight = Height = MIN_HEIGHT;
 
             DisableControls();
 
             settingsManager.LoadSettings();
+            InitializeKeyboardShortcuts();
             callHistoryWindow = new CallHistoryWindow(settingsManager);
 
             selectedChannelsManager = new SelectedChannelsManager();
@@ -1169,6 +1174,7 @@ namespace dvmconsole
             menuToggleLockWidgets.IsChecked = settingsManager.LockWidgets;
             menuSnapCallHistory.IsChecked = settingsManager.SnapCallHistoryToWindow;
             menuTogglePTTMode.IsChecked = settingsManager.TogglePTTMode;
+            menuToggleGlobalPTTMode.IsChecked = settingsManager.GlobalPTTKeysAllChannels;
             menuKeepWindowOnTop.IsChecked = settingsManager.KeepWindowOnTop;
 
             if (!string.IsNullOrEmpty(settingsManager.LastCodeplugPath) && File.Exists(settingsManager.LastCodeplugPath))
@@ -2029,7 +2035,7 @@ namespace dvmconsole
         }
 
         /// <summary>
-        /// 
+        /// Activates Global PTT after a click or keyboard shortcut
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
@@ -2103,7 +2109,7 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private async void btnGlobalPtt_Click(object sender, RoutedEventArgs e)
+        private async void GlobalPTTActivate(object sender, RoutedEventArgs e)
         {
             if (globalPttState)
                 await Task.Delay(500);
@@ -2119,8 +2125,16 @@ namespace dvmconsole
                     else
                         btnGlobalPtt.Background = btnGlobalPttDefaultBg;
                 });
+                
+                primaryChannel.TriggerPTTState(globalPttState);
 
-                primaryChannel.PttButton_Click(sender, e);
+                return;
+            }
+
+            
+            // Check for global PTT keys all preference, if not enabled, return early
+            if (!settingsManager.GlobalPTTKeysAllChannels)
+            {
                 return;
             }
 
@@ -2193,7 +2207,7 @@ namespace dvmconsole
 
             globalPttState = !globalPttState;
 
-            btnGlobalPtt_Click(sender, e);
+            GlobalPTTActivate(sender, e);
         }
 
         /// <summary>
@@ -2207,12 +2221,12 @@ namespace dvmconsole
             if (settingsManager.TogglePTTMode)
             {
                 globalPttState = !globalPttState;
-                btnGlobalPtt_Click(sender, e);
+                GlobalPTTActivate(sender, e);
             }
             else
             {
                 globalPttState = true;
-                btnGlobalPtt_Click(sender, e);
+                GlobalPTTActivate(sender, e);
             }
         }
 
@@ -2228,7 +2242,7 @@ namespace dvmconsole
                 return;
 
             globalPttState = false;
-            btnGlobalPtt_Click(sender, e);
+            GlobalPTTActivate(sender, e);
         }
 
         /// <summary>
@@ -2405,6 +2419,88 @@ namespace dvmconsole
                     }
                 });
             }
+        }
+
+        /// <summary>
+        /// Sets the global PTT keybind
+        /// Hooks a listener to listen for a keypress, then saves that as the global PTT keybind
+        /// Global PTT keybind is effectively the same as pressing the Global PTT button
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        /// <exception cref="NotImplementedException"></exception>
+        private async void SetGlobalPTTKeybind(object sender, RoutedEventArgs e)
+        {
+            
+            // Create and show a MessageBox with no buttons or standard close behavior
+            Window messageBox = new Window
+            {
+                Width = 500,
+                Height = 150,
+                WindowStyle = WindowStyle.None,
+                ShowInTaskbar = false,
+                ResizeMode = ResizeMode.NoResize,
+                Topmost = true,
+                Background = System.Windows.Media.Brushes.White,
+                Content = new System.Windows.Controls.TextBlock
+                {
+                    Text = "Press any key to set the Global PTT shortcut...",
+                    HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+                    VerticalAlignment = System.Windows.VerticalAlignment.Center,
+                    FontSize = 16,
+                    FontWeight = System.Windows.FontWeights.Bold,
+                }
+            };
+
+            // Center messageBox on the main window
+            messageBox.Owner = this; // Set the current window as owner
+            messageBox.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+
+            // Open and close the MessageBox after 500ms
+            messageBox.Show();
+            Keys keyPress = await keyboardManager.GetNextKeyPress();
+            messageBox.Close();
+            settingsManager.GlobalPTTShortcut = keyPress;
+            InitializeKeyboardShortcuts();
+            settingsManager.SaveSettings();
+            MessageBox.Show("Global PTT shortcut set to " + keyPress.ToString(), "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        
+        
+
+        /// <summary>
+        /// Initializes global keyboard shortcut listener
+        /// </summary>
+        private void InitializeKeyboardShortcuts()
+        {
+            var listeningKeys = new List<Keys> { settingsManager.GlobalPTTShortcut };
+            keyboardManager.SetListenKeys(listeningKeys);
+            // Clear event listener
+            keyboardManager.OnKeyEvent -= KeyboardManagerOnKeyEvent;
+            // Re-add listener
+            keyboardManager.OnKeyEvent += KeyboardManagerOnKeyEvent;
+        }
+
+        private void KeyboardManagerOnKeyEvent(Keys pressedKey,GlobalKeyboardHook.KeyboardState state)
+        {
+            if (pressedKey == settingsManager.GlobalPTTShortcut)
+            {
+                if(state is GlobalKeyboardHook.KeyboardState.KeyDown or GlobalKeyboardHook.KeyboardState.SysKeyDown)
+                {
+                    globalPttState = true;
+                    GlobalPTTActivate(null, null);
+                }
+                else
+                {
+                    globalPttState = false;
+                    GlobalPTTActivate(null, null);
+                }
+            }
+        }
+
+        private void ToggleGlobalPTTAllChannels_Click(object sender, RoutedEventArgs e)
+        {
+            settingsManager.GlobalPTTKeysAllChannels = !settingsManager.GlobalPTTKeysAllChannels;
         }
     } // public partial class MainWindow : Window
 } // namespace dvmconsole

@@ -35,6 +35,7 @@
             </MenuItem>
             <MenuItem Header="_Settings">
                 <MenuItem Header="_Toggle Push To Talk Mode" IsCheckable="True" Checked="TogglePTTMode_Click" Unchecked="TogglePTTMode_Click" x:Name="menuTogglePTTMode" />
+                <MenuItem Header="_Global PTT Keys All Channels" IsCheckable="True" Checked="ToggleGlobalPTTAllChannels_Click" Unchecked="ToggleGlobalPTTAllChannels_Click" x:Name="menuToggleGlobalPTTMode" />
                 <Separator />
                 <MenuItem Header="_Audio Settings" Click="AudioSettings_Click" />
                 <MenuItem Header="_Reset Settings" Click="ResetSettings_Click" />
@@ -43,6 +44,10 @@
                 <Separator />
                 <MenuItem Header="Alerts">
                     <MenuItem Header="Add Alert Tone" Click="AddAlertTone_Click" />
+                </MenuItem>
+                <Separator />
+                <MenuItem Header="Keyboard Shortcuts">
+                    <MenuItem Header="Set Global PTT Keybind" Click="SetGlobalPTTKeybind"></MenuItem>
                 </MenuItem>
             </MenuItem>
             <MenuItem Header="_View">

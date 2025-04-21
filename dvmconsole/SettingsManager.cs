@@ -9,6 +9,7 @@
 *
 *   Copyright (C) 2024-2025 Caleb, K4PHP
 *   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
+*   Copyright (C) 2025 Steven Jennison, KD8RHO
 *
 */
 
@@ -16,6 +17,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 
+using System.Windows.Forms;
 using Newtonsoft.Json;
 
 using fnecore.Utility;
@@ -135,6 +137,11 @@ namespace dvmconsole
         /// </summary>
         public bool SaveTraceLog { get; set; }
 
+        
+        public Keys GlobalPTTShortcut { get; set; } = Keys.None;
+        
+        
+        public bool GlobalPTTKeysAllChannels { get; set; }
         /*
         ** Methods
         */
@@ -166,6 +173,7 @@ namespace dvmconsole
 
                 if (loadedSettings != null)
                 {
+                    GlobalPTTKeysAllChannels = loadedSettings.GlobalPTTKeysAllChannels;
                     ShowSystemStatus = loadedSettings.ShowSystemStatus;
                     ShowChannels = loadedSettings.ShowChannels;
                     ShowAlertTones = loadedSettings.ShowAlertTones;
@@ -202,6 +210,8 @@ namespace dvmconsole
                     UserBackgroundImage = loadedSettings.UserBackgroundImage;
 
                     SaveTraceLog = loadedSettings.SaveTraceLog;
+                    GlobalPTTShortcut = loadedSettings.GlobalPTTShortcut;
+
                     if (SaveTraceLog)
                         Log.SetupTextWriter(Environment.CurrentDirectory, "dvmconsole.log");
 
