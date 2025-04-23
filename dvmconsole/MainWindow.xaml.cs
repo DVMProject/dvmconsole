@@ -436,6 +436,9 @@ namespace dvmconsole
                                 if (channel.IsReceiving || channel.IsReceivingEncrypted)
                                 {
                                     channel.IsReceiving = false;
+                                    channel.PeerId = 0;
+                                    channel.RxStreamId = 0;
+
                                     channel.IsReceivingEncrypted = false;
                                     channel.Background = ChannelBox.BLUE_GRADIENT;
                                     channel.VolumeMeterLevel = 0;
@@ -995,6 +998,9 @@ namespace dvmconsole
                             Dispatcher.Invoke(() =>
                             {
                                 channel.IsReceiving = false;
+                                channel.PeerId = 0;
+                                channel.RxStreamId = 0;
+
                                 channel.Background = ChannelBox.BLUE_GRADIENT;
                                 channel.VolumeMeterLevel = 0;
                             });

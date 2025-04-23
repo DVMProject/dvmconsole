@@ -263,10 +263,20 @@ namespace dvmconsole
 
                     channel.LastPktTime = pktTime;
 
+                    // is this duplicate traffic?
+                    if ((channel.PeerId > 0 && channel.RxStreamId > 0) && (e.PeerId != channel.PeerId && e.StreamId == channel.RxStreamId))
+                    {
+                        Log.WriteLine($"({system.Name}) DMRD: Traffic *IGNORE DUP TRAF* PEER {e.PeerId} CALL_START PEER ID {channel.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
+                        continue;
+                    }
+
                     // is this a new call stream?
                     if (e.StreamId != systemStatuses[cpgChannel.Name + e.Slot].RxStreamId)
                     {
                         channel.IsReceiving = true;
+                        channel.PeerId = e.PeerId;
+                        channel.RxStreamId = e.StreamId;
+
                         systemStatuses[cpgChannel.Name + e.Slot].RxStart = pktTime;
                         Log.WriteLine($"({system.Name}) DMRD: Traffic *CALL START     * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} TS {e.Slot} [STREAM ID {e.StreamId}]");
 
@@ -312,6 +322,9 @@ namespace dvmconsole
                     if ((e.FrameType == FrameType.DATA_SYNC) && (e.DataType == DMRDataType.TERMINATOR_WITH_LC) && (systemStatuses[cpgChannel.Name + e.Slot].RxType != FrameType.TERMINATOR))
                     {
                         channel.IsReceiving = false;
+                        channel.PeerId = 0;
+                        channel.RxStreamId = 0;
+
                         TimeSpan callDuration = pktTime - systemStatuses[cpgChannel.Name + e.Slot].RxStart;
                         Log.WriteLine($"({system.Name}) DMRD: Traffic *CALL END       * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} TS {e.Slot} DUR {callDuration} [STREAM ID {e.StreamId}]");
                         channel.Background = ChannelBox.BLUE_GRADIENT;

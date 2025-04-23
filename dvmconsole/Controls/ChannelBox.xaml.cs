@@ -315,6 +315,16 @@ namespace dvmconsole.Controls
         /// </summary>
         public uint TxStreamId { get; internal set; }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        public uint PeerId { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public uint RxStreamId { get; set; }
+
+
         /*
         ** Methods
         */

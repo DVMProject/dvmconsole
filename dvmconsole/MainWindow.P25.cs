@@ -479,10 +479,20 @@ namespace dvmconsole
                         }
                     }
 
+                    // is this duplicate traffic?
+                    if ((channel.PeerId > 0 && channel.RxStreamId > 0) && (e.PeerId != channel.PeerId && e.StreamId == channel.RxStreamId))
+                    {
+                        Log.WriteLine($"({system.Name}) P25D: Traffic *IGNORE DUP TRAF* PEER {e.PeerId} CALL_START PEER ID {channel.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
+                        continue;
+                    }
+
                     // is this a new call stream?
                     if (e.StreamId != slot.RxStreamId && ((e.DUID != P25DUID.TDU) && (e.DUID != P25DUID.TDULC)))
                     {
                         channel.IsReceiving = true;
+                        channel.PeerId = e.PeerId;
+                        channel.RxStreamId = e.StreamId;
+
                         slot.RxStart = pktTime;
                         Log.WriteLine($"({system.Name}) P25D: Traffic *CALL START     * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
 
@@ -511,6 +521,9 @@ namespace dvmconsole
                     if (((e.DUID == P25DUID.TDU) || (e.DUID == P25DUID.TDULC)) && (slot.RxType != fnecore.FrameType.TERMINATOR))
                     {
                         channel.IsReceiving = false;
+                        channel.PeerId = 0;
+                        channel.RxStreamId = 0;
+
                         TimeSpan callDuration = pktTime - slot.RxStart;
                         Log.WriteLine($"({system.Name}) P25D: Traffic *CALL END       * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} DUR {callDuration} [STREAM ID {e.StreamId}]");
                         channel.Background = ChannelBox.BLUE_GRADIENT;
