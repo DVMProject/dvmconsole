@@ -486,6 +486,19 @@ namespace dvmconsole
                         continue;
                     }
 
+                    // is the Rx stream ID any of our Tx stream IDs?
+                    List<bool> txChannels = new List<bool>();
+                    foreach (ChannelBox other in selectedChannelsManager.GetSelectedChannels())
+                        if (other.TxStreamId > 0 && other.TxStreamId == channel.RxStreamId)
+                            txChannels.Add(true);
+
+                    // if we have a count of Tx channels this means we're sourcing traffic for the incoming stream ID
+                    if (txChannels.Count() > 0)
+                    {
+                        Log.WriteLine($"({system.Name}) P25D: Traffic *IGNORE TX TRAF * PEER {e.PeerId} CALL_START PEER ID {channel.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
+                        continue;
+                    }
+
                     // is this a new call stream?
                     if (e.StreamId != slot.RxStreamId && ((e.DUID != P25DUID.TDU) && (e.DUID != P25DUID.TDULC)))
                     {
@@ -503,6 +516,7 @@ namespace dvmconsole
                             channel.algId = P25Defines.P25_ALGO_UNENCRYPT;
 
                         callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, DateTime.Now.ToString());
+                        channel.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, DateTime.Now.ToString());
                         callHistoryWindow.ChannelKeyed(cpgChannel.Name, (int)e.SrcId, encrypted);
 
                         if (channel.algId != P25Defines.P25_ALGO_UNENCRYPT)

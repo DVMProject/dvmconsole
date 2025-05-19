@@ -270,6 +270,19 @@ namespace dvmconsole
                         continue;
                     }
 
+                    // is the Rx stream ID any of our Tx stream IDs?
+                    List<bool> txChannels = new List<bool>();
+                    foreach (ChannelBox other in selectedChannelsManager.GetSelectedChannels())
+                        if (other.TxStreamId > 0 && other.TxStreamId == channel.RxStreamId)
+                            txChannels.Add(true);
+
+                    // if we have a count of Tx channels this means we're sourcing traffic for the incoming stream ID
+                    if (txChannels.Count() > 0)
+                    {
+                        Log.WriteLine($"({system.Name}) DMRD: Traffic *IGNORE TX TRAF * PEER {e.PeerId} CALL_START PEER ID {channel.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
+                        continue;
+                    }
+
                     // is this a new call stream?
                     if (e.StreamId != systemStatuses[cpgChannel.Name + e.Slot].RxStreamId)
                     {
@@ -297,6 +310,7 @@ namespace dvmconsole
                         Log.WriteLine($"({system.Name}) TS {e.Slot + 1} [STREAM ID {e.StreamId}] RX_LC {FneUtils.HexDump(systemStatuses[cpgChannel.Name + e.Slot].DMR_RxLC.GetBytes())}");
 
                         callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, DateTime.Now.ToString());
+                        channel.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, DateTime.Now.ToString());
                         callHistoryWindow.ChannelKeyed(cpgChannel.Name, (int)e.SrcId, false); // TODO: Encrypted state
 
                         channel.Background = ChannelBox.GREEN_GRADIENT;

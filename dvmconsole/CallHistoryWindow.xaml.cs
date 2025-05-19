@@ -101,7 +101,8 @@ namespace dvmconsole
     /// </summary>
     public partial class CallHistoryWindow : Window
     {
-        private const int MAX_CALL_HISTORY = 200;
+        public const int MAX_CALL_HISTORY = 200;
+        private int maxCallHistory = MAX_CALL_HISTORY;
         private SettingsManager settingsManager;
 
         /*
@@ -120,10 +121,20 @@ namespace dvmconsole
         /// <summary>
         /// Initializes a new instance of the <see cref="CallHistoryWindow"/> class.
         /// </summary>
-        public CallHistoryWindow(SettingsManager settingsManager)
+        /// <param name="settingsManager"></param>
+        /// <param name="maxCallHistory"></param>
+        public CallHistoryWindow(SettingsManager settingsManager, int maxCallHistory)
         {
             InitializeComponent();
             this.settingsManager = settingsManager;
+            this.maxCallHistory = maxCallHistory;
+
+            // clamp max call history count
+            if (this.maxCallHistory > MAX_CALL_HISTORY)
+                this.maxCallHistory = MAX_CALL_HISTORY;
+            if (this.maxCallHistory < 5)
+                this.maxCallHistory = 5;
+
             ViewModel = new CallHistoryViewModel();
             DataContext = ViewModel;
         }
@@ -148,8 +159,8 @@ namespace dvmconsole
         {
             Dispatcher.Invoke(() =>
             {
-                if (ViewModel.CallHistory.Count == MAX_CALL_HISTORY)
-                    ViewModel.CallHistory.RemoveAt(MAX_CALL_HISTORY - 1);
+                if (ViewModel.CallHistory.Count == maxCallHistory)
+                    ViewModel.CallHistory.RemoveAt(maxCallHistory - 1);
 
                 ViewModel.CallHistory.Insert(0, new CallEntry
                 {

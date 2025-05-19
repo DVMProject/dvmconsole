@@ -37,9 +37,16 @@ namespace dvmconsole
 
         private static string SettingsFilePath = UserAppDataPath + Path.DirectorySeparatorChar + "UserSettings.json";
 
+        private static SettingsManager _instance = null;
+
         /*
         ** Properties
         */
+
+        /// <summary>
+        /// Singleton instance.
+        /// </summary>
+        public static SettingsManager Instance {  get { return _instance; } }
 
         /// <summary>
         /// Flag indicating whether or not system status widgets will be displayed.
@@ -137,17 +144,29 @@ namespace dvmconsole
         /// </summary>
         public bool SaveTraceLog { get; set; }
 
-        
+        /// <summary>
+        /// 
+        /// </summary>
         public Keys GlobalPTTShortcut { get; set; } = Keys.None;
-        
-        
+        /// <summary>
+        /// 
+        /// </summary>
         public bool GlobalPTTKeysAllChannels { get; set; }
+
         /*
         ** Methods
         */
 
         /// <summary>
-        /// 
+        /// Initializes a new instance of the <see cref="SettingsManager"/> class.
+        /// </summary>
+        public SettingsManager()
+        {
+            _instance = this;
+        }
+
+        /// <summary>
+        /// Load user settings.
         /// </summary>
         public bool LoadSettings()
         {
@@ -244,7 +263,7 @@ namespace dvmconsole
         }
 
         /// <summary>
-        /// 
+        /// Save user settings.
         /// </summary>
         public void SaveSettings()
         {
@@ -264,7 +283,7 @@ namespace dvmconsole
         }
 
         /// <summary>
-        /// 
+        /// Reset user settings.
         /// </summary>
         public void Reset()
         {

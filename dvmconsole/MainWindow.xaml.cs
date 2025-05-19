@@ -111,7 +111,7 @@ namespace dvmconsole
 
         private ChannelBox playbackChannelBox;
 
-        CallHistoryWindow callHistoryWindow;
+        private CallHistoryWindow callHistoryWindow;
 
         public static string PLAYBACKTG = "LOCPLAYBACK";
         public static string PLAYBACKSYS = "Local Playback";
@@ -158,7 +158,7 @@ namespace dvmconsole
 
             settingsManager.LoadSettings();
             InitializeKeyboardShortcuts();
-            callHistoryWindow = new CallHistoryWindow(settingsManager);
+            callHistoryWindow = new CallHistoryWindow(settingsManager, CallHistoryWindow.MAX_CALL_HISTORY);
 
             selectedChannelsManager = new SelectedChannelsManager();
             flashingManager = new FlashingBackgroundManager(null, channelsCanvas, null, this);
@@ -2427,6 +2427,8 @@ namespace dvmconsole
             }
         }
 
+        /** Keyboard Shortcuts */
+
         /// <summary>
         /// Sets the global PTT keybind
         /// Hooks a listener to listen for a keypress, then saves that as the global PTT keybind
@@ -2471,8 +2473,6 @@ namespace dvmconsole
             settingsManager.SaveSettings();
             MessageBox.Show("Global PTT shortcut set to " + keyPress.ToString(), "Success", MessageBoxButton.OK, MessageBoxImage.Information);
         }
-        
-        
 
         /// <summary>
         /// Initializes global keyboard shortcut listener
@@ -2487,6 +2487,11 @@ namespace dvmconsole
             keyboardManager.OnKeyEvent += KeyboardManagerOnKeyEvent;
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="pressedKey"></param>
+        /// <param name="state"></param>
         private void KeyboardManagerOnKeyEvent(Keys pressedKey,GlobalKeyboardHook.KeyboardState state)
         {
             if (pressedKey == settingsManager.GlobalPTTShortcut)
@@ -2504,6 +2509,11 @@ namespace dvmconsole
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void ToggleGlobalPTTAllChannels_Click(object sender, RoutedEventArgs e)
         {
             settingsManager.GlobalPTTKeysAllChannels = !settingsManager.GlobalPTTKeysAllChannels;
