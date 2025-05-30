@@ -45,6 +45,8 @@ namespace dvmconsole.Controls
         public readonly static LinearGradientBrush GREEN_GRADIENT;          // Clear Rx Color
         public readonly static LinearGradientBrush ORANGE_GRADIENT;         // Encrypted Rx Color
 
+        private const string ERR_NO_LOADED_ENC_KEY = "does not have a loaded encryption key";
+
         private readonly SelectedChannelsManager selectedChannelsManager;
         private readonly AudioManager audioManager;
 
@@ -95,9 +97,45 @@ namespace dvmconsole.Controls
 
         private CallHistoryWindow callHistoryWindow;
 
+        private static int ChannelIdx = 0;
+
+        /*
+        ** Events
+        */
+
+        /// <summary>
+        /// Event action that handles the PTT button being clicked.
+        /// </summary>
+        public event EventHandler<ChannelBox> PTTButtonClicked;
+        /// <summary>
+        /// Event action that handles the PTT button being pressed.
+        /// </summary>
+        public event EventHandler<ChannelBox> PTTButtonPressed;
+        /// <summary>
+        /// Event action that handles the PTT button being released.
+        /// </summary>
+        public event EventHandler<ChannelBox> PTTButtonReleased;
+        /// <summary>
+        /// Event action that handles the page button being clicked.
+        /// </summary>
+        public event EventHandler<ChannelBox> PageButtonClicked;
+        /// <summary>
+        /// Event action that handles the hold channel button being clicked.
+        /// </summary>
+        public event EventHandler<ChannelBox> HoldChannelButtonClicked;
+        /// <summary>
+        /// Event action that occurs when a property changes on this control.
+        /// </summary>
+        public event PropertyChangedEventHandler PropertyChanged;
+
         /*
         ** Properties
         */
+
+        /// <summary>
+        /// Private internal reference ID for this channel.
+        /// </summary>
+        public int InternalID { get; private set; }
 
         /// <summary>
         /// Textual name of channel.
@@ -128,35 +166,6 @@ namespace dvmconsole.Controls
                 SetVolumeMeterBg(value);
             }
         }
-
-        /*
-        ** Events
-        */
-
-        /// <summary>
-        /// Event action that handles the PTT button being clicked.
-        /// </summary>
-        public event EventHandler<ChannelBox> PTTButtonClicked;
-        /// <summary>
-        /// Event action that handles the PTT button being pressed.
-        /// </summary>
-        public event EventHandler<ChannelBox> PTTButtonPressed;
-        /// <summary>
-        /// Event action that handles the PTT button being released.
-        /// </summary>
-        public event EventHandler<ChannelBox> PTTButtonReleased;
-        /// <summary>
-        /// Event action that handles the page button being clicked.
-        /// </summary>
-        public event EventHandler<ChannelBox> PageButtonClicked;
-        /// <summary>
-        /// Event action that handles the hold channel button being clicked.
-        /// </summary>
-        public event EventHandler<ChannelBox> HoldChannelButtonClicked;
-        /// <summary>
-        /// Event action that occurs when a property changes on this control.
-        /// </summary>
-        public event PropertyChangedEventHandler PropertyChanged;
 
         /// <summary>
         /// Last Packet Time
@@ -328,7 +337,6 @@ namespace dvmconsole.Controls
         /// </summary>
         public uint RxStreamId { get; set; }
 
-
         /*
         ** Methods
         */
@@ -338,6 +346,8 @@ namespace dvmconsole.Controls
         /// </summary>
         static ChannelBox()
         {
+            ChannelIdx = 0;
+
             GRAY_GRADIENT = new LinearGradientBrush
             {
                 StartPoint = new Point(0.5, 0),
@@ -419,6 +429,9 @@ namespace dvmconsole.Controls
         {
             InitializeComponent();
 
+            this.InternalID = ChannelIdx;
+            ChannelIdx++;
+
             DataContext = this;
 
             this.selectedChannelsManager = selectedChannelsManager;
@@ -427,6 +440,7 @@ namespace dvmconsole.Controls
             flashingBackgroundManager = new FlashingBackgroundManager(this);
 
             callHistoryWindow = new CallHistoryWindow(SettingsManager.Instance, MAX_CALL_HISTORY);
+            callHistoryWindow.Title = $"Call History - Channel: {channelName}";
 
             ChannelName = channelName;
             ChannelMode = "P25";
@@ -454,14 +468,20 @@ namespace dvmconsole.Controls
             PttButton.Background = GRAY_GRADIENT;
             PageSelectButton.Background = GRAY_GRADIENT;
             ChannelMarkerBtn.Background = GRAY_GRADIENT;
+            ChannelCallHistoryBtn.Background = GRAY_GRADIENT;
 
             DisableControls();
 
             if (SystemName == MainWindow.PLAYBACKSYS || ChannelName == MainWindow.PLAYBACKCHNAME || DstId == MainWindow.PLAYBACKTG)
             {
                 PttButton.IsEnabled = false;
+
                 PageSelectButton.IsEnabled = false;
+                PageSelectButton.Visibility = Visibility.Hidden;
                 ChannelMarkerBtn.IsEnabled = false;
+                ChannelMarkerBtn.Visibility = Visibility.Hidden;
+                ChannelCallHistoryBtn.IsEnabled = false;
+                ChannelCallHistoryBtn.Visibility = Visibility.Hidden;
             }
 
             // initialize external AMBE vocoder
@@ -485,8 +505,9 @@ namespace dvmconsole.Controls
         private void EnableControls()
         {
             PttButton.IsEnabled = true;
-            ChannelMarkerBtn.IsEnabled = true;
             PageSelectButton.IsEnabled = true;
+            ChannelMarkerBtn.IsEnabled = true;
+            ChannelCallHistoryBtn.IsEnabled = true;
 
             VolumeSlider.IsEnabled = true;
         }
@@ -497,8 +518,9 @@ namespace dvmconsole.Controls
         private void DisableControls()
         {
             PttButton.IsEnabled = false;
-            ChannelMarkerBtn.IsEnabled = false;
             PageSelectButton.IsEnabled = false;
+            ChannelMarkerBtn.IsEnabled = false;
+            ChannelCallHistoryBtn.IsEnabled = false;
 
             VolumeSlider.IsEnabled = false;
         }
@@ -539,6 +561,9 @@ namespace dvmconsole.Controls
                 PageSelectButton.Background = GRAY_GRADIENT;
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
         private void UpdateHoldColor()
         {
             if (HoldState)
@@ -646,10 +671,22 @@ namespace dvmconsole.Controls
                 selectedChannelsManager.RemoveSelectedChannel(this);
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="pttState"></param>
         public void TriggerPTTState(bool pttState)
         {
             if (!IsSelected)
                 return;
+
+            if (IsTxEncrypted && !Crypter.HasKey())
+            {
+                MessageBox.Show($"{ChannelName} {ERR_NO_LOADED_ENC_KEY}.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                PttState = false;
+                return;
+            }
+
             PttState = pttState;
             PTTButtonClicked?.Invoke(null, this);
         }
@@ -663,6 +700,13 @@ namespace dvmconsole.Controls
         {
             if (!IsSelected)
                 return;
+
+            if (IsTxEncrypted && !Crypter.HasKey())
+            {
+                MessageBox.Show($"{ChannelName} {ERR_NO_LOADED_ENC_KEY}.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                PttState = false;
+                return;
+            }
 
             PttState = !PttState;
             PTTButtonClicked?.Invoke(sender, this);
@@ -695,6 +739,13 @@ namespace dvmconsole.Controls
         {
             if (!IsSelected)
                 return;
+
+            if (IsTxEncrypted && !Crypter.HasKey())
+            {
+                MessageBox.Show($"{ChannelName} {ERR_NO_LOADED_ENC_KEY}.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                PttState = false;
+                return;
+            }
 
             if (PttState)
                 await Task.Delay(500);
@@ -761,6 +812,19 @@ namespace dvmconsole.Controls
 
             HoldState = !HoldState;
             HoldChannelButtonClicked.Invoke(sender, this);
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void ChannelCallHistoryBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (!IsSelected)
+                return;
+
+            callHistoryWindow.Show();
         }
 
         /// <summary>

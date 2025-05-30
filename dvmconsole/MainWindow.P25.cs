@@ -448,6 +448,9 @@ namespace dvmconsole
                     if (cpgChannel.Tgid != e.DstId.ToString())
                         continue;
 
+                    if (channel.PttState)
+                        continue;
+
                     if (e.DUID == P25DUID.TSDU || e.DUID == P25DUID.PDU)
                         continue;
 
@@ -479,10 +482,23 @@ namespace dvmconsole
                         }
                     }
 
-                    // is this duplicate traffic?
-                    if ((channel.PeerId > 0 && channel.RxStreamId > 0) && (e.PeerId != channel.PeerId && e.StreamId == channel.RxStreamId))
+                    // is the Rx stream ID being Rx'ed on any of our other channels?
+                    bool duplicateRx = false;
+                    foreach (ChannelBox other in selectedChannelsManager.GetSelectedChannels())
                     {
-                        Log.WriteLine($"({system.Name}) P25D: Traffic *IGNORE DUP TRAF* PEER {e.PeerId} CALL_START PEER ID {channel.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
+                        if (other.InternalID == channel.InternalID)
+                            continue;
+                        if ((other.RxStreamId > 0 && other.RxStreamId == e.StreamId) && other.InternalID != channel.InternalID)
+                        {
+                            duplicateRx = true;
+                            break;
+                        }
+                    }
+
+                    // is this duplicate traffic?
+                    if (((channel.PeerId > 0 && channel.RxStreamId > 0) && (e.PeerId != channel.PeerId && e.StreamId == channel.RxStreamId)) || duplicateRx)
+                    {
+                        Log.WriteLine($"({system.Name}) P25D: Traffic *IGNORE DUP TRAF* PEER {e.PeerId} CALL_START PEER ID {channel.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
                         continue;
                     }
 
@@ -495,7 +511,7 @@ namespace dvmconsole
                     // if we have a count of Tx channels this means we're sourcing traffic for the incoming stream ID
                     if (txChannels.Count() > 0)
                     {
-                        Log.WriteLine($"({system.Name}) P25D: Traffic *IGNORE TX TRAF * PEER {e.PeerId} CALL_START PEER ID {channel.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
+                        Log.WriteLine($"({system.Name}) P25D: Traffic *IGNORE TX TRAF * PEER {e.PeerId} CALL_START PEER ID {channel.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
                         continue;
                     }
 
@@ -507,7 +523,7 @@ namespace dvmconsole
                         channel.RxStreamId = e.StreamId;
 
                         slot.RxStart = pktTime;
-                        Log.WriteLine($"({system.Name}) P25D: Traffic *CALL START     * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
+                        Log.WriteLine($"({system.Name}) P25D: Traffic *CALL START     * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
 
                         FneUtils.Memset(channel.mi, 0x00, P25Defines.P25_MI_LENGTH);
 
@@ -520,7 +536,7 @@ namespace dvmconsole
                         callHistoryWindow.ChannelKeyed(cpgChannel.Name, (int)e.SrcId, encrypted);
 
                         if (channel.algId != P25Defines.P25_ALGO_UNENCRYPT)
-                            Log.WriteLine($"({system.Name}) P25D: Traffic *CALL ENC PARMS * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
+                            Log.WriteLine($"({system.Name}) P25D: Traffic *CALL ENC PARMS * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
                     }
 
                     // reset the channel state if we're not Rx
@@ -539,7 +555,7 @@ namespace dvmconsole
                         channel.RxStreamId = 0;
 
                         TimeSpan callDuration = pktTime - slot.RxStart;
-                        Log.WriteLine($"({system.Name}) P25D: Traffic *CALL END       * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} DUR {callDuration} [STREAM ID {e.StreamId}]");
+                        Log.WriteLine($"({system.Name}) P25D: Traffic *CALL END       * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} DUR {callDuration} [STREAM ID {e.StreamId}]");
                         channel.Background = ChannelBox.BLUE_GRADIENT;
                         channel.VolumeMeterLevel = 0;
                         callHistoryWindow.ChannelUnkeyed(cpgChannel.Name, (int)e.SrcId);

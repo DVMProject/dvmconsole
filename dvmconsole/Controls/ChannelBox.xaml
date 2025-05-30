@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:dvmconsole.Controls"
              xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
-             Width="220" Height="110">
+             Width="264" Height="110">
     <UserControl.Effect>
         <DropShadowEffect ShadowDepth="1" BlurRadius="16" Color="#FF686767" Opacity="0.3" />
     </UserControl.Effect>
@@ -24,7 +24,7 @@
             </Grid.RowDefinitions>
 
             <!-- Volume Meter -->
-            <local:VuMeterControl x:Name="VolumeMeter" HorizontalAlignment="Center" Width="220" Height="10" Grid.RowSpan="2" Grid.ColumnSpan="3" Margin="0,-60,0,0" />
+            <local:VuMeterControl x:Name="VolumeMeter" HorizontalAlignment="Center" Width="260" Height="10" Grid.RowSpan="2" Grid.ColumnSpan="3" Margin="0,-56,0,0" />
 
             <!-- Main Info Section -->
             <StackPanel Grid.Column="1" HorizontalAlignment="Left" Width="147" Height="50" Margin="22,5,0,4" Grid.ColumnSpan="2" Grid.Row="1">
@@ -66,7 +66,7 @@
             <!-- Volume Slider -->
             <Slider Minimum="0" Maximum="4" Value="{Binding Volume, Mode=TwoWay}" 
                 Height="21" VerticalAlignment="Center" x:Name="VolumeSlider" 
-                ValueChanged="VolumeSlider_ValueChanged" Margin="12,0,72,0" 
+                ValueChanged="VolumeSlider_ValueChanged" Margin="12,0,112,0" 
                 Grid.ColumnSpan="2" Grid.Row="2" ToolTip="Channel Volume">
                 <Slider.Style>
                     <Style TargetType="Slider">
@@ -102,13 +102,17 @@
 
             <!-- Bottom Buttons -->
             <StackPanel Grid.Column="1" Grid.Row="2" Orientation="Horizontal" Margin="87,-8,-2,0" Grid.RowSpan="2" Grid.ColumnSpan="2">
-                <Button x:Name="PageSelectButton" Width="40" Height="40" Click="PageSelectButton_Click" ToolTip="Select for Alert Tone" Padding="0"
+                <Button x:Name="PageSelectButton" Width="38" Height="40" Click="PageSelectButton_Click" ToolTip="Select for Alert Tone" Padding="0"
                         Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image Source="/dvmconsole;component/Assets/pageselect.png" Width="39" Height="39" Margin="1.5,2,0,0"/>
+                    <Image Source="/dvmconsole;component/Assets/pageselect.png" Width="36" Height="40" Margin="1.5,2,0,0"/>
                 </Button>
-                <Button x:Name="ChannelMarkerBtn" Width="40" Height="40" Click="ChannelMarkerBtn_Click" Margin="5,0,0,0" ToolTip="Transmit Channel Marker" Padding="0"
+                <Button x:Name="ChannelMarkerBtn" Width="38" Height="40" Click="ChannelMarkerBtn_Click" Margin="5,0,0,0" ToolTip="Transmit Channel Marker" Padding="0"
                         Style="{StaticResource MaterialDesignPaperDarkButton}">
                     <Image Source="/dvmconsole;component/Assets/channelmarker.png" Width="36" Height="40"/>
+                </Button>
+                <Button x:Name="ChannelCallHistoryBtn" Width="38" Height="40" Click="ChannelCallHistoryBtn_Click" Margin="5,0,0,0" ToolTip="Channel Call History" Padding="0"
+                        Style="{StaticResource MaterialDesignPaperDarkButton}">
+                    <Image Source="/dvmconsole;component/Assets/history.png" Width="32" Height="40"/>
                 </Button>
             </StackPanel>
         </Grid>

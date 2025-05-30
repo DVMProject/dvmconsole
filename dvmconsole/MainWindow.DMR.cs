@@ -251,6 +251,9 @@ namespace dvmconsole
                     if (cpgChannel.Tgid != e.DstId.ToString())
                         continue;
 
+                    if (channel.PttState)
+                        continue;
+
                     if (!systemStatuses.ContainsKey(cpgChannel.Name + e.Slot))
                         systemStatuses[cpgChannel.Name + e.Slot] = new SlotStatus();
 
@@ -263,10 +266,23 @@ namespace dvmconsole
 
                     channel.LastPktTime = pktTime;
 
-                    // is this duplicate traffic?
-                    if ((channel.PeerId > 0 && channel.RxStreamId > 0) && (e.PeerId != channel.PeerId && e.StreamId == channel.RxStreamId))
+                    // is the Rx stream ID being Rx'ed on any of our other channels?
+                    bool duplicateRx = false;
+                    foreach (ChannelBox other in selectedChannelsManager.GetSelectedChannels())
                     {
-                        Log.WriteLine($"({system.Name}) DMRD: Traffic *IGNORE DUP TRAF* PEER {e.PeerId} CALL_START PEER ID {channel.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
+                        if (other.InternalID == channel.InternalID)
+                            continue;
+                        if ((other.RxStreamId > 0 && other.RxStreamId == e.StreamId) && other.InternalID != channel.InternalID)
+                        {
+                            duplicateRx = true;
+                            break;
+                        }
+                    }
+
+                    // is this duplicate traffic?
+                    if (((channel.PeerId > 0 && channel.RxStreamId > 0) && (e.PeerId != channel.PeerId && e.StreamId == channel.RxStreamId)) || duplicateRx)
+                    {
+                        Log.WriteLine($"({system.Name}) DMRD: Traffic *IGNORE DUP TRAF* PEER {e.PeerId} CALL_START PEER ID {channel.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
                         continue;
                     }
 
@@ -279,7 +295,7 @@ namespace dvmconsole
                     // if we have a count of Tx channels this means we're sourcing traffic for the incoming stream ID
                     if (txChannels.Count() > 0)
                     {
-                        Log.WriteLine($"({system.Name}) DMRD: Traffic *IGNORE TX TRAF * PEER {e.PeerId} CALL_START PEER ID {channel.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
+                        Log.WriteLine($"({system.Name}) DMRD: Traffic *IGNORE TX TRAF * PEER {e.PeerId} CALL_START PEER ID {channel.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
                         continue;
                     }
 
@@ -291,7 +307,7 @@ namespace dvmconsole
                         channel.RxStreamId = e.StreamId;
 
                         systemStatuses[cpgChannel.Name + e.Slot].RxStart = pktTime;
-                        Log.WriteLine($"({system.Name}) DMRD: Traffic *CALL START     * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} TS {e.Slot} [STREAM ID {e.StreamId}]");
+                        Log.WriteLine($"({system.Name}) DMRD: Traffic *CALL START     * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} TS {e.Slot} [STREAM ID {e.StreamId}]");
 
                         // if we can, use the LC from the voice header as to keep all options intact
                         if ((e.FrameType == FrameType.DATA_SYNC) && (e.DataType == DMRDataType.VOICE_LC_HEADER))
@@ -340,7 +356,7 @@ namespace dvmconsole
                         channel.RxStreamId = 0;
 
                         TimeSpan callDuration = pktTime - systemStatuses[cpgChannel.Name + e.Slot].RxStart;
-                        Log.WriteLine($"({system.Name}) DMRD: Traffic *CALL END       * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} TS {e.Slot} DUR {callDuration} [STREAM ID {e.StreamId}]");
+                        Log.WriteLine($"({system.Name}) DMRD: Traffic *CALL END       * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} TS {e.Slot} DUR {callDuration} [STREAM ID {e.StreamId}]");
                         channel.Background = ChannelBox.BLUE_GRADIENT;
                         channel.VolumeMeterLevel = 0;
                         callHistoryWindow.ChannelUnkeyed(cpgChannel.Name, (int)e.SrcId);
