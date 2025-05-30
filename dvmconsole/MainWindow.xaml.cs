@@ -506,9 +506,9 @@ namespace dvmconsole
 
                         channelsCanvas.Children.Add(channelBox);
 
-                        offsetX += 225;
+                        offsetX += 269;
 
-                        if (offsetX + 220 > channelsCanvas.ActualWidth)
+                        if (offsetX + 264 > channelsCanvas.ActualWidth)
                         {
                             offsetX = 20;
                             offsetY += 116;
