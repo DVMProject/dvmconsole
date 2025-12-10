@@ -44,6 +44,7 @@ using MessageBox = System.Windows.MessageBox;
 using MouseEventArgs = System.Windows.Input.MouseEventArgs;
 using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
 using System.Net.Sockets;
+using NAudio;
 
 namespace dvmconsole
 {
@@ -172,7 +173,15 @@ namespace dvmconsole
             waveIn.DataAvailable += WaveIn_DataAvailable;
             waveIn.RecordingStopped += WaveIn_RecordingStopped;
 
-            waveIn.StartRecording();
+            try
+            {
+                waveIn.StartRecording();
+            }
+            catch (MmException ex)
+            {
+                MessageBox.Show($"Error initializing audio input device, {ex.Message}. This *will* cause console inconsistency, and inability to transmit audio.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                Log.StackTrace(ex, false);
+            }
 
             audioManager = new AudioManager(settingsManager);
 
