@@ -751,9 +751,14 @@ namespace dvmconsole.Controls
                 await Task.Delay(500);
 
             if (pttToggleMode)
-                PttButton_Click(sender, e);
+            {
+                // Toggle mode: toggle PttState and invoke clicked event
+                PttState = !PttState;
+                PTTButtonClicked?.Invoke(sender, this);
+            }
             else
             {
+                // Normal mode: set PttState to true and invoke pressed event
                 PTTButtonPressed?.Invoke(sender, this);
                 PttState = true;
             }

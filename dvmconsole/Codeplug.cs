@@ -10,6 +10,7 @@
 *   Copyright (C) 2024-2025 Caleb, K4PHP
 *   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
 *   Copyright (C) 2025 Steven Jennison, KD8RHO
+*   Copyright (C) 2025 Lorenzo L Romero, K2LLR
 *
 */
 
@@ -45,7 +46,7 @@ namespace dvmconsole
         /// </summary>
         public List<System> Systems { get; set; }
         /// <summary>
-        /// List of zones.
+        /// List of zones (each zone becomes a tab).
         /// </summary>
         public List<Zone> Zones { get; set; }
 
@@ -139,6 +140,10 @@ namespace dvmconsole
             /// Textual name for zone.
             /// </summary>
             public string Name { get; set; }
+            /// <summary>
+            /// Tab Color in Hex (#RRGGBB)
+            /// </summary>
+            public string TabColor { get; set; }
             /// <summary>
             /// List of channels in the zone.
             /// </summary>

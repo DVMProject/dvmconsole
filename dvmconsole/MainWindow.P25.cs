@@ -9,6 +9,7 @@
 *
 *   Copyright (C) 2024-2025 Caleb, K4PHP
 *   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
+*   Copyright (C) 2025 Lorenzo L Romero, K2LLR
 *
 */
 
@@ -521,6 +522,9 @@ namespace dvmconsole
                         channel.IsReceiving = true;
                         channel.PeerId = e.PeerId;
                         channel.RxStreamId = e.StreamId;
+                        
+                        // Update tab audio indicator
+                        Dispatcher.Invoke(() => UpdateTabAudioIndicatorForChannel(channel));
 
                         slot.RxStart = pktTime;
                         Log.WriteLine($"({system.Name}) P25D: Traffic *CALL START     * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
@@ -553,6 +557,9 @@ namespace dvmconsole
                         channel.IsReceiving = false;
                         channel.PeerId = 0;
                         channel.RxStreamId = 0;
+                        
+                        // Update tab audio indicator
+                        Dispatcher.Invoke(() => UpdateTabAudioIndicatorForChannel(channel));
 
                         TimeSpan callDuration = pktTime - slot.RxStart;
                         Log.WriteLine($"({system.Name}) P25D: Traffic *CALL END       * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} DUR {callDuration} [STREAM ID {e.StreamId}]");
