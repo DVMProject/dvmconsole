@@ -31,6 +31,7 @@
     <None Remove="Assets\alerttone.png" />
     <None Remove="Assets\AppIcon.ico" />
     <None Remove="Assets\audio.png" />
+    <None Remove="Assets\audio_receive.png" />
     <None Remove="Assets\bg_main_hd_dark.png" />
     <None Remove="Assets\bg_main_hd_light.png" />
     <None Remove="Assets\channelmarker.png" />
@@ -63,6 +64,9 @@
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </Resource>
     <Resource Include="Assets\audio.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\audio_receive.png">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </Resource>
     <Resource Include="Assets\bg_main_hd_dark.png">
