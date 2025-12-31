@@ -237,7 +237,7 @@ namespace dvmconsole
             // Audio icon (initially hidden)
             Image audioIcon = new Image
             {
-                Source = new BitmapImage(new Uri($"{URI_RESOURCE_PATH}/Assets/audio.png")),
+                Source = new BitmapImage(new Uri($"{URI_RESOURCE_PATH}/Assets/audio_receive.png")),
                 Width = 16,
                 Height = 16,
                 Margin = new Thickness(6, 0, 0, 0),
@@ -321,7 +321,7 @@ namespace dvmconsole
                 // Audio icon (initially hidden)
                 Image audioIcon = new Image
                 {
-                    Source = new BitmapImage(new Uri($"{URI_RESOURCE_PATH}/Assets/audio.png")),
+                    Source = new BitmapImage(new Uri($"{URI_RESOURCE_PATH}/Assets/audio_receive.png")),
                     Width = 16,
                     Height = 16,
                     Margin = new Thickness(6, 0, 0, 0),
@@ -395,7 +395,7 @@ namespace dvmconsole
             // Audio icon (initially hidden)
             Image audioIcon = new Image
             {
-                Source = new BitmapImage(new Uri($"{URI_RESOURCE_PATH}/Assets/audio.png")),
+                Source = new BitmapImage(new Uri($"{URI_RESOURCE_PATH}/Assets/audio_receive.png")),
                 Width = 16,
                 Height = 16,
                 Margin = new Thickness(6, 0, 0, 0),
