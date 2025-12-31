@@ -11,9 +11,11 @@
 *   Copyright (C) 2025 J. Dean
 *   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
 *   Copyright (C) 2025 Steven Jennison, KD8RHO
+*   Copyright (C) 2025 Lorenzo L Romero, K2LLR
 *
 */
 
+using System.Net.Sockets;
 using System.IO;
 using System.Timers;
 using System.Windows;
@@ -22,6 +24,9 @@ using System.Windows.Forms;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+
+using NAudio;
+using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using NWaves.Signals;
 
@@ -38,13 +43,12 @@ using fnecore.DMR;
 using fnecore.P25;
 using fnecore.P25.KMM;
 using fnecore.P25.LC.TSBK;
+
 using Application = System.Windows.Application;
 using Cursors = System.Windows.Input.Cursors;
 using MessageBox = System.Windows.MessageBox;
 using MouseEventArgs = System.Windows.Input.MouseEventArgs;
 using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
-using System.Net.Sockets;
-using NAudio;
 
 namespace dvmconsole
 {
@@ -103,6 +107,12 @@ namespace dvmconsole
         private bool isDragging;
 
         private bool windowLoaded = false;
+        
+        // Tab management
+        private Dictionary<TabItem, ScrollViewer> tabScrollViewers = new Dictionary<TabItem, ScrollViewer>();
+        private Dictionary<TabItem, Canvas> tabCanvases = new Dictionary<TabItem, Canvas>();
+        private Dictionary<UIElement, TabItem> elementToTabMap = new Dictionary<UIElement, TabItem>();
+        private Dictionary<TabItem, StackPanel> tabHeaders = new Dictionary<TabItem, StackPanel>();
         private bool noSaveSettingsOnClose = false;
         private SettingsManager settingsManager = new SettingsManager();
         private SelectedChannelsManager selectedChannelsManager;
@@ -188,6 +198,9 @@ namespace dvmconsole
             btnGlobalPtt.PreviewMouseLeftButtonDown += btnGlobalPtt_MouseLeftButtonDown;
             btnGlobalPtt.PreviewMouseLeftButtonUp += btnGlobalPtt_MouseLeftButtonUp;
             btnGlobalPtt.MouseRightButtonDown += btnGlobalPtt_MouseRightButtonDown;
+            
+            // Handle tab selection changes to update background
+            resourceTabs.SelectionChanged += ResourceTabs_SelectionChanged;
 
             selectedChannelsManager.SelectedChannelsChanged += SelectedChannelsChanged;
             selectedChannelsManager.PrimaryChannelChanged += PrimaryChannelChanged;
@@ -195,6 +208,381 @@ namespace dvmconsole
             LocationChanged += MainWindow_LocationChanged;
             SizeChanged += MainWindow_SizeChanged;
             Loaded += MainWindow_Loaded;
+
+            // Initialize first tab
+            InitializeFirstTab();
+        }
+        
+        /// <summary>
+        /// Initializes the first tab with the default canvas
+        /// </summary>
+        private void InitializeFirstTab()
+        {
+            TabItem firstTab = new TabItem();
+            
+            // Create a custom header with text and optional audio icon
+            StackPanel headerPanel = new StackPanel
+            {
+                Orientation = System.Windows.Controls.Orientation.Horizontal,
+                Margin = new Thickness(0, 0, 4, 0)
+            };
+            
+            TextBlock headerText = new TextBlock
+            {
+                Text = "Tab 1",
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            headerPanel.Children.Add(headerText);
+            
+            // Audio icon (initially hidden)
+            Image audioIcon = new Image
+            {
+                Source = new BitmapImage(new Uri($"{URI_RESOURCE_PATH}/Assets/audio.png")),
+                Width = 16,
+                Height = 16,
+                Margin = new Thickness(6, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Visibility = Visibility.Collapsed,
+                Name = "AudioIcon"
+            };
+            headerPanel.Children.Add(audioIcon);
+            
+            firstTab.Header = headerPanel;
+            tabHeaders[firstTab] = headerPanel;
+            
+            // Remove canvasScrollViewer from its parent (Grid) if it exists
+            DependencyObject parent = canvasScrollViewer.Parent;
+            if (parent is System.Windows.Controls.Panel panel)
+            {
+                panel.Children.Remove(canvasScrollViewer);
+            }
+            else if (parent is ContentControl contentControl)
+            {
+                contentControl.Content = null;
+            }
+            
+            // Now we can safely assign it to the tab
+            firstTab.Content = canvasScrollViewer;
+
+            tabScrollViewers[firstTab] = canvasScrollViewer;
+            tabCanvases[firstTab] = channelsCanvas;
+            resourceTabs.Items.Add(firstTab);
+            resourceTabs.SelectedItem = firstTab;
+        }
+        
+        /// <summary>
+        /// Creates tabs from the codeplug zones (each zone becomes a tab)
+        /// </summary>
+        private void CreateTabsFromCodeplug()
+        {
+            // Clear existing tabs
+            resourceTabs.Items.Clear();
+            tabCanvases.Clear();
+            tabHeaders.Clear();
+            elementToTabMap.Clear();
+            
+            // Create tabs from zones
+            if (Codeplug.Zones != null && Codeplug.Zones.Count > 0)
+            {
+                foreach (var zone in Codeplug.Zones)
+                    CreateNewTab(zone.Name, zone.TabColor);
+                
+                // Apply current background to all newly created tabs
+                ApplyCurrentBackgroundToAllTabs();
+                
+                // Select the first tab
+                if (resourceTabs.Items.Count > 0)
+                    resourceTabs.SelectedItem = resourceTabs.Items[0];
+            }
+            else
+            {
+                // No zones defined, create a default tab
+                TabItem firstTab = new TabItem();
+                
+                // Apply the tab style from resources
+                if (resourceTabs.Resources["TabItemStyle"] is Style tabStyle)
+                    firstTab.Style = tabStyle;
+                
+            // Create a custom header with text and optional audio icon
+            StackPanel headerPanel = new StackPanel
+            {
+                Orientation = System.Windows.Controls.Orientation.Horizontal,
+                    Margin = new Thickness(0, 0, 4, 0)
+                };
+                
+                TextBlock headerText = new TextBlock
+                {
+                    Text = "Tab 1",
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Foreground = settingsManager.DarkMode ? Brushes.White : Brushes.Black
+                };
+                headerPanel.Children.Add(headerText);
+                
+                // Audio icon (initially hidden)
+                Image audioIcon = new Image
+                {
+                    Source = new BitmapImage(new Uri($"{URI_RESOURCE_PATH}/Assets/audio.png")),
+                    Width = 16,
+                    Height = 16,
+                    Margin = new Thickness(6, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Visibility = Visibility.Collapsed,
+                    Name = "AudioIcon"
+                };
+                headerPanel.Children.Add(audioIcon);
+                
+                firstTab.Header = headerPanel;
+                tabHeaders[firstTab] = headerPanel;
+                
+                // Remove canvasScrollViewer from its parent if it exists
+                DependencyObject parent = canvasScrollViewer.Parent;
+                if (parent is System.Windows.Controls.Panel panel)
+                {
+                    panel.Children.Remove(canvasScrollViewer);
+                }
+                else if (parent is ContentControl contentControl)
+                {
+                    contentControl.Content = null;
+                }
+                
+                firstTab.Content = canvasScrollViewer;
+                tabScrollViewers[firstTab] = canvasScrollViewer;
+                tabCanvases[firstTab] = channelsCanvas;
+                resourceTabs.Items.Add(firstTab);
+                resourceTabs.SelectedItem = firstTab;
+                
+                // Apply current background to the newly created tab
+                ApplyCurrentBackgroundToAllTabs();
+            }
+        }
+        
+        /// <summary>
+        /// Creates a new tab with a ScrollViewer and Canvas
+        /// </summary>
+        /// <param name="tabName"></param>
+        /// <param name="tabColor"></param>
+        private TabItem CreateNewTab(string tabName, string tabColor = null)
+        {
+            TabItem tab = new TabItem();
+            
+            // Apply the tab style from resources
+            if (resourceTabs.Resources["TabItemStyle"] is Style tabStyle)
+                tab.Style = tabStyle;
+
+            if (tabColor != null)
+            {
+                SolidColorBrush bgBrush = (SolidColorBrush)new BrushConverter().ConvertFrom(tabColor);
+                ColorZoneAssist.SetMode(tab, MaterialDesignThemes.Wpf.ColorZoneMode.Custom);
+                ColorZoneAssist.SetBackground(tab, bgBrush);
+                //ColorZoneAssist.SetForeground(tab, Brushes.White);
+            }
+
+            // Create a custom header with text and optional audio icon
+            StackPanel headerPanel = new StackPanel
+            {
+                Orientation = System.Windows.Controls.Orientation.Horizontal,
+                Margin = new Thickness(0, 0, 4, 0)
+            };
+            
+            TextBlock headerText = new TextBlock
+            {
+                Text = tabName,
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = settingsManager.DarkMode ? Brushes.White : Brushes.Black
+            };
+            headerPanel.Children.Add(headerText);
+            
+            // Audio icon (initially hidden)
+            Image audioIcon = new Image
+            {
+                Source = new BitmapImage(new Uri($"{URI_RESOURCE_PATH}/Assets/audio.png")),
+                Width = 16,
+                Height = 16,
+                Margin = new Thickness(6, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Visibility = Visibility.Collapsed,
+                Name = "AudioIcon"
+            };
+            headerPanel.Children.Add(audioIcon);
+            
+            tab.Header = headerPanel;
+            tabHeaders[tab] = headerPanel;
+            
+            ScrollViewer scrollViewer = new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                VerticalAlignment = System.Windows.VerticalAlignment.Stretch,
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch
+            };
+            
+            Canvas canvas = new Canvas
+            {
+                VerticalAlignment = VerticalAlignment.Top,
+            };
+            
+            // Set background from original canvas or channelsCanvasBg
+            // Use the current background from channelsCanvasBg if available, otherwise use default
+            if (channelsCanvasBg != null && channelsCanvasBg.ImageSource != null)
+            {
+                canvas.Background = new ImageBrush(channelsCanvasBg.ImageSource) { Stretch = Stretch.UniformToFill };
+            }
+            else if (channelsCanvas.Background is ImageBrush originalBg)
+            {
+                canvas.Background = new ImageBrush(originalBg.ImageSource) { Stretch = Stretch.UniformToFill };
+            }
+            else
+            {
+                // Use default background based on dark mode
+                BitmapImage defaultBg = new BitmapImage();
+                defaultBg.BeginInit();
+                if (settingsManager.DarkMode)
+                    defaultBg.UriSource = new Uri($"{URI_RESOURCE_PATH}/Assets/bg_main_hd_dark.png");
+                else
+                    defaultBg.UriSource = new Uri($"{URI_RESOURCE_PATH}/Assets/bg_main_hd_light.png");
+                defaultBg.EndInit();
+                canvas.Background = new ImageBrush(defaultBg) { Stretch = Stretch.UniformToFill };
+            }
+            
+            scrollViewer.Content = canvas;
+            tab.Content = scrollViewer;
+
+            tabScrollViewers[tab] = scrollViewer;
+            tabCanvases[tab] = canvas;
+            
+            // Hook up property changed to track audio state
+            tab.DataContext = tab;
+
+            resourceTabs.Items.Add(tab);
+            return tab;
+        }
+        
+        /// <summary>
+        /// Updates the tab appearance based on whether it contains channels playing audio
+        /// </summary>
+        private void UpdateTabAudioIndicator(TabItem tab)
+        {
+            if (!tabHeaders.ContainsKey(tab))
+                return;
+                
+            Canvas tabCanvas = tabCanvases.ContainsKey(tab) ? tabCanvases[tab] : null;
+            if (tabCanvas == null)
+                return;
+            
+            // Check if any channel in this tab is receiving audio
+            bool hasAudio = false;
+            foreach (UIElement element in tabCanvas.Children)
+            {
+                if (element is ChannelBox channelBox)
+                {
+                    if (channelBox.IsReceiving || channelBox.IsReceivingEncrypted)
+                    {
+                        hasAudio = true;
+                        break;
+                    }
+                }
+            }
+            
+            StackPanel headerPanel = tabHeaders[tab];
+            
+            // Find the audio icon
+            Image audioIcon = null;
+            foreach (UIElement child in headerPanel.Children)
+            {
+                if (child is Image img && img.Name == "AudioIcon")
+                {
+                    audioIcon = img;
+                    break;
+                }
+            }
+            
+            if (hasAudio)
+            {
+                // Set tab background to green (using the same green as receiving channels)
+                tab.Background = ChannelBox.GREEN_GRADIENT;
+                
+                // Show audio icon
+                if (audioIcon != null)
+                {
+                    audioIcon.Visibility = Visibility.Visible;
+                }
+            }
+            else
+            {
+                // Reset tab background to default
+                tab.Background = null;
+                
+                // Hide audio icon
+                if (audioIcon != null)
+                {
+                    audioIcon.Visibility = Visibility.Collapsed;
+                }
+            }
+        }
+        
+        /// <summary>
+        /// Updates all tab audio indicators
+        /// </summary>
+        private void UpdateAllTabAudioIndicators()
+        {
+            foreach (TabItem tab in resourceTabs.Items)
+            {
+                UpdateTabAudioIndicator(tab);
+            }
+        }
+        
+        /// <summary>
+        /// Updates the tab audio indicator for a specific channel
+        /// </summary>
+        private void UpdateTabAudioIndicatorForChannel(ChannelBox channel)
+        {
+            TabItem tab = GetTabForElement(channel);
+            if (tab != null)
+            {
+                UpdateTabAudioIndicator(tab);
+            }
+        }
+        
+        /// <summary>
+        /// Gets the currently active canvas
+        /// </summary>
+        private Canvas GetActiveCanvas()
+        {
+            if (resourceTabs.SelectedItem is TabItem selectedTab && tabCanvases.ContainsKey(selectedTab))
+            {
+                return tabCanvases[selectedTab];
+            }
+            // If no tab selected or tab not found, return the original canvas
+            return channelsCanvas;
+        }
+        
+        /// <summary>
+        /// Gets the tab that contains the given element
+        /// </summary>
+        private TabItem GetTabForElement(UIElement element)
+        {
+            if (elementToTabMap.TryGetValue(element, out TabItem tab))
+            {
+                return tab;
+            }
+            // If not in map, it's in the first tab (or original canvas)
+            if (resourceTabs.Items.Count > 0)
+            {
+                return resourceTabs.Items[0] as TabItem;
+            }
+            return null;
+        }
+        
+        /// <summary>
+        /// Gets all canvases (from all tabs plus the original)
+        /// </summary>
+        internal IEnumerable<Canvas> GetAllCanvases()
+        {
+            foreach (var canvas in tabCanvases.Values)
+            {
+                yield return canvas;
+            }
+            yield return channelsCanvas;
         }
 
         /// <summary>
@@ -203,6 +591,18 @@ namespace dvmconsole
         private void PrimaryChannelChanged()
         {
             var primaryChannel = selectedChannelsManager.PrimaryChannel;
+            // Check all canvases in all tabs
+            foreach (var canvas in tabCanvases.Values)
+            {
+                foreach (UIElement element in canvas.Children)
+                {
+                    if (element is ChannelBox box)
+                    {
+                        box.IsPrimary = box == primaryChannel;
+                    }
+                }
+            }
+            // Also check the original canvas
             foreach (UIElement element in channelsCanvas.Children)
             {
                 if (element is ChannelBox box)
@@ -276,7 +676,13 @@ namespace dvmconsole
         {
             DisableControls();
 
+            // Clear all canvases
+            foreach (var canvas in tabCanvases.Values)
+            {
+                canvas.Children.Clear();
+            }
             channelsCanvas.Children.Clear();
+            elementToTabMap.Clear();
             systemStatuses.Clear();
 
             fneSystemManager.ClearAll();
@@ -354,6 +760,7 @@ namespace dvmconsole
                 // generate widgets and enable controls
                 GenerateChannelWidgets();
                 EnableControls();
+                MainWindow_SizeChanged(this, null);
             }
             catch (Exception ex)
             {
@@ -368,18 +775,67 @@ namespace dvmconsole
         /// </summary>
         private void GenerateChannelWidgets()
         {
+            // Clear all canvases
+            foreach (var canvas in tabCanvases.Values)
+            {
+                canvas.Children.Clear();
+            }
             channelsCanvas.Children.Clear();
+            elementToTabMap.Clear();
             systemStatuses.Clear();
+            
+            // Note: tabHeaders is not cleared here as tabs are recreated in CreateTabsFromCodeplug
 
             fneSystemManager.ClearAll();
 
-            double offsetX = 20;
-            double offsetY = 20;
-
             Cursor = Cursors.Wait;
+
+            // Create tabs from codeplug configuration (if codeplug exists)
+            if (Codeplug != null)
+                CreateTabsFromCodeplug();
+            
+            // Create a dictionary to map tab names to TabItems
+            Dictionary<string, TabItem> tabNameToTabItem = new Dictionary<string, TabItem>();
+            foreach (TabItem tab in resourceTabs.Items)
+            {
+                string tabName = null;
+                
+                // Check if header is a string (legacy) or a StackPanel (new custom header)
+                if (tab.Header is string name)
+                {
+                    tabName = name;
+                }
+                else if (tab.Header is StackPanel headerPanel)
+                {
+                    // Extract text from the first TextBlock in the StackPanel
+                    foreach (UIElement child in headerPanel.Children)
+                    {
+                        if (child is TextBlock textBlock)
+                        {
+                            tabName = textBlock.Text;
+                            break;
+                        }
+                    }
+                }
+                
+                if (!string.IsNullOrEmpty(tabName))
+                {
+                    tabNameToTabItem[tabName] = tab;
+                }
+            }
+            
+            // Get default tab (first tab or create one if none exist)
+            TabItem defaultTab = resourceTabs.Items.Count > 0 ? resourceTabs.Items[0] as TabItem : null;
+            Canvas defaultCanvas = defaultTab != null && tabCanvases.ContainsKey(defaultTab) 
+                ? tabCanvases[defaultTab] 
+                : channelsCanvas;
 
             if (Codeplug != null)
             {
+                // Track offset for system status boxes (add to default tab)
+                double systemOffsetX = 20;
+                double systemOffsetY = 20;
+                
                 // load and initialize systems
                 foreach (var system in Codeplug.Systems)
                 {
@@ -391,8 +847,8 @@ namespace dvmconsole
                     }
                     else
                     {
-                        Canvas.SetLeft(systemStatusBox, offsetX);
-                        Canvas.SetTop(systemStatusBox, offsetY);
+                        Canvas.SetLeft(systemStatusBox, systemOffsetX);
+                        Canvas.SetTop(systemStatusBox, systemOffsetY);
                     }
 
                     // widget placement
@@ -400,13 +856,15 @@ namespace dvmconsole
                     systemStatusBox.MouseRightButtonUp += SystemStatusBox_MouseRightButtonUp;
                     systemStatusBox.MouseMove += SystemStatusBox_MouseMove;
 
-                    channelsCanvas.Children.Add(systemStatusBox);
+                    defaultCanvas.Children.Add(systemStatusBox);
+                    if (defaultTab != null)
+                        elementToTabMap[systemStatusBox] = defaultTab;
 
-                    offsetX += 225;
-                    if (offsetX + 220 > channelsCanvas.ActualWidth)
+                    systemOffsetX += 225;
+                    if (systemOffsetX + 220 > defaultCanvas.ActualWidth)
                     {
-                        offsetX = 20;
-                        offsetY += 106;
+                        systemOffsetX = 20;
+                        systemOffsetY += 106;
                     }
 
                     // do we have aliases for this system?
@@ -451,6 +909,9 @@ namespace dvmconsole
                                     channel.IsReceivingEncrypted = false;
                                     channel.Background = ChannelBox.BLUE_GRADIENT;
                                     channel.VolumeMeterLevel = 0;
+                                    
+                                    // Update tab audio indicator
+                                    UpdateTabAudioIndicatorForChannel(channel);
                                 }
                             }
                         });
@@ -478,12 +939,34 @@ namespace dvmconsole
             // are we showing channels?
             if (settingsManager.ShowChannels && Codeplug != null)
             {
-                // iterate through the coeplug zones and begin building channel widgets
+                // Track offset per tab
+                Dictionary<TabItem, Point> tabOffsets = new Dictionary<TabItem, Point>();
+                
+                // iterate through the codeplug zones and begin building channel widgets
                 foreach (var zone in Codeplug.Zones)
                 {
+                    // Get the tab for this zone (zone name = tab name)
+                    TabItem targetTab = defaultTab;
+                    if (tabNameToTabItem.TryGetValue(zone.Name, out TabItem zoneTab))
+                    {
+                        targetTab = zoneTab;
+                    }
+                    
                     // iterate through zone channels
                     foreach (var channel in zone.Channels)
                     {
+                        // Get or create offset for this tab
+                        if (!tabOffsets.ContainsKey(targetTab))
+                        {
+                            tabOffsets[targetTab] = new Point(20, 20);
+                        }
+                        Point tabOffset = tabOffsets[targetTab];
+                        
+                        // Get the canvas for this tab
+                        Canvas targetCanvas = targetTab != null && tabCanvases.ContainsKey(targetTab) 
+                            ? tabCanvases[targetTab] 
+                            : channelsCanvas;
+                        
                         ChannelBox channelBox = new ChannelBox(selectedChannelsManager, audioManager, channel.Name, channel.System, channel.Tgid, settingsManager.TogglePTTMode);
                         channelBox.ChannelMode = channel.Mode.ToUpperInvariant();
                         if (channel.GetAlgoId() != P25Defines.P25_ALGO_UNENCRYPT && channel.GetKeyId() > 0)
@@ -498,8 +981,8 @@ namespace dvmconsole
                         }
                         else
                         {
-                            Canvas.SetLeft(channelBox, offsetX);
-                            Canvas.SetTop(channelBox, offsetY);
+                            Canvas.SetLeft(channelBox, tabOffset.X);
+                            Canvas.SetTop(channelBox, tabOffset.Y);
                         }
 
                         channelBox.PTTButtonClicked += ChannelBox_PTTButtonClicked;
@@ -513,15 +996,18 @@ namespace dvmconsole
                         channelBox.MouseRightButtonUp += ChannelBox_MouseRightButtonUp;
                         channelBox.MouseMove += ChannelBox_MouseMove;
 
-                        channelsCanvas.Children.Add(channelBox);
+                        targetCanvas.Children.Add(channelBox);
+                        if (targetTab != null)
+                            elementToTabMap[channelBox] = targetTab;
 
-                        offsetX += 269;
-
-                        if (offsetX + 264 > channelsCanvas.ActualWidth)
+                        // Update offset for next channel in this tab
+                        tabOffset.X += 269;
+                        if (tabOffset.X + 264 > targetCanvas.ActualWidth)
                         {
-                            offsetX = 20;
-                            offsetY += 116;
+                            tabOffset.X = 20;
+                            tabOffset.Y += 116;
                         }
+                        tabOffsets[targetTab] = tabOffset;
                     }
                 }
             }
@@ -529,6 +1015,11 @@ namespace dvmconsole
             // are we showing user configured alert tones?
             if (settingsManager.ShowAlertTones && Codeplug != null)
             {
+                // Add alert tones to the default/first tab
+                Canvas alertCanvas = defaultTab != null && tabCanvases.ContainsKey(defaultTab) 
+                    ? tabCanvases[defaultTab] 
+                    : channelsCanvas;
+                    
                 // iterate through the alert tones and begin building alert tone widges
                 foreach (var alertPath in settingsManager.AlertToneFilePaths)
                 {
@@ -552,11 +1043,17 @@ namespace dvmconsole
                         Canvas.SetTop(alertTone, 20);
                     }
 
-                    channelsCanvas.Children.Add(alertTone);
+                    alertCanvas.Children.Add(alertTone);
+                    if (defaultTab != null)
+                        elementToTabMap[alertTone] = defaultTab;
                 }
             }
 
-            // initialize the playback channel
+            // initialize the playback channel - add to default tab
+            Canvas playbackCanvas = defaultTab != null && tabCanvases.ContainsKey(defaultTab) 
+                ? tabCanvases[defaultTab] 
+                : channelsCanvas;
+                
             playbackChannelBox = new ChannelBox(selectedChannelsManager, audioManager, PLAYBACKCHNAME, PLAYBACKSYS, PLAYBACKTG);
             playbackChannelBox.ChannelMode = "Local";
             playbackChannelBox.HidePTTButton(); // playback box shouldn't have PTT
@@ -568,8 +1065,8 @@ namespace dvmconsole
             }
             else
             {
-                Canvas.SetLeft(playbackChannelBox, offsetX);
-                Canvas.SetTop(playbackChannelBox, offsetY);
+                Canvas.SetLeft(playbackChannelBox, 20);
+                Canvas.SetTop(playbackChannelBox, 20);
             }
 
             playbackChannelBox.PageButtonClicked += ChannelBox_PageButtonClicked;
@@ -580,7 +1077,9 @@ namespace dvmconsole
             playbackChannelBox.MouseRightButtonUp += ChannelBox_MouseRightButtonUp;
             playbackChannelBox.MouseMove += ChannelBox_MouseMove;
 
-            channelsCanvas.Children.Add(playbackChannelBox);
+            playbackCanvas.Children.Add(playbackChannelBox);
+            if (defaultTab != null)
+                elementToTabMap[playbackChannelBox] = defaultTab;
 
             Cursor = Cursors.Arrow;
         }
@@ -859,6 +1358,99 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// Updates the text color of all tab headers based on dark mode setting
+        /// </summary>
+        private void UpdateTabTextColors()
+        {
+            Brush textColor = settingsManager.DarkMode ? Brushes.White : Brushes.Black;
+            
+            foreach (var kvp in tabHeaders)
+            {
+                StackPanel headerPanel = kvp.Value;
+                foreach (UIElement child in headerPanel.Children)
+                {
+                    if (child is TextBlock textBlock)
+                    {
+                        textBlock.Foreground = textColor;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Handles tab selection changes to update background colors
+        /// </summary>
+        private void ResourceTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            UpdateTabSelectedBackground();
+        }
+
+        /// <summary>
+        /// Updates the selected tab background color based on dark mode setting
+        /// </summary>
+        private void UpdateTabSelectedBackground()
+        {
+            // Ensure all tabs have the style applied
+            foreach (TabItem tab in resourceTabs.Items)
+            {
+                if (tab.Style == null && resourceTabs.Resources["TabItemStyle"] is Style tabStyle)
+                    tab.Style = tabStyle;
+
+                // Force update of selected tab background
+                if (tab.IsSelected)
+                {
+                    tab.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#888888"));
+                }
+                else
+                {
+                    // Clear background for unselected tabs to let style handle it
+                    tab.ClearValue(TabItem.BackgroundProperty);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Applies the current background (user-defined or default) to all tab canvases
+        /// </summary>
+        private void ApplyCurrentBackgroundToAllTabs()
+        {
+            BitmapImage bg = new BitmapImage();
+            ImageBrush backgroundBrush;
+
+            // Check if we have a user defined background
+            if (settingsManager.UserBackgroundImage != null && File.Exists(settingsManager.UserBackgroundImage))
+            {
+                bg.BeginInit();
+                bg.UriSource = new Uri(settingsManager.UserBackgroundImage);
+                bg.EndInit();
+                backgroundBrush = new ImageBrush(bg) { Stretch = Stretch.UniformToFill };
+            }
+            else
+            {
+                // Use default background based on dark mode
+                bg.BeginInit();
+                if (settingsManager.DarkMode)
+                    bg.UriSource = new Uri($"{URI_RESOURCE_PATH}/Assets/bg_main_hd_dark.png");
+                else
+                    bg.UriSource = new Uri($"{URI_RESOURCE_PATH}/Assets/bg_main_hd_light.png");
+                bg.EndInit();
+                backgroundBrush = new ImageBrush(bg) { Stretch = Stretch.UniformToFill };
+            }
+
+            // Update all tab canvases with the background
+            foreach (var canvas in tabCanvases.Values)
+            {
+                canvas.Background = backgroundBrush;
+            }
+
+            // Also update the original channelsCanvas if it exists and isn't already in tabCanvases
+            if (channelsCanvas != null && !tabCanvases.ContainsValue(channelsCanvas))
+            {
+                channelsCanvas.Background = backgroundBrush;
+            }
+        }
+
+        /// <summary>
         /// 
         /// </summary>
         private void UpdateBackground()
@@ -874,6 +1466,10 @@ namespace dvmconsole
 
             paletteHelper.SetTheme(theme);
 
+            // Update tab text colors and selected background based on dark mode
+            UpdateTabTextColors();
+            UpdateTabSelectedBackground();
+
             BitmapImage bg = new BitmapImage();
 
             // do we have a user defined background?
@@ -886,7 +1482,22 @@ namespace dvmconsole
                     bg.UriSource = new Uri(settingsManager.UserBackgroundImage);
                     bg.EndInit();
 
+                    // Update the original canvas background
                     channelsCanvasBg.ImageSource = bg;
+                    
+                    // Update all tab canvases with the same background
+                    ImageBrush backgroundBrush = new ImageBrush(bg) { Stretch = Stretch.UniformToFill };
+                    foreach (var canvas in tabCanvases.Values)
+                    {
+                        canvas.Background = backgroundBrush;
+                    }
+                    
+                    // Also update the original channelsCanvas if it exists and isn't already in tabCanvases
+                    if (channelsCanvas != null && !tabCanvases.ContainsValue(channelsCanvas))
+                    {
+                        channelsCanvas.Background = backgroundBrush;
+                    }
+                    
                     return;
                 }
             }
@@ -898,7 +1509,21 @@ namespace dvmconsole
                 bg.UriSource = new Uri($"{URI_RESOURCE_PATH}/Assets/bg_main_hd_light.png");
             bg.EndInit();
 
+            // Update the original canvas background
             channelsCanvasBg.ImageSource = bg;
+            
+            // Update all tab canvases with the same background
+            ImageBrush defaultBrush = new ImageBrush(bg) { Stretch = Stretch.UniformToFill };
+            foreach (var canvas in tabCanvases.Values)
+            {
+                canvas.Background = defaultBrush;
+            }
+            
+            // Also update the original channelsCanvas if it exists and isn't already in tabCanvases
+            if (channelsCanvas != null && !tabCanvases.ContainsValue(channelsCanvas))
+            {
+                channelsCanvas.Background = defaultBrush;
+            }
         }
 
         /// <summary>
@@ -1012,6 +1637,9 @@ namespace dvmconsole
 
                                 channel.Background = ChannelBox.BLUE_GRADIENT;
                                 channel.VolumeMeterLevel = 0;
+                                
+                                // Update tab audio indicator
+                                UpdateTabAudioIndicatorForChannel(channel);
                             });
                         }
                     }
@@ -1155,6 +1783,28 @@ namespace dvmconsole
             else
                 canvasScrollViewer.Height = Height - heightOffset;
 
+            foreach (KeyValuePair<TabItem, ScrollViewer> kvp in tabScrollViewers)
+            {
+                if (ActualWidth > channelsCanvas.ActualWidth)
+                    kvp.Value.Width = ActualWidth;
+                else
+                    kvp.Value.Width = Width - widthOffset;
+
+                if (ActualHeight > channelsCanvas.ActualHeight)
+                    kvp.Value.Height = ActualHeight;
+                else
+                    kvp.Value.Height = Height - heightOffset;
+            }
+
+            foreach (KeyValuePair<TabItem, Canvas> kvp in tabCanvases)
+            {
+                if (ActualWidth > channelsCanvas.ActualWidth)
+                    kvp.Value.Width = ActualWidth;
+
+                if (ActualHeight > channelsCanvas.ActualHeight)
+                    kvp.Value.Height = ActualHeight;
+            }
+
             if (WindowState == WindowState.Maximized)
                 ResizeCanvasToWindow_Click(sender, e);
             else
@@ -1227,6 +1877,25 @@ namespace dvmconsole
                     canvasScrollViewer.Height = Height - heightOffset;
                 else
                     canvasScrollViewer.Height = Height;
+
+                foreach (KeyValuePair<TabItem, ScrollViewer> kvp in tabScrollViewers)
+                {
+                    if (settingsManager.CanvasWidth > settingsManager.WindowWidth)
+                        kvp.Value.Width = Width - widthOffset;
+                    else
+                        kvp.Value.Width = Width;
+
+                    if (settingsManager.CanvasHeight > settingsManager.WindowHeight)
+                        kvp.Value.Height = Height - heightOffset;
+                    else
+                        kvp.Value.Height = Height;
+                }
+
+                foreach (KeyValuePair<TabItem, Canvas> kvp in tabCanvases)
+                {
+                    kvp.Value.Width = settingsManager.CanvasWidth;
+                    kvp.Value.Height = settingsManager.CanvasHeight;
+                }
 
                 windowLoaded = true;
             }
@@ -1524,13 +2193,30 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void TogglePTTMode_Click(object sender, RoutedEventArgs e)
         {
-            settingsManager.TogglePTTMode = menuTogglePTTMode.IsChecked;
+            if (!windowLoaded)
+                return;
 
-            // update elements
-            foreach (UIElement child in channelsCanvas.Children)
+            settingsManager.TogglePTTMode = menuTogglePTTMode.IsChecked;
+            settingsManager.SaveSettings();
+
+            // update elements in all tab canvases
+            foreach (var canvas in tabCanvases.Values)
             {
-                if (child is ChannelBox)
-                    ((ChannelBox)child).PTTToggleMode = settingsManager.TogglePTTMode;
+                foreach (UIElement child in canvas.Children)
+                {
+                    if (child is ChannelBox channelBox)
+                        channelBox.PTTToggleMode = settingsManager.TogglePTTMode;
+                }
+            }
+            
+            // Also update the original channelsCanvas if it exists and isn't already in tabCanvases
+            if (channelsCanvas != null && !tabCanvases.ContainsValue(channelsCanvas))
+            {
+                foreach (UIElement child in channelsCanvas.Children)
+                {
+                    if (child is ChannelBox channelBox)
+                        channelBox.PTTToggleMode = settingsManager.TogglePTTMode;
+                }
             }
         }
 
@@ -1609,6 +2295,12 @@ namespace dvmconsole
                 alertTone.MouseRightButtonUp += AlertTone_MouseRightButtonUp;
                 alertTone.MouseMove += AlertTone_MouseMove;
 
+                // Get the current active tab's canvas
+                TabItem currentTab = resourceTabs.SelectedItem as TabItem;
+                Canvas targetCanvas = currentTab != null && tabCanvases.ContainsKey(currentTab) 
+                    ? tabCanvases[currentTab] 
+                    : channelsCanvas;
+
                 if (settingsManager.AlertTonePositions.TryGetValue(alertFilePath, out var position))
                 {
                     Canvas.SetLeft(alertTone, position.X);
@@ -1620,7 +2312,10 @@ namespace dvmconsole
                     Canvas.SetTop(alertTone, 20);
                 }
 
-                channelsCanvas.Children.Add(alertTone);
+                targetCanvas.Children.Add(alertTone);
+                if (currentTab != null)
+                    elementToTabMap[alertTone] = currentTab;
+                    
                 settingsManager.UpdateAlertTonePaths(alertFilePath);
             }
         }
@@ -1713,8 +2408,10 @@ namespace dvmconsole
         {
             const double widthOffset = 16;
             const double heightOffset = 115;
+            
+            Canvas activeCanvas = GetActiveCanvas();
 
-            foreach (UIElement child in channelsCanvas.Children)
+            foreach (UIElement child in activeCanvas.Children)
             {
                 double childLeft = Canvas.GetLeft(child) + child.RenderSize.Width;
                 if (childLeft > ActualWidth)
@@ -1728,6 +2425,18 @@ namespace dvmconsole
             canvasScrollViewer.Width = ActualWidth;
             channelsCanvas.Height = ActualHeight;
             canvasScrollViewer.Height = ActualHeight;
+
+            foreach (KeyValuePair<TabItem, ScrollViewer> kvp in tabScrollViewers)
+            {
+                kvp.Value.Width = ActualWidth;
+                kvp.Value.Height = ActualHeight;
+            }
+
+            foreach (KeyValuePair<TabItem, Canvas> kvp in tabCanvases)
+            {
+                kvp.Value.Width = ActualWidth;
+                kvp.Value.Height = ActualHeight;
+            }
 
             settingsManager.CanvasWidth = ActualWidth;
             settingsManager.CanvasHeight = ActualHeight;
@@ -1993,7 +2702,8 @@ namespace dvmconsole
                 return;
 
             draggedElement = element;
-            startPoint = e.GetPosition(channelsCanvas);
+            Canvas targetCanvas = GetCanvasForElement(element);
+            startPoint = e.GetPosition(targetCanvas);
             offsetX = startPoint.X - Canvas.GetLeft(draggedElement);
             offsetY = startPoint.Y - Canvas.GetTop(draggedElement);
             isDragging = true;
@@ -2016,8 +2726,11 @@ namespace dvmconsole
             Cursor = Cursors.Arrow;
 
             isDragging = false;
-            draggedElement.ReleaseMouseCapture();
-            draggedElement = null;
+            if (draggedElement != null)
+            {
+                draggedElement.ReleaseMouseCapture();
+                draggedElement = null;
+            }
         }
 
         /// <summary>
@@ -2030,15 +2743,35 @@ namespace dvmconsole
             if (settingsManager.LockWidgets || !isDragging || draggedElement == null) 
                 return;
 
-            Point currentPosition = e.GetPosition(channelsCanvas);
+            // Get the canvas that contains the dragged element
+            Canvas targetCanvas = GetCanvasForElement(draggedElement);
+            if (targetCanvas == null)
+                return;
+
+            Point currentPosition = e.GetPosition(targetCanvas);
 
             // Calculate the new position with snapping to the grid
             double newLeft = Math.Round((currentPosition.X - offsetX) / GridSize) * GridSize;
             double newTop = Math.Round((currentPosition.Y - offsetY) / GridSize) * GridSize;
 
-            // Ensure the box stays within canvas bounds
-            newLeft = Math.Max(0, Math.Min(newLeft, channelsCanvas.ActualWidth - draggedElement.RenderSize.Width));
-            newTop = Math.Max(0, Math.Min(newTop, channelsCanvas.ActualHeight - draggedElement.RenderSize.Height));
+            // Get the ScrollViewer parent to get proper viewport dimensions
+            ScrollViewer scrollViewer = targetCanvas.Parent as ScrollViewer;
+            double maxWidth = scrollViewer != null ? Math.Max(targetCanvas.ActualWidth, scrollViewer.ViewportWidth) : targetCanvas.ActualWidth;
+            double maxHeight = scrollViewer != null ? Math.Max(targetCanvas.ActualHeight, scrollViewer.ViewportHeight) : targetCanvas.ActualHeight;
+            
+            // If canvas height is 0 or very small, use a large default to allow free vertical movement
+            if (maxHeight < 100)
+            {
+                maxHeight = 10000; // Allow free vertical movement
+            }
+            if (maxWidth < 100)
+            {
+                maxWidth = 10000; // Allow free horizontal movement
+            }
+
+            // Ensure the box stays within canvas bounds (but allow free movement if canvas is small)
+            newLeft = Math.Max(0, Math.Min(newLeft, maxWidth - draggedElement.RenderSize.Width));
+            newTop = Math.Max(0, Math.Min(newTop, maxHeight - draggedElement.RenderSize.Height));
 
             // Apply snapped position
             Canvas.SetLeft(draggedElement, newLeft);
@@ -2047,6 +2780,41 @@ namespace dvmconsole
             // Save the new position if it's a ChannelBox
             if (draggedElement is ChannelBox channelBox)
                 settingsManager.UpdateChannelPosition(channelBox.ChannelName, newLeft, newTop);
+        }
+        
+        /// <summary>
+        /// Gets the canvas that contains the given element
+        /// </summary>
+        private Canvas GetCanvasForElement(UIElement element)
+        {
+            // Check if element is mapped to a tab
+            if (elementToTabMap.TryGetValue(element, out TabItem tab) && tabCanvases.ContainsKey(tab))
+            {
+                return tabCanvases[tab];
+            }
+            
+            // Check all tab canvases
+            foreach (var kvp in tabCanvases)
+            {
+                if (kvp.Value.Children.Contains(element))
+                {
+                    elementToTabMap[element] = kvp.Key;
+                    return kvp.Value;
+                }
+            }
+            
+            // Fallback to original canvas
+            if (channelsCanvas.Children.Contains(element))
+            {
+                // Map to first tab if it exists
+                if (resourceTabs.Items.Count > 0 && resourceTabs.Items[0] is TabItem firstTab)
+                {
+                    elementToTabMap[element] = firstTab;
+                }
+                return channelsCanvas;
+            }
+            
+            return GetActiveCanvas();
         }
 
         /// <summary>
@@ -2306,36 +3074,41 @@ namespace dvmconsole
         private void SelectAll_Click(object sender, RoutedEventArgs e)
         {
             selectAll = !selectAll;
-            foreach (ChannelBox channel in channelsCanvas.Children.OfType<ChannelBox>())
+            
+            // Iterate through all canvases (all tabs) to select/deselect all channels
+            foreach (var canvas in GetAllCanvases())
             {
-                if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
-                    continue;
-
-                Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
-                if (system == null)
+                foreach (ChannelBox channel in canvas.Children.OfType<ChannelBox>())
                 {
-                    Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}.");
-                    channel.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(channel);
-                    continue;
+                    if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                        continue;
+
+                    Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
+                    if (system == null)
+                    {
+                        Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}.");
+                        channel.IsSelected = false;
+                        selectedChannelsManager.RemoveSelectedChannel(channel);
+                        continue;
+                    }
+
+                    Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
+                    if (cpgChannel == null)
+                    {
+                        Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.");
+                        channel.IsSelected = false;
+                        selectedChannelsManager.RemoveSelectedChannel(channel);
+                        continue;
+                    }
+
+                    channel.IsSelected = selectAll;
+                    channel.Background = channel.IsSelected ? ChannelBox.BLUE_GRADIENT : ChannelBox.DARK_GRAY_GRADIENT;
+
+                    if (channel.IsSelected)
+                        selectedChannelsManager.AddSelectedChannel(channel);
+                    else
+                        selectedChannelsManager.RemoveSelectedChannel(channel);
                 }
-
-                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                if (cpgChannel == null)
-                {
-                    Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.");
-                    channel.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(channel);
-                    continue;
-                }
-
-                channel.IsSelected = selectAll;
-                channel.Background = channel.IsSelected ? ChannelBox.BLUE_GRADIENT : ChannelBox.DARK_GRAY_GRADIENT;
-
-                if (channel.IsSelected)
-                    selectedChannelsManager.AddSelectedChannel(channel);
-                else
-                    selectedChannelsManager.RemoveSelectedChannel(channel);
             }
         }
 

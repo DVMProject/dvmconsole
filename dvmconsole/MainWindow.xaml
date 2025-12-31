@@ -15,10 +15,11 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="24"/>
             <RowDefinition Height="52" />
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
         
-        <Menu materialDesign:MenuAssist.TopLevelMenuItemHeight="24" Grid.ColumnSpan="2">
+        <Menu materialDesign:MenuAssist.TopLevelMenuItemHeight="24" Grid.ColumnSpan="2" Background="{DynamicResource MaterialDesignPaper}">
             <MenuItem Header="_File">
                 <MenuItem Header="_Open Codeplug..." Click="OpenCodeplug_Click" />
                 <Separator />
@@ -63,8 +64,8 @@
             </MenuItem>
         </Menu>
 
-        <ToolBarTray Grid.Row="1">
-            <ToolBar ClipToBounds="False" Style="{StaticResource MaterialDesignToolBar}">
+        <ToolBarTray Grid.Row="1" Background="{DynamicResource MaterialDesignPaper}">
+            <ToolBar ClipToBounds="False" Style="{StaticResource MaterialDesignToolBar}" Background="{DynamicResource MaterialDesignPaper}">
                 <!-- Application Banner -->
                 <Image Width="224" Height="50" VerticalAlignment="Center" HorizontalAlignment="Left" Source="/dvmconsole;component/Assets/logo.png" Stretch="UniformToFill">
                     <Image.RenderTransform>
@@ -167,8 +168,13 @@
             </ToolBar>
         </ToolBarTray>
 
-        <!-- Channel Widget Canvas -->
-        <ScrollViewer x:Name="canvasScrollViewer" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" Grid.Row="3" Grid.ColumnSpan="2">
+        <!-- Tab Control for Resource Views -->
+        <TabControl x:Name="resourceTabs" Grid.Row="2" Grid.ColumnSpan="2" Grid.RowSpan="2" VerticalAlignment="Stretch" HorizontalAlignment="Stretch"
+                    materialDesign:ColorZoneAssist.Mode="PrimaryDark" Style="{StaticResource MaterialDesignFilledTabControl}">
+        </TabControl>
+
+        <!-- Channel Widget Canvas (will be moved to first tab) -->
+        <ScrollViewer x:Name="canvasScrollViewer" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" Visibility="Collapsed">
             <Canvas x:Name="channelsCanvas" VerticalAlignment="Top">
                 <Canvas.Background>
                     <ImageBrush x:Name="channelsCanvasBg" ImageSource="/dvmconsole;component/Assets/bg_main_hd_light.png" Stretch="UniformToFill" />

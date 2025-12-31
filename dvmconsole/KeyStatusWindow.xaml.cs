@@ -8,6 +8,7 @@
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
 *   Copyright (C) 2025 Caleb, K4PHP
+*   Copyright (C) 2025 Lorenzo L Romero, K2LLR
 *
 */
 
@@ -91,51 +92,56 @@ namespace dvmconsole
             {
                 KeyStatusItems.Clear();
 
-                foreach (var child in mainWindow.channelsCanvas.Children)
+                // Iterate through all canvases (all tabs plus the original) so we see
+                // keys for channels on every tab, not just the original canvas.
+                foreach (var canvas in mainWindow.GetAllCanvases())
                 {
-                    if (child == null)
+                    foreach (var child in canvas.Children)
                     {
-                        Log.WriteLine("A child in ChannelsCanvas.Children is null.");
-                        continue;
+                        if (child == null)
+                        {
+                            Log.WriteLine("A child in canvas.Children is null.");
+                            continue;
+                        }
+
+                        if (!(child is ChannelBox channelBox))
+                        {
+                            continue;
+                        }
+
+                        Codeplug.System system = Codeplug.GetSystemForChannel(channelBox.ChannelName);
+                        if (system == null)
+                        {
+                            Log.WriteLine($"System not found for {channelBox.ChannelName}");
+                            continue;
+                        }
+
+                        Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channelBox.ChannelName);
+                        if (cpgChannel == null)
+                        {
+                            Log.WriteLine($"Channel not found for {channelBox.ChannelName}");
+                            continue;
+                        }
+
+                        if (cpgChannel.GetKeyId() == 0 || cpgChannel.GetAlgoId() == 0)
+                            continue;
+
+                        if (channelBox.Crypter == null)
+                        {
+                            Log.WriteLine($"Crypter is null for channel {channelBox.ChannelName}");
+                            continue;
+                        }
+
+                        bool hasKey = channelBox.Crypter.HasKey();
+
+                        KeyStatusItems.Add(new KeyStatusItem
+                        {
+                            ChannelName = channelBox.ChannelName,
+                            AlgId = $"0x{cpgChannel.GetAlgoId():X2}",
+                            KeyId = $"0x{cpgChannel.GetKeyId():X4}",
+                            KeyStatus = hasKey ? "Key Available" : "No Key"
+                        });
                     }
-
-                    if (!(child is ChannelBox channelBox))
-                    {
-                        continue;
-                    }
-
-                    Codeplug.System system = Codeplug.GetSystemForChannel(channelBox.ChannelName);
-                    if (system == null)
-                    {
-                        Log.WriteLine($"System not found for {channelBox.ChannelName}");
-                        continue;
-                    }
-
-                    Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channelBox.ChannelName);
-                    if (cpgChannel == null)
-                    {
-                        Log.WriteLine($"Channel not found for {channelBox.ChannelName}");
-                        continue;
-                    }
-
-                    if (cpgChannel.GetKeyId() == 0 || cpgChannel.GetAlgoId() == 0)
-                        continue;
-
-                    if (channelBox.Crypter == null)
-                    {
-                        Log.WriteLine($"Crypter is null for channel {channelBox.ChannelName}");
-                        continue;
-                    }
-
-                    bool hasKey = channelBox.Crypter.HasKey();
-
-                    KeyStatusItems.Add(new KeyStatusItem
-                    {
-                        ChannelName = channelBox.ChannelName,
-                        AlgId = $"0x{cpgChannel.GetAlgoId():X2}",
-                        KeyId = $"0x{cpgChannel.GetKeyId():X4}",
-                        KeyStatus = hasKey ? "Key Available" : "No Key"
-                    });
                 }
             });
         }

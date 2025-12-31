@@ -29,12 +29,14 @@ systems:
     #aliasPath: "Full/Path/To/alias.yml"
     
 #
-# Zones
+# Zones (each zone becomes a tab)
 #
 zones:
-    # Textual name of the zone
-  - name: "Zone 1"
-    # List of channels
+    # Textual name of the zone (this becomes the tab name)
+  - name: "Primary"
+    # Background color of the tab in the tab bar, in hex
+    tabColor: "#FF0000"
+    # List of channels in this zone/tab
     channels:
         # Textual name of channel
       - name: "Channel 1"
@@ -57,7 +59,8 @@ zones:
         system: "System 1"
         tgid: "15003"
 
-  - name: "Zone 2"
+  - name: "Secondary"
+    tabColor: "#00FF00"
     channels:
       - name: "Channel A"
         system: "System 1"
@@ -65,6 +68,9 @@ zones:
       - name: "Channel B"
         system: "System 1"
         tgid: "16002"
+
+  - name: "Emergency"
+    channels:
       - name: "Channel C"
         system: "System 1"
         tgid: "16002"
