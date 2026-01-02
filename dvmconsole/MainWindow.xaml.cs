@@ -1332,7 +1332,7 @@ namespace dvmconsole
                                 double totalDurationMs = ((double)pcmData.Length / 16000) + 250;
                                 await Task.Delay((int)totalDurationMs + 3000);
 
-                                fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
+                                fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false, true);
 
                                 ResetChannel(channel);
 
@@ -2174,7 +2174,7 @@ namespace dvmconsole
                         double totalDurationMs = (toneADuration + toneBDuration) * 1000 + 750;
                         await Task.Delay((int)totalDurationMs  + 4000);
 
-                        fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
+                        fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false, true);
 
                         Dispatcher.Invoke(() =>
                         {
@@ -2499,7 +2499,7 @@ namespace dvmconsole
             if (e.PageState)
                 fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
             else
-                fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
+                fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false, true);
         }
 
         /// <summary>
@@ -2564,7 +2564,7 @@ namespace dvmconsole
                 e.VolumeMeterLevel = 0;
                 Log.WriteLine($"({system.Name}) {e.ChannelMode.ToUpperInvariant()} Traffic *CALL END       * SRC_ID {srcId} TGID {dstId} [STREAM ID {e.TxStreamId}]");
                 if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                    fne.SendP25TDU(srcId, dstId, false);
+                    fne.SendP25TDU(srcId, dstId, false, true);
                 else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
                     fne.SendDMRTerminator(srcId, dstId, 1, e.dmrSeqNo, e.dmrN, e.embeddedData);
 
@@ -2683,7 +2683,7 @@ namespace dvmconsole
                 Log.WriteLine($"({system.Name}) {e.ChannelMode.ToUpperInvariant()} Traffic *CALL END       * SRC_ID {srcId} TGID {dstId} [STREAM ID {e.TxStreamId}]");
                 e.VolumeMeterLevel = 0;
                 if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                    fne.SendP25TDU(srcId, dstId, false);
+                    fne.SendP25TDU(srcId, dstId, false, true);
                 else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
                     fne.SendDMRTerminator(srcId, dstId, 1, e.dmrSeqNo, e.dmrN, e.embeddedData);
 
@@ -2972,7 +2972,7 @@ namespace dvmconsole
                         channel.PttState = false;
                     });
 
-                    fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
+                    fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false, true);
                 }
             }
         }
