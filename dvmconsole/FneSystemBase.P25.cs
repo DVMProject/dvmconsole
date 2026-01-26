@@ -64,12 +64,8 @@ namespace dvmconsole
         /// <param name="dstId"></param>
         /// <param name="grantDemand"></param>
         /// <param name="callTerm"></param>
-        public void SendP25TDU(uint srcId, uint dstId, bool grantDemand = false, bool callTerm = false)
+        public void SendP25TDU(uint srcId, uint dstId, bool grantDemand = false)
         {
-            // if this is a call terminator -- also send the internal DVM call termination
-            if (callTerm)
-                SendDVMCallTermination(srcId, dstId);
-
             RemoteCallData callData = new RemoteCallData()
             {
                 SrcId = srcId,
