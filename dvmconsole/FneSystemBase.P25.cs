@@ -77,7 +77,13 @@ namespace dvmconsole
                 LCO = P25Defines.LC_GROUP
             };
 
-            SendP25TDU(callData, grantDemand);
+            if (grantDemand)
+                SendP25TDU(callData, grantDemand);
+            else
+            {
+                for (int i = 0; i < 4; i++)
+                    SendP25TDU(callData, false);
+            }
         }
 
         /// <summary>
