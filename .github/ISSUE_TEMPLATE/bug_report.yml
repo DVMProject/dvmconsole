@@ -1,0 +1,77 @@
+name: Bug Report
+description: Report a reproducible issue with dvmconsole.
+title: "[BUG] "
+labels: ["bug"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time to report a bug.
+        Please complete all required fields below. Incomplete or environment-specific issues may be closed.
+
+  - type: input
+    id: version
+    attributes:
+      label: dvmconsole Version
+      description: What version or commit hash are you running?
+      placeholder: e.g. v1.2.0 or commit abc1234
+    validations:
+      required: true
+
+  - type: dropdown
+    id: architecture
+    attributes:
+      label: Architecture
+      description: What CPU architecture are you running?
+      options:
+        - x86
+        - x64
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description of the Issue
+      description: Provide a clear and concise description of the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: List the exact steps required to reproduce the issue.
+      placeholder: |
+        1. Open dvmconsole
+        2. Load codeplug
+        3. Click...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs or Screenshots
+      description: Paste any relevant console output, logs, or screenshots.
+      render: shell
+    validations:
+      required: false
