@@ -36,7 +36,7 @@ Please note that while x64 CPU types are supported, the dvmvocoder library must 
 
 3. **Configure RID Aliases (`alias.yml`)**  
    To display friendly names instead of raw RIDs, populate `alias.yml` with your Radio ID to alias mappings.  
-   This allows the console to show readable identifiers for subscribers and peers.
+   This allows the console to show readable identifiers for subscriber units.
 
 4. Start `dvmconsole`.
 
