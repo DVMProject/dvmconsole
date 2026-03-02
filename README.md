@@ -2,7 +2,7 @@
 
 The Digital Voice Modem Desktop Dispatch Console ("DDC") is a WPF desktop application that operates similarly to a traditional dispatch console, allowing DVM users to monitor multiple talkgroups on a DVM FNE from a single application.
 
-![Dark Mode Console](repo/screenshot-3.png)
+![Dark Mode Console](./repo/screenshot-3.png)
 
 ## Building
 
