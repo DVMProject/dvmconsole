@@ -1,15 +1,14 @@
 # Digital Voice Modem Desktop Dispatch Console
 
-The Digital Voice Modem Desktop Dispatch Console ("DDC"), provides a WPF desktop application that mimics or otherwise operates like a typical dispatch console, allowing
-DVM users to listen to multiple talkgroups on a DVM FNE from a single application.
+The Digital Voice Modem Desktop Dispatch Console ("DDC") is a WPF desktop application that operates similarly to a traditional dispatch console, allowing DVM users to monitor multiple talkgroups on a DVM FNE from a single application.
 
-![Light Mode Console](./repo/screenshot-1.png)
+![Dark Mode Console](./repo/screenshot-3.png)
 
 ## Building
 
 This project utilizes a standard Visual Studio solution for its build system.
 
-The DDC software requires the library dependancies below. Generally, the software attempts to be as portable as possible and as library-free as possible. A basic Visual Studio install, with .NET is usually all that is needed to compile.
+The DDC software requires the library dependencies listed below. Generally, the software attempts to be as portable as possible and as library-free as possible. A basic Visual Studio install, with .NET is usually all that is needed to compile.
 
 ### Dependencies
 
@@ -23,18 +22,32 @@ The DDC software requires the library dependancies below. Generally, the softwar
 4. Select "x86" as the CPU type.
 5. Compile.
 
-Please note that while, x64 CPU types are supported, it will require compiling the dvmvocoder library separately for that CPU architecture.
+Please note that while x64 CPU types are supported, the dvmvocoder library must be compiled separately for that architecture.
 
 ## dvmconsole Configuration
 
-1. Create/Edit `codeplug.yml` (example codeplug is provided in the configs directory).
-2. Start `dvmconsole`.
-3. Use "Open Codeplug" to open the configuration for the console.
+1. **Create/Edit `codeplug.yml`**  
+   An example codeplug is provided in the `configs` directory. Configure system parameters, network settings, and talkgroups as needed.  
+   The file paths for both `keys.clear` and `alias.yml` must be defined within `codeplug.yml`.
+
+2. **Configure Encryption Keys (`keys.clear`)**  
+   If your system's talkgroups use encryption, define your key entries in the `keys.clear` file.  
+   Each key entry should match the Key ID referenced in your codeplug.
+
+3. **Configure RID Aliases (`alias.yml`)**  
+   To display friendly names instead of raw RIDs, populate `alias.yml` with your Radio ID to alias mappings.  
+   This allows the console to show readable identifiers for subscribers and peers.
+
+4. Start `dvmconsole`.
+
+5. Use **“Open Codeplug”** within the application to load your configuration.
 
 ## Project Notes
 
-- The Desktop Dispatch Console does not support interfacing to base station or mobile radios. For a DVM-compatible console that does this please see: https://github.com/W3AXL/RadioConsole2 and  https://github.com/W3AXL/rc2-dvm.
+- The Desktop Dispatch Console does not support interfacing to base station or mobile radios. For a DVM-compatible console that supports base/mobile radio interfacing, see: https://github.com/W3AXL/RadioConsole2 and  https://github.com/W3AXL/rc2-dvm.
 
 ## License
 
-This project is licensed under the AGPLv3 License - see the [LICENSE](LICENSE) file for details. Use of this project is intended, for amateur and/or educational use ONLY. Any other use is at the risk of user and all commercial purposes is strictly discouraged.
+This project is licensed under the AGPLv3 License – see the [LICENSE](LICENSE) file for details.
+
+This software is intended for amateur and/or educational use. Any other use is at the user's discretion and risk. Commercial use is strongly discouraged.
