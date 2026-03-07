@@ -1,0 +1,65 @@
+name: Feature request
+description: Suggest a new feature or improvement for DVMConsole
+title: "[FEATURE] "
+labels: ["enhancement"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form to suggest a **new feature, enhancement, or quality-of-life improvement** for the DVMConsole Desktop Dispatch Console.
+
+        Please describe the problem you're trying to solve and how the proposed feature would help.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / use case
+      description: What limitation or issue does this feature address?
+      placeholder: |
+        Describe the problem you are encountering or the limitation in the current console.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed solution
+      description: Describe the feature or improvement you would like to see
+      placeholder: |
+        Explain how you think this feature should work.
+    validations:
+      required: true
+
+  - type: textarea
+    id: ui_impact
+    attributes:
+      label: UI / workflow impact
+      description: How would this affect the console interface or operator workflow?
+      placeholder: |
+        Example:
+        - New panel
+        - Additional tab
+        - New audio control
+        - Console layout change
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Have you considered any other solutions or workarounds?
+      placeholder: |
+        Describe any alternative approaches or current workarounds.
+
+  - type: textarea
+    id: implementation_notes
+    attributes:
+      label: Implementation notes (optional)
+      description: Any technical ideas or implementation suggestions
+      render: text
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context
+      description: Screenshots, diagrams, or additional details
