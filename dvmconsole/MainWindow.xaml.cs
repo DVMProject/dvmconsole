@@ -1969,7 +1969,12 @@ namespace dvmconsole
         {
             Application.Current.Shutdown();
         }
-
+        private void About_Click(object sender, RoutedEventArgs e)
+        {
+            AboutWindow aboutWindow = new AboutWindow();
+            aboutWindow.Owner = this;
+            aboutWindow.ShowDialog();
+        }
         /// <summary>
         /// 
         /// </summary>

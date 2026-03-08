@@ -62,6 +62,9 @@
                 <Separator />
                 <MenuItem Header="_Always on Top" IsCheckable="True" Checked="ToggleKeepWindowOnTop_Click" Unchecked="ToggleKeepWindowOnTop_Click" x:Name="menuKeepWindowOnTop" />
             </MenuItem>
+            <MenuItem Header="_Help">
+                <MenuItem Header="_About" Click="About_Click" />
+            </MenuItem>
         </Menu>
 
         <ToolBarTray Grid.Row="1" Background="{DynamicResource MaterialDesignPaper}">
