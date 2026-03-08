@@ -25,6 +25,7 @@ using System.Windows.Forms;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Media;
 
 using NAudio;
 using NAudio.CoreAudioApi;
@@ -1378,7 +1379,80 @@ namespace dvmconsole
             else
                 MessageBox.Show("Alert file not set or file not found.", "Alert", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
+        private void PlayTalkPermitTone()
+        {
+            if (!settingsManager.TalkPermitTone)
+                return;
 
+            Task.Run(() =>
+            {
+                try
+                {
+                    const int sampleRate = 8000;
+                    const double frequency = 1200.0;
+                    const int durationMs = 50;
+                    const double amplitude = 0.20;
+
+                    int sampleCount = sampleRate * durationMs / 1000;
+                    short[] samples = new short[sampleCount];
+
+                    int fadeSamples = sampleRate * 10 / 1000;
+
+                    for (int i = 0; i < sampleCount; i++)
+                    {
+                        double envelope = 1.0;
+
+                        if (i < fadeSamples)
+                            envelope = (double)i / fadeSamples;
+                        else if (i >= sampleCount - fadeSamples)
+                            envelope = (double)(sampleCount - i - 1) / fadeSamples;
+
+                        double sample =
+                            Math.Sin(2.0 * Math.PI * frequency * i / sampleRate) *
+                            amplitude *
+                            envelope;
+
+                        samples[i] = (short)(sample * short.MaxValue);
+                    }
+
+                    using (MemoryStream ms = new MemoryStream())
+                    using (BinaryWriter writer = new BinaryWriter(ms))
+                    {
+                        int dataLength = samples.Length * sizeof(short);
+
+                        writer.Write(new[] { 'R', 'I', 'F', 'F' });
+                        writer.Write(36 + dataLength);
+                        writer.Write(new[] { 'W', 'A', 'V', 'E' });
+
+                        writer.Write(new[] { 'f', 'm', 't', ' ' });
+                        writer.Write(16);
+                        writer.Write((short)1);
+                        writer.Write((short)1);
+                        writer.Write(sampleRate);
+                        writer.Write(sampleRate * sizeof(short));
+                        writer.Write((short)sizeof(short));
+                        writer.Write((short)16);
+
+                        writer.Write(new[] { 'd', 'a', 't', 'a' });
+                        writer.Write(dataLength);
+
+                        foreach (short s in samples)
+                            writer.Write(s);
+
+                        ms.Position = 0;
+
+                        using (SoundPlayer player = new SoundPlayer(ms))
+                        {
+                            player.PlaySync();
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.WriteLine($"Failed to play talk permit tone: {ex.Message}");
+                }
+            });
+        }
         /// <summary>
         /// Updates the text color of all tab headers based on dark mode setting
         /// </summary>
@@ -1876,6 +1950,7 @@ namespace dvmconsole
             menuSnapCallHistory.IsChecked = settingsManager.SnapCallHistoryToWindow;
             menuTogglePTTMode.IsChecked = settingsManager.TogglePTTMode;
             menuToggleGlobalPTTMode.IsChecked = settingsManager.GlobalPTTKeysAllChannels;
+            menuTalkPermitTone.IsChecked = settingsManager.TalkPermitTone;
             menuKeepWindowOnTop.IsChecked = settingsManager.KeepWindowOnTop;
 
             if (!string.IsNullOrEmpty(settingsManager.LastCodeplugPath) && File.Exists(settingsManager.LastCodeplugPath))
@@ -2597,8 +2672,11 @@ namespace dvmconsole
                 e.TxStreamId = fne.NewStreamId();
                 Log.WriteLine($"({system.Name}) {e.ChannelMode.ToUpperInvariant()} Traffic *CALL START     * SRC_ID {srcId} TGID {dstId} [STREAM ID {e.TxStreamId}]");
                 e.VolumeMeterLevel = 0;
+
                 if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                     fne.SendP25TDU(srcId, dstId, true);
+
+                PlayTalkPermitTone();
             }
             else
             {
@@ -2669,8 +2747,11 @@ namespace dvmconsole
                 e.TxStreamId = fne.NewStreamId();
                 Log.WriteLine($"({system.Name}) {e.ChannelMode.ToUpperInvariant()} Traffic *CALL START     * SRC_ID {srcId} TGID {dstId} [STREAM ID {e.TxStreamId}]");
                 e.VolumeMeterLevel = 0;
+
                 if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                     fne.SendP25TDU(srcId, dstId, true);
+
+                PlayTalkPermitTone();
             }
         }
 
@@ -3164,7 +3245,14 @@ namespace dvmconsole
             keyStatus.Owner = this;
             keyStatus.Show();
         }
+        private void ToggleTalkPermitTone_Click(object sender, RoutedEventArgs e)
+        {
+            if (!windowLoaded)
+                return;
 
+            settingsManager.TalkPermitTone = menuTalkPermitTone.IsChecked;
+            settingsManager.SaveSettings();
+        }
         /// <summary>
         /// 
         /// </summary>
