@@ -3403,20 +3403,26 @@ namespace dvmconsole
         /// </summary>
         /// <param name="pressedKey"></param>
         /// <param name="state"></param>
-        private void KeyboardManagerOnKeyEvent(Keys pressedKey,GlobalKeyboardHook.KeyboardState state)
+        private void KeyboardManagerOnKeyEvent(Keys pressedKey, GlobalKeyboardHook.KeyboardState state)
         {
-            if (pressedKey == settingsManager.GlobalPTTShortcut)
+            if (pressedKey != settingsManager.GlobalPTTShortcut)
+                return;
+
+            if (state is GlobalKeyboardHook.KeyboardState.KeyDown or GlobalKeyboardHook.KeyboardState.SysKeyDown)
             {
-                if(state is GlobalKeyboardHook.KeyboardState.KeyDown or GlobalKeyboardHook.KeyboardState.SysKeyDown)
-                {
-                    globalPttState = true;
-                    GlobalPTTActivate(null, null);
-                }
-                else
-                {
-                    globalPttState = false;
-                    GlobalPTTActivate(null, null);
-                }
+                if (globalPttState)
+                    return;
+
+                globalPttState = true;
+                GlobalPTTActivate(null, null);
+            }
+            else if (state is GlobalKeyboardHook.KeyboardState.KeyUp or GlobalKeyboardHook.KeyboardState.SysKeyUp)
+            {
+                if (!globalPttState)
+                    return;
+
+                globalPttState = false;
+                GlobalPTTActivate(null, null);
             }
         }
 
