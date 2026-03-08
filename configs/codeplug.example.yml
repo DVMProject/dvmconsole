@@ -35,7 +35,9 @@ zones:
     # Textual name of the zone (this becomes the tab name)
   - name: "Primary"
     # Background color of the tab in the tab bar, in hex
-    tabColor: "#FF0000"
+    tabColor: "#E57373"
+     # Text color of the tab label in the tab bar, in hex
+    tabTextColor: "#000000"
     # List of channels in this zone/tab
     channels:
         # Textual name of channel
@@ -60,7 +62,8 @@ zones:
         tgid: "15003"
 
   - name: "Secondary"
-    tabColor: "#00FF00"
+    tabColor: "#81C784"
+    tabTextColor: "#000000"
     channels:
       - name: "Channel A"
         system: "System 1"
@@ -70,6 +73,8 @@ zones:
         tgid: "16002"
 
   - name: "Emergency"
+    tabColor: "#64B5F6"
+    tabTextColor: "#000000"
     channels:
       - name: "Channel C"
         system: "System 1"

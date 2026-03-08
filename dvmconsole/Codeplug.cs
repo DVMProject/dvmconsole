@@ -11,6 +11,7 @@
 *   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
 *   Copyright (C) 2025 Steven Jennison, KD8RHO
 *   Copyright (C) 2025 Lorenzo L Romero, K2LLR
+*   Copyright (C) 2026 C. Lovell, K7CBL
 *
 */
 
@@ -144,6 +145,10 @@ namespace dvmconsole
             /// Tab Color in Hex (#RRGGBB)
             /// </summary>
             public string TabColor { get; set; }
+            /// <summary>
+            /// Tab Text Color in Hex (#RRGGBB)
+            /// </summary>
+            public string TabTextColor { get; set; }
             /// <summary>
             /// List of channels in the zone.
             /// </summary>

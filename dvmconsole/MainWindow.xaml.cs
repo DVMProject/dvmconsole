@@ -12,6 +12,7 @@
 *   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
 *   Copyright (C) 2025 Steven Jennison, KD8RHO
 *   Copyright (C) 2025 Lorenzo L Romero, K2LLR
+*   Copyright (C) 2026 C. Lovell, K7CBL
 *
 */
 
@@ -113,6 +114,7 @@ namespace dvmconsole
         private Dictionary<TabItem, Canvas> tabCanvases = new Dictionary<TabItem, Canvas>();
         private Dictionary<UIElement, TabItem> elementToTabMap = new Dictionary<UIElement, TabItem>();
         private Dictionary<TabItem, StackPanel> tabHeaders = new Dictionary<TabItem, StackPanel>();
+        private Dictionary<TabItem, string> tabTextColors = new Dictionary<TabItem, string>();
         private bool noSaveSettingsOnClose = false;
         private SettingsManager settingsManager = new SettingsManager();
         private SelectedChannelsManager selectedChannelsManager;
@@ -279,14 +281,15 @@ namespace dvmconsole
             resourceTabs.Items.Clear();
             tabCanvases.Clear();
             tabHeaders.Clear();
+            tabTextColors.Clear();
             elementToTabMap.Clear();
             
             // Create tabs from zones
             if (Codeplug.Zones != null && Codeplug.Zones.Count > 0)
             {
                 foreach (var zone in Codeplug.Zones)
-                    CreateNewTab(zone.Name, zone.TabColor);
-                
+                    CreateNewTab(zone.Name, zone.TabColor, zone.TabTextColor);
+
                 // Apply current background to all newly created tabs
                 ApplyCurrentBackgroundToAllTabs();
                 
@@ -355,13 +358,13 @@ namespace dvmconsole
                 ApplyCurrentBackgroundToAllTabs();
             }
         }
-        
+
         /// <summary>
         /// Creates a new tab with a ScrollViewer and Canvas
         /// </summary>
         /// <param name="tabName"></param>
         /// <param name="tabColor"></param>
-        private TabItem CreateNewTab(string tabName, string tabColor = null)
+        private TabItem CreateNewTab(string tabName, string tabColor = null, string tabTextColor = null)
         {
             TabItem tab = new TabItem();
             
@@ -383,15 +386,33 @@ namespace dvmconsole
                 Orientation = System.Windows.Controls.Orientation.Horizontal,
                 Margin = new Thickness(0, 0, 4, 0)
             };
-            
+
+            Brush headerForeground;
+
+            if (!string.IsNullOrWhiteSpace(tabTextColor))
+            {
+                try
+                {
+                    headerForeground = (Brush)new BrushConverter().ConvertFrom(tabTextColor);
+                }
+                catch
+                {
+                    headerForeground = settingsManager.DarkMode ? Brushes.White : Brushes.Black;
+                }
+            }
+            else
+            {
+                headerForeground = settingsManager.DarkMode ? Brushes.White : Brushes.Black;
+            }
+
             TextBlock headerText = new TextBlock
             {
                 Text = tabName,
                 VerticalAlignment = VerticalAlignment.Center,
-                Foreground = settingsManager.DarkMode ? Brushes.White : Brushes.Black
+                Foreground = headerForeground
             };
             headerPanel.Children.Add(headerText);
-            
+
             // Audio icon (initially hidden)
             Image audioIcon = new Image
             {
@@ -407,7 +428,8 @@ namespace dvmconsole
             
             tab.Header = headerPanel;
             tabHeaders[tab] = headerPanel;
-            
+            tabTextColors[tab] = tabTextColor;
+
             ScrollViewer scrollViewer = new ScrollViewer
             {
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
@@ -1362,11 +1384,25 @@ namespace dvmconsole
         /// </summary>
         private void UpdateTabTextColors()
         {
-            Brush textColor = settingsManager.DarkMode ? Brushes.White : Brushes.Black;
-            
             foreach (var kvp in tabHeaders)
             {
+                TabItem tab = kvp.Key;
                 StackPanel headerPanel = kvp.Value;
+
+                Brush textColor = settingsManager.DarkMode ? Brushes.White : Brushes.Black;
+
+                if (tabTextColors.TryGetValue(tab, out string tabTextColor) && !string.IsNullOrWhiteSpace(tabTextColor))
+                {
+                    try
+                    {
+                        textColor = (Brush)new BrushConverter().ConvertFrom(tabTextColor);
+                    }
+                    catch
+                    {
+                        textColor = settingsManager.DarkMode ? Brushes.White : Brushes.Black;
+                    }
+                }
+
                 foreach (UIElement child in headerPanel.Children)
                 {
                     if (child is TextBlock textBlock)
