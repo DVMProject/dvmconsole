@@ -193,6 +193,11 @@ namespace dvmconsole
             /// </summary>
             public string Mode { get; set; } = "p25";
 
+            /// <summary>
+            /// Resource color in hex (#RRGGBB or #AARRGGBB).
+            /// </summary>
+            public string ResourceColor { get; set; }
+
             /*
             ** Methods
             */

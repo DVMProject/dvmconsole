@@ -930,7 +930,6 @@ namespace dvmconsole
                                     channel.RxStreamId = 0;
 
                                     channel.IsReceivingEncrypted = false;
-                                    channel.Background = ChannelBox.BLUE_GRADIENT;
                                     channel.VolumeMeterLevel = 0;
                                     
                                     // Update tab audio indicator
@@ -989,11 +988,25 @@ namespace dvmconsole
                         Canvas targetCanvas = targetTab != null && tabCanvases.ContainsKey(targetTab) 
                             ? tabCanvases[targetTab] 
                             : channelsCanvas;
-                        
+
                         ChannelBox channelBox = new ChannelBox(selectedChannelsManager, audioManager, channel.Name, channel.System, channel.Tgid, settingsManager.TogglePTTMode);
                         channelBox.ChannelMode = channel.Mode.ToUpperInvariant();
+
                         if (channel.GetAlgoId() != P25Defines.P25_ALGO_UNENCRYPT && channel.GetKeyId() > 0)
                             channelBox.IsTxEncrypted = true;
+
+                        if (!string.IsNullOrWhiteSpace(channel.ResourceColor))
+                        {
+                            try
+                            {
+                                channelBox.ConfiguredIdleBackground =
+                                    (Brush)new BrushConverter().ConvertFrom(channel.ResourceColor);
+                            }
+                            catch
+                            {
+                                Log.WriteLine($"Invalid resourceColor '{channel.ResourceColor}' for channel {channel.Name}, using default color.");
+                            }
+                        }
 
                         systemStatuses.Add(channel.Name, new SlotStatus());
 
@@ -1745,7 +1758,6 @@ namespace dvmconsole
                                 channel.PeerId = 0;
                                 channel.RxStreamId = 0;
 
-                                channel.Background = ChannelBox.BLUE_GRADIENT;
                                 channel.VolumeMeterLevel = 0;
                                 
                                 // Update tab audio indicator
@@ -3224,7 +3236,6 @@ namespace dvmconsole
                     }
 
                     channel.IsSelected = selectAll;
-                    channel.Background = channel.IsSelected ? ChannelBox.BLUE_GRADIENT : ChannelBox.DARK_GRAY_GRADIENT;
 
                     if (channel.IsSelected)
                         selectedChannelsManager.AddSelectedChannel(channel);

@@ -10,6 +10,7 @@
 *   Copyright (C) 2025 Caleb, K4PHP
 *   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
 *   Copyright (C) 2025 Steven Jennison, KD8RHO
+*   Copyright (C) 2026 C. Lovell, K7CBL
 *
 */
 
@@ -168,18 +169,44 @@ namespace dvmconsole.Controls
         }
 
         /// <summary>
+        /// Configured idle background for this channel when selected but not active.
+        /// Defaults to the standard blue gradient.
+        /// </summary>
+        public Brush ConfiguredIdleBackground { get; set; } = BLUE_GRADIENT;
+
+        /// <summary>
         /// Last Packet Time
         /// </summary>
         public DateTime LastPktTime = DateTime.Now;
 
+        private bool isReceiving = false;
+        private bool isReceivingEncrypted = false;
+
         /// <summary>
         /// Flag indicating whether or not this channel is receiving.
         /// </summary>
-        public bool IsReceiving { get; set; } = false;
+        public bool IsReceiving
+        {
+            get => isReceiving;
+            set
+            {
+                isReceiving = value;
+                Dispatcher.Invoke(() => UpdateBackground());
+            }
+        }
+
         /// <summary>
         /// Flag indicating whether or not this channel is receiving encrypted.
         /// </summary>
-        public bool IsReceivingEncrypted { get; set; } = false;
+        public bool IsReceivingEncrypted
+        {
+            get => isReceivingEncrypted;
+            set
+            {
+                isReceivingEncrypted = value;
+                Dispatcher.Invoke(() => UpdateBackground());
+            }
+        }
 
         /// <summary>
         /// Flag indicating whether or not the console is transmitting with encryption.
@@ -212,6 +239,7 @@ namespace dvmconsole.Controls
             {
                 pttState = value;
                 UpdatePTTColor();
+                Dispatcher.Invoke(() => UpdateBackground());
             }
         }
 
@@ -225,6 +253,7 @@ namespace dvmconsole.Controls
             {
                 pageState = value;
                 UpdatePageColor();
+                Dispatcher.Invoke(() => UpdateBackground());
             }
         }
 
@@ -238,6 +267,7 @@ namespace dvmconsole.Controls
             {
                 holdState = value;
                 UpdateHoldColor();
+                Dispatcher.Invoke(() => UpdateBackground());
             }
         }
 
@@ -485,13 +515,11 @@ namespace dvmconsole.Controls
             }
 
             // initialize external AMBE vocoder
-            string codeBase = Assembly.GetExecutingAssembly().CodeBase;
-            UriBuilder uri = new UriBuilder(codeBase);
-            string path = Uri.UnescapeDataString(uri.Path);
+            string path = Assembly.GetExecutingAssembly().Location;
 
             // if the assembly executing directory contains the external DVSI USB-3000 interface DLL
             // setup the external vocoder code
-            if (File.Exists(Path.Combine(new string[] { Path.GetDirectoryName(path), "AMBE.DLL" })))
+            if (File.Exists(Path.Combine(Path.GetDirectoryName(path), "AMBE.DLL")))
             {
                 ExternalVocoderEnabled = true;
                 ExtFullRateVocoder = new AmbeVocoder();
@@ -584,14 +612,34 @@ namespace dvmconsole.Controls
                 return;
             }
 
-            ControlBorder.Background = IsSelected ? BLUE_GRADIENT : DARK_GRAY_GRADIENT;
+            if (PttState)
+            {
+                ControlBorder.Background = IsTxEncrypted ? ORANGE_GRADIENT : RED_GRADIENT;
+            }
+            else if (IsReceivingEncrypted)
+            {
+                ControlBorder.Background = ORANGE_GRADIENT;
+            }
+            else if (IsReceiving)
+            {
+                ControlBorder.Background = GREEN_GRADIENT;
+            }
+            else
+            {
+                ControlBorder.Background = IsSelected ? ConfiguredIdleBackground : DARK_GRAY_GRADIENT;
+            }
+
             if (IsSelected)
+            {
                 if (IsPrimary)
                     ControlBorder.BorderBrush = BORDER_GREEN.BorderBrush;
                 else
                     ControlBorder.BorderBrush = BORDER_DEFAULT.BorderBrush;
+            }
             else
+            {
                 ControlBorder.BorderBrush = BORDER_DEFAULT.BorderBrush;
+            }
 
             SetVolumeMeterBg(ControlBorder.Background);
         }
@@ -656,14 +704,12 @@ namespace dvmconsole.Controls
                         selectedChannelsManager.SetPrimaryChannel(this);
                         IsPrimary = true;
                     }
-                    // Shortcut return, do not run the rest of this method
+
                     return;
                 }
             }
-            
-            
+
             IsSelected = !IsSelected;
-            ControlBorder.Background = IsSelected ? BLUE_GRADIENT : DARK_GRAY_GRADIENT;
 
             if (IsSelected)
                 selectedChannelsManager.AddSelectedChannel(this);

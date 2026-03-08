@@ -10,6 +10,7 @@
 *   Copyright (C) 2024-2025 Caleb, K4PHP
 *   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
 *   Copyright (C) 2025 Lorenzo L Romero, K2LLR
+*   Copyright (C) 2026 C. Lovell, K7CBL
 *
 */
 
@@ -546,7 +547,6 @@ namespace dvmconsole
                     // reset the channel state if we're not Rx
                     if (!channel.IsReceiving)
                     {
-                        channel.Background = ChannelBox.BLUE_GRADIENT;
                         channel.VolumeMeterLevel = 0;
                         continue;
                     }
@@ -563,7 +563,6 @@ namespace dvmconsole
 
                         TimeSpan callDuration = pktTime - slot.RxStart;
                         Log.WriteLine($"({system.Name}) P25D: Traffic *CALL END       * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} DUR {callDuration} [STREAM ID {e.StreamId}]");
-                        channel.Background = ChannelBox.BLUE_GRADIENT;
                         channel.VolumeMeterLevel = 0;
                         callHistoryWindow.ChannelUnkeyed(cpgChannel.Name, (int)e.SrcId);
                         continue;

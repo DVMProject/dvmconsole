@@ -54,12 +54,17 @@ zones:
         encryptionKey: null
         # Voice mode DMR ("dmr"), P25 ("p25")
         mode: "p25"
+        # Optional resource color for this channel widget, in hex
+        # resourceColor: "#150282"
+        resourceColor: "#150282"
       - name: "Channel 2"
         system: "System 1"
         tgid: "15002"
+        resourceColor: "#150282"
       - name: "Channel 3"
         system: "System 1"
         tgid: "15003"
+        resourceColor: "#150282"
 
   - name: "Secondary"
     tabColor: "#81C784"
@@ -68,9 +73,11 @@ zones:
       - name: "Channel A"
         system: "System 1"
         tgid: "16001"
+        resourceColor: "#150282"
       - name: "Channel B"
         system: "System 1"
         tgid: "16002"
+        resourceColor: "#150282"
 
   - name: "Emergency"
     tabColor: "#64B5F6"
@@ -79,3 +86,4 @@ zones:
       - name: "Channel C"
         system: "System 1"
         tgid: "16002"
+        resourceColor: "#150282"

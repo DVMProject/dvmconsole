@@ -45,6 +45,7 @@ namespace dvmconsole
 
             string shortHash = "unknown";
 
+            // Case 1: R01A02 (abcdef12...) or similar
             int openParen = informationalVersion.IndexOf('(');
             int closeParen = informationalVersion.IndexOf(')');
 
@@ -52,19 +53,31 @@ namespace dvmconsole
             {
                 string fullHash = informationalVersion.Substring(openParen + 1, closeParen - openParen - 1).Trim();
                 if (!string.IsNullOrWhiteSpace(fullHash))
-                {
-                    shortHash = fullHash.Length > 8 ? fullHash.Substring(0, 8) : fullHash;
-                }
+                    shortHash = fullHash.Length > 8 ? fullHash.Substring(0, 7) : fullHash;
             }
             else
             {
-                string[] parts = informationalVersion.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length > 1)
+                // Case 2: informational version uses +buildmetadata, e.g. R01A02+2919e2e...
+                int plusIndex = informationalVersion.IndexOf('+');
+                if (plusIndex >= 0 && plusIndex < informationalVersion.Length - 1)
                 {
-                    string possibleHash = parts[^1].Trim();
-                    if (!string.IsNullOrWhiteSpace(possibleHash) && possibleHash != releaseVersion)
+                    string buildMetadata = informationalVersion.Substring(plusIndex + 1).Trim();
+
+                    // if there are multiple metadata parts separated by dots, take the first useful one
+                    string possibleHash = buildMetadata.Split('.')[0].Trim();
+
+                    if (!string.IsNullOrWhiteSpace(possibleHash))
+                        shortHash = possibleHash.Length > 8 ? possibleHash.Substring(0, 7) : possibleHash;
+                }
+                else
+                {
+                    // Case 3: fallback space-separated format
+                    string[] parts = informationalVersion.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length > 1)
                     {
-                        shortHash = possibleHash.Length > 8 ? possibleHash.Substring(0, 8) : possibleHash;
+                        string possibleHash = parts[^1].Trim();
+                        if (!string.IsNullOrWhiteSpace(possibleHash) && possibleHash != releaseVersion)
+                            shortHash = possibleHash.Length > 8 ? possibleHash.Substring(0, 7) : possibleHash;
                     }
                 }
             }
