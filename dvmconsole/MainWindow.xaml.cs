@@ -980,7 +980,7 @@ namespace dvmconsole
                         // Get or create offset for this tab
                         if (!tabOffsets.ContainsKey(targetTab))
                         {
-                            tabOffsets[targetTab] = new Point(20, 20);
+                            tabOffsets[targetTab] = new Point(20, 140);
                         }
                         Point tabOffset = tabOffsets[targetTab];
                         
@@ -1017,8 +1017,11 @@ namespace dvmconsole
                         }
                         else
                         {
-                            Canvas.SetLeft(channelBox, tabOffset.X);
-                            Canvas.SetTop(channelBox, tabOffset.Y);
+                            double safeLeft = Math.Max(20, tabOffset.X);
+                            double safeTop = Math.Max(20, tabOffset.Y);
+
+                            Canvas.SetLeft(channelBox, safeLeft);
+                            Canvas.SetTop(channelBox, safeTop);
                         }
 
                         channelBox.PTTButtonClicked += ChannelBox_PTTButtonClicked;
@@ -1037,8 +1040,36 @@ namespace dvmconsole
                             elementToTabMap[channelBox] = targetTab;
 
                         // Update offset for next channel in this tab
+                        double canvasWidth = targetCanvas.ActualWidth;
+
+                        // On first load ActualWidth may be 0 because layout hasn't completed yet
+                        if (canvasWidth < 200)
+                        {
+                            canvasWidth = channelsCanvas.ActualWidth;
+
+                            if (canvasWidth < 200)
+                                canvasWidth = ActualWidth;
+                        }
+
+                        double layoutWidth = 0;
+
+                        if (targetTab != null && tabScrollViewers.TryGetValue(targetTab, out ScrollViewer sv))
+                            layoutWidth = sv.ViewportWidth;
+
+                        if (layoutWidth < 200)
+                            layoutWidth = ActualWidth;
+
+                        if (layoutWidth < 200)
+                            layoutWidth = settingsManager.WindowWidth;
+
+                        if (layoutWidth < 200)
+                            layoutWidth = settingsManager.CanvasWidth;
+
+                        if (layoutWidth < 200)
+                            layoutWidth = 1200; // final fallback
+
                         tabOffset.X += 269;
-                        if (tabOffset.X + 264 > targetCanvas.ActualWidth)
+                        if (tabOffset.X + 264 > layoutWidth - 20)
                         {
                             tabOffset.X = 20;
                             tabOffset.Y += 116;
@@ -2572,7 +2603,50 @@ namespace dvmconsole
             settingsManager.WindowWidth = ActualWidth;
             settingsManager.WindowHeight = ActualHeight;
         }
+        private void SnapCardsToGrid_Click(object sender, RoutedEventArgs e)
+        {
+            const double startX = 20;
+            const double startY = 20;
+            const double cardWidth = 264;
+            const double cardHeight = 106;
+            const double spacingX = 5;
+            const double spacingY = 10;
 
+            foreach (var canvas in GetAllCanvases())
+            {
+                double layoutWidth = canvas.ActualWidth;
+
+                if (layoutWidth < 200)
+                    layoutWidth = ActualWidth;
+
+                double x = startX;
+                double y = startY;
+
+                foreach (UIElement element in canvas.Children)
+                {
+                    if (element is not ChannelBox &&
+                        element is not SystemStatusBox &&
+                        element is not AlertTone)
+                        continue;
+
+                    Canvas.SetLeft(element, x);
+                    Canvas.SetTop(element, y);
+
+                    if (element is ChannelBox channelBox)
+                        settingsManager.UpdateChannelPosition(channelBox.ChannelName, x, y);
+
+                    x += cardWidth + spacingX;
+
+                    if (x + cardWidth > layoutWidth)
+                    {
+                        x = startX;
+                        y += cardHeight + spacingY;
+                    }
+                }
+            }
+
+            settingsManager.SaveSettings();
+        }
         /** Widget Controls */
 
         /// <summary>
