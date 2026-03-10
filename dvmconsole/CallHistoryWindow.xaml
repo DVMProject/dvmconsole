@@ -14,7 +14,6 @@
             <DataGrid.RowStyle>
                 <Style TargetType="DataGridRow">
                     <Setter Property="Background" Value="{Binding BackgroundColor}" />
-                    <Setter Property="Foreground" Value="{Binding ForegroundColor}" />
                 </Style>
             </DataGrid.RowStyle>
             <DataGrid.Columns>
