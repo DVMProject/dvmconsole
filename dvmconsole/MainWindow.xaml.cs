@@ -3419,6 +3419,17 @@ namespace dvmconsole
             if (pressedKey != settingsManager.GlobalPTTShortcut)
                 return;
 
+            if (settingsManager.TogglePTTMode)
+            {
+                if (state is GlobalKeyboardHook.KeyboardState.KeyDown or GlobalKeyboardHook.KeyboardState.SysKeyDown)
+                {
+                    globalPttState = !globalPttState;
+                    GlobalPTTActivate(null, null);
+                }
+
+                return;
+            }
+
             if (state is GlobalKeyboardHook.KeyboardState.KeyDown or GlobalKeyboardHook.KeyboardState.SysKeyDown)
             {
                 if (globalPttState)
