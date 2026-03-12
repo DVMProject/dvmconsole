@@ -157,7 +157,15 @@ namespace dvmconsole
         ///
         /// </summary>
         public bool TalkPermitTone { get; set; } = false;
+        /// <summary>
+        /// Flag indicating whether selected channels should be restored on startup.
+        /// </summary>
+        public bool RestoreSelectedChannelsOnStartup { get; set; } = false;
 
+        /// <summary>
+        /// Saved list of selected channel names to restore on startup.
+        /// </summary>
+        public List<string> SelectedChannels { get; set; } = new List<string>();
         /*
         ** Methods
         */
@@ -235,6 +243,8 @@ namespace dvmconsole
 
                     SaveTraceLog = loadedSettings.SaveTraceLog;
                     GlobalPTTShortcut = loadedSettings.GlobalPTTShortcut;
+                    RestoreSelectedChannelsOnStartup = loadedSettings.RestoreSelectedChannelsOnStartup;
+                    SelectedChannels = loadedSettings.SelectedChannels ?? new List<string>();
 
                     if (SaveTraceLog)
                         Log.SetupTextWriter(Environment.CurrentDirectory, "dvmconsole.log");

@@ -1148,6 +1148,7 @@ namespace dvmconsole
             if (defaultTab != null)
                 elementToTabMap[playbackChannelBox] = defaultTab;
 
+            RestoreSelectedChannels();
             Cursor = Cursors.Arrow;
         }
 
@@ -1245,7 +1246,29 @@ namespace dvmconsole
                 }
             }
         }
+        private void RestoreSelectedChannels()
+        {
+            if (!settingsManager.RestoreSelectedChannelsOnStartup)
+                return;
 
+            if (settingsManager.SelectedChannels == null || settingsManager.SelectedChannels.Count == 0)
+                return;
+
+            foreach (var canvas in GetAllCanvases())
+            {
+                foreach (ChannelBox channel in canvas.Children.OfType<ChannelBox>())
+                {
+                    if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                        continue;
+
+                    if (settingsManager.SelectedChannels.Contains(channel.ChannelName))
+                    {
+                        channel.IsSelected = true;
+                        selectedChannelsManager.AddSelectedChannel(channel);
+                    }
+                }
+            }
+        }
         /// <summary>
         /// Helper to reset channel states.
         /// </summary>
@@ -1743,6 +1766,20 @@ namespace dvmconsole
                         menuSnapCallHistory.IsChecked = false;
                 }
 
+                if (settingsManager.RestoreSelectedChannelsOnStartup)
+                {
+                    settingsManager.SelectedChannels = selectedChannelsManager
+                        .GetSelectedChannels()
+                        .Where(c => c.SystemName != PLAYBACKSYS && c.ChannelName != PLAYBACKCHNAME && c.DstId != PLAYBACKTG)
+                        .Select(c => c.ChannelName)
+                        .Distinct()
+                        .ToList();
+                }
+                else
+                {
+                    settingsManager.SelectedChannels = new List<string>();
+                }
+
                 settingsManager.SaveSettings();
             }
 
@@ -1994,6 +2031,7 @@ namespace dvmconsole
             menuTogglePTTMode.IsChecked = settingsManager.TogglePTTMode;
             menuToggleGlobalPTTMode.IsChecked = settingsManager.GlobalPTTKeysAllChannels;
             menuTalkPermitTone.IsChecked = settingsManager.TalkPermitTone;
+            menuRestoreSelectedChannels.IsChecked = settingsManager.RestoreSelectedChannelsOnStartup;
             menuKeepWindowOnTop.IsChecked = settingsManager.KeepWindowOnTop;
 
             if (!string.IsNullOrEmpty(settingsManager.LastCodeplugPath) && File.Exists(settingsManager.LastCodeplugPath))
@@ -3347,6 +3385,14 @@ namespace dvmconsole
                 return;
 
             settingsManager.TalkPermitTone = menuTalkPermitTone.IsChecked;
+            settingsManager.SaveSettings();
+        }
+        private void ToggleRestoreSelectedChannels_Click(object sender, RoutedEventArgs e)
+        {
+            if (!windowLoaded)
+                return;
+
+            settingsManager.RestoreSelectedChannelsOnStartup = menuRestoreSelectedChannels.IsChecked;
             settingsManager.SaveSettings();
         }
         /// <summary>
