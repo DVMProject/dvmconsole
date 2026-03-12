@@ -29,6 +29,17 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Docs\Getting Started\01-Configurations\**" />
+    <Compile Remove="Docs\Getting Started\Configurations\**" />
+    <EmbeddedResource Remove="Docs\Getting Started\01-Configurations\**" />
+    <EmbeddedResource Remove="Docs\Getting Started\Configurations\**" />
+    <None Remove="Docs\Getting Started\01-Configurations\**" />
+    <None Remove="Docs\Getting Started\Configurations\**" />
+    <Page Remove="Docs\Getting Started\01-Configurations\**" />
+    <Page Remove="Docs\Getting Started\Configurations\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Remove="alerttone.png" />
     <None Remove="Assets\alerttone.png" />
     <None Remove="Assets\AppIcon.ico" />
@@ -51,8 +62,33 @@
     <None Remove="Assets\WhackerLinkLogoV2.png" />
     <None Remove="clearemerg.png" />
     <None Remove="connection.png" />
+    <None Remove="Docs\Getting Started\01-Overview.md" />
+    <None Remove="Docs\Getting Started\02-Building.md" />
+    <None Remove="Docs\Getting Started\03-Configurations\01-Codeplug Creation.md" />
+    <None Remove="Docs\Getting Started\03-Configurations\02-Encryption Keys.md" />
+    <None Remove="Docs\Getting Started\03-Configurations\03-RID Aliases.md" />
+    <None Remove="Docs\Getting Started\Building.md" />
+    <None Remove="Docs\Getting Started\Overview.md" />
     <None Remove="page.png" />
     <None Remove="whackerlink-logo.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Docs\Getting Started\01-Overview.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Docs\Getting Started\02-Building.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Docs\Getting Started\03-Configurations\01-Codeplug Creation.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Docs\Getting Started\03-Configurations\02-Encryption Keys.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Docs\Getting Started\03-Configurations\03-RID Aliases.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>
@@ -104,6 +140,7 @@
  
 
   <ItemGroup>
+    <PackageReference Include="Markdig" Version="1.1.1" />
     <PackageReference Include="MaterialDesignThemes" Version="5.2.1" />
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />

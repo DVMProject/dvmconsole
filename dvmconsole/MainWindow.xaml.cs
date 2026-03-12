@@ -2131,6 +2131,12 @@ namespace dvmconsole
             aboutWindow.Owner = this;
             aboutWindow.ShowDialog();
         }
+        private void Documentation_Click(object sender, RoutedEventArgs e)
+        {
+            DocumentationWindow documentationWindow = new DocumentationWindow();
+            documentationWindow.Owner = this;
+            documentationWindow.Show();
+        }
         /// <summary>
         /// 
         /// </summary>
