@@ -2612,36 +2612,47 @@ namespace dvmconsole
             const double spacingX = 5;
             const double spacingY = 10;
 
-            foreach (var canvas in GetAllCanvases())
+            Canvas canvas = GetActiveCanvas();
+            if (canvas == null)
+                return;
+
+            double layoutWidth = canvas.ActualWidth;
+            if (layoutWidth < 200)
+                layoutWidth = ActualWidth;
+
+            double x = startX;
+            double y = startY;
+
+            foreach (UIElement element in canvas.Children)
             {
-                double layoutWidth = canvas.ActualWidth;
+                if (element is not ChannelBox &&
+                    element is not SystemStatusBox &&
+                    element is not AlertTone)
+                    continue;
 
-                if (layoutWidth < 200)
-                    layoutWidth = ActualWidth;
+                Canvas.SetLeft(element, x);
+                Canvas.SetTop(element, y);
 
-                double x = startX;
-                double y = startY;
-
-                foreach (UIElement element in canvas.Children)
+                if (element is ChannelBox channelBox)
                 {
-                    if (element is not ChannelBox &&
-                        element is not SystemStatusBox &&
-                        element is not AlertTone)
-                        continue;
+                    settingsManager.UpdateChannelPosition(channelBox.ChannelName, x, y);
+                }
+                else if (element is SystemStatusBox systemStatusBox)
+                {
+                    settingsManager.SystemStatusPositions[systemStatusBox.SystemName] =
+                        new ChannelPosition { X = x, Y = y };
+                }
+                else if (element is AlertTone alertTone)
+                {
+                    settingsManager.UpdateAlertTonePosition(alertTone.AlertFilePath, x, y);
+                }
 
-                    Canvas.SetLeft(element, x);
-                    Canvas.SetTop(element, y);
+                x += cardWidth + spacingX;
 
-                    if (element is ChannelBox channelBox)
-                        settingsManager.UpdateChannelPosition(channelBox.ChannelName, x, y);
-
-                    x += cardWidth + spacingX;
-
-                    if (x + cardWidth > layoutWidth)
-                    {
-                        x = startX;
-                        y += cardHeight + spacingY;
-                    }
+                if (x + cardWidth > layoutWidth)
+                {
+                    x = startX;
+                    y += cardHeight + spacingY;
                 }
             }
 
