@@ -93,6 +93,7 @@ namespace dvmconsole.Controls
         public P25Crypto Crypter = new P25Crypto();
 
         private bool pttToggleMode = false;
+        private bool suppressSelectionToggle = false;
 
         private bool isPrimary = false;
 
@@ -320,6 +321,20 @@ namespace dvmconsole.Controls
                 });
             }
         }
+
+        /// <summary>
+        /// Flag to suppress selection toggling during drag workflow.
+        /// </summary>
+        public bool SuppressSelectionToggle
+        {
+            get => suppressSelectionToggle;
+            set => suppressSelectionToggle = value;
+        }
+
+        /// <summary>
+        /// Flag indicating whether this resource belongs to at least one patch group.
+        /// </summary>
+        public bool IsPatchGroupMember { get; private set; }
 
         /// <summary>
         /// Current volume for this channel.
@@ -688,6 +703,18 @@ namespace dvmconsole.Controls
         /// <param name="e"></param>
         private void ChannelBox_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
+            if (SuppressSelectionToggle)
+                return;
+
+            ProcessSelectionClick(e);
+        }
+
+        /// <summary>
+        /// Applies channel selection/primary toggle behavior for a resource click.
+        /// </summary>
+        /// <param name="e"></param>
+        public void ProcessSelectionClick(MouseButtonEventArgs e)
+        {
             if (IsSelected)
             {
                 // Check if either CTRL key is down, if so toggle PRIMARY state instead of deselecting
@@ -735,6 +762,19 @@ namespace dvmconsole.Controls
 
             PttState = pttState;
             PTTButtonClicked?.Invoke(null, this);
+        }
+
+        /// <summary>
+        /// Sets the patch membership indicator visibility for this resource.
+        /// </summary>
+        /// <param name="isMember"></param>
+        public void SetPatchMembershipIndicator(bool isMember)
+        {
+            IsPatchGroupMember = isMember;
+            Dispatcher.Invoke(() =>
+            {
+                PatchMemberIcon.Visibility = isMember ? Visibility.Visible : Visibility.Collapsed;
+            });
         }
 
         /// <summary>

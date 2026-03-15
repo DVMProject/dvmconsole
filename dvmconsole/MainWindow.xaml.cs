@@ -109,6 +109,8 @@ namespace dvmconsole
         private bool isDragging;
         private Point channelDragStartPoint;
         private ChannelBox channelDragSource;
+        private bool channelDragMoved;
+        private bool channelDragSuppressSelection;
 
         private bool windowLoaded = false;
         
@@ -811,7 +813,8 @@ namespace dvmconsole
                 patchGroupsWindow.SetMembershipContext(filePath);
                 patchGroupsWindow.SetPatchGroups(Codeplug.PatchGroups, GetConfiguredChannels());
                 patchManager.SetSourceIdPassthrough(Codeplug.PatchSourceIdPassthrough);
-                patchManager.ApplyMemberships(settingsManager.GetPatchGroupMemberships(filePath));
+                Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships = settingsManager.GetPatchGroupMemberships(filePath);
+                patchManager.ApplyMemberships(memberships);
 
                 // compile list of errors and throw up a messagebox of doom
                 if (errors.Count > 0)
@@ -827,6 +830,7 @@ namespace dvmconsole
 
                 // generate widgets and enable controls
                 GenerateChannelWidgets();
+                UpdatePatchMemberIndicators(memberships);
                 patchGroupsWindow.RefreshMemberStatusIcons();
                 EnableControls();
                 MainWindow_SizeChanged(this, null);
@@ -836,6 +840,7 @@ namespace dvmconsole
                 Codeplug = null;
                 patchGroupsWindow.SetPatchGroups(null, null);
                 patchManager.ApplyMemberships(new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>());
+                UpdatePatchMemberIndicators(new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>());
                 if (patchGroupsWindow.Visibility == Visibility.Visible)
                     patchGroupsWindow.Hide();
                 MessageBox.Show($"Error loading codeplug: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -1087,6 +1092,7 @@ namespace dvmconsole
                         channelBox.MouseMove += ChannelBox_MouseMove;
                         channelBox.PreviewMouseLeftButtonDown += ChannelBox_PreviewMouseLeftButtonDown;
                         channelBox.PreviewMouseMove += ChannelBox_PreviewMouseMove;
+                        channelBox.PreviewMouseLeftButtonUp += ChannelBox_PreviewMouseLeftButtonUp;
 
                         targetCanvas.Children.Add(channelBox);
                         if (targetTab != null)
@@ -3130,6 +3136,10 @@ namespace dvmconsole
             {
                 channelDragSource = channel;
                 channelDragStartPoint = e.GetPosition(null);
+                channelDragMoved = false;
+                channelDragSuppressSelection = patchGroupsWindow?.IsAnyGroupEditing == true;
+                if (channelDragSuppressSelection)
+                    channel.SuppressSelectionToggle = true;
             }
         }
 
@@ -3151,6 +3161,8 @@ namespace dvmconsole
                 Math.Abs(delta.Y) < SystemParameters.MinimumVerticalDragDistance)
                 return;
 
+            channelDragMoved = true;
+
             string systemName = NormalizeChannelSystemName(channelDragSource.SystemName);
             string tgid = channelDragSource.DstId?.Trim();
             if (string.IsNullOrWhiteSpace(systemName) || string.IsNullOrWhiteSpace(tgid))
@@ -3164,7 +3176,34 @@ namespace dvmconsole
             };
             System.Windows.DataObject data = new System.Windows.DataObject(PatchGroupsWindow.CHANNEL_DRAG_FORMAT, dragPayload);
             DragDrop.DoDragDrop(channelDragSource, data, System.Windows.DragDropEffects.Copy);
+            channelDragSource.SuppressSelectionToggle = false;
             channelDragSource = null;
+            channelDragSuppressSelection = false;
+        }
+
+        /// <summary>
+        /// Completes click-vs-drag handling for patch edit drag workflow.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void ChannelBox_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is not ChannelBox channel)
+                return;
+            if (!ReferenceEquals(channel, channelDragSource))
+            {
+                channel.SuppressSelectionToggle = false;
+                return;
+            }
+
+            // If this started in patch edit mode but did not become a drag, preserve normal click behavior.
+            if (channelDragSuppressSelection && !channelDragMoved)
+                channel.ProcessSelectionClick(e);
+
+            channel.SuppressSelectionToggle = false;
+            channelDragSource = null;
+            channelDragMoved = false;
+            channelDragSuppressSelection = false;
         }
         
         /// <summary>
@@ -3281,6 +3320,37 @@ namespace dvmconsole
         private void PatchGroupsWindow_MembershipsCommitted(Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships)
         {
             patchManager.ApplyMemberships(memberships);
+            UpdatePatchMemberIndicators(memberships);
+        }
+
+        /// <summary>
+        /// Updates channel resource badges indicating patch group membership.
+        /// </summary>
+        /// <param name="memberships"></param>
+        private void UpdatePatchMemberIndicators(Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships)
+        {
+            HashSet<string> patchMembers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (SettingsManager.PatchTalkgroupMember member in (memberships ?? new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>())
+                .SelectMany(kvp => kvp.Value ?? new List<SettingsManager.PatchTalkgroupMember>())
+                .Where(m => !string.IsNullOrWhiteSpace(m?.SystemName) && !string.IsNullOrWhiteSpace(m?.Tgid)))
+            {
+                patchMembers.Add(BuildPatchTargetKey(member.SystemName, member.Tgid));
+            }
+
+            foreach (Canvas canvas in GetAllCanvases())
+            {
+                foreach (ChannelBox channel in canvas.Children.OfType<ChannelBox>())
+                {
+                    if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                    {
+                        channel.SetPatchMembershipIndicator(false);
+                        continue;
+                    }
+
+                    string channelKey = BuildPatchTargetKey(NormalizeChannelSystemName(channel.SystemName), channel.DstId);
+                    channel.SetPatchMembershipIndicator(patchMembers.Contains(channelKey));
+                }
+            }
         }
 
         /// <summary>

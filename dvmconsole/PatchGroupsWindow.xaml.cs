@@ -89,6 +89,11 @@ namespace dvmconsole
         private string membershipContextKey = string.Empty;
 
         /// <summary>
+        /// Gets whether any patch group is currently in edit mode.
+        /// </summary>
+        public bool IsAnyGroupEditing => tabContexts.Values.Any(c => c.IsEditing);
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="PatchGroupsWindow"/> class.
         /// </summary>
         public PatchGroupsWindow(SettingsManager settingsManager, Func<string, string, PatchTalkgroupState> talkgroupStateResolver)
