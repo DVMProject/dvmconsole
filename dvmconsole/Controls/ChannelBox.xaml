@@ -43,8 +43,8 @@
             <!-- Patch Membership Indicator -->
             <Image x:Name="PatchMemberIcon"
                    Source="/dvmconsole;component/Assets/patch_edit_off.png"
-                   Width="14"
-                   Height="14"
+                   Width="28"
+                   Height="28"
                    Margin="0,6,6,0"
                    HorizontalAlignment="Right"
                    VerticalAlignment="Top"
