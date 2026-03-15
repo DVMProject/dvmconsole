@@ -53,11 +53,18 @@
     <None Remove="Assets\connection.png" />
     <None Remove="Assets\history.png" />
     <None Remove="Assets\instantptt.png" />
+    <None Remove="Assets\ind_transmit_busy.png" />
+    <None Remove="Assets\ind_transmit_callback_select.png" />
+    <None Remove="Assets\ind_transmit_select.png" />
     <None Remove="Assets\key.png" />
     <None Remove="Assets\page.png" />
+    <None Remove="Assets\patch_edit_off.png" />
+    <None Remove="Assets\patch_edit_on.png" />
     <None Remove="Assets\pageselect.png" />
     <None Remove="Assets\pttselect.png" />
     <None Remove="Assets\select.png" />
+    <None Remove="Assets\transmit_in_patch.png" />
+    <None Remove="Assets\transmit_out_patch.png" />
     <None Remove="Assets\whackerlink-logo.png" />
     <None Remove="Assets\WhackerLinkLogoV2.png" />
     <None Remove="clearemerg.png" />
@@ -168,13 +175,34 @@
     <Resource Include="Assets\instantptt.png">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </Resource>
+    <Resource Include="Assets\ind_transmit_busy.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\ind_transmit_callback_select.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\ind_transmit_select.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
     <Resource Include="Assets\page.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\patch_edit_off.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\patch_edit_on.png">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </Resource>
     <Resource Include="Assets\pageselect.png">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </Resource>
     <Resource Include="Assets\pttselect.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\transmit_in_patch.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\transmit_out_patch.png">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </Resource>
   </ItemGroup>
