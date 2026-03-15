@@ -6,7 +6,7 @@
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
         TextElement.Foreground="{DynamicResource MaterialDesignBody}" TextElement.FontWeight="Regular" TextElement.FontSize="13"
         Style="{StaticResource MaterialDesignWindow}" Background="{DynamicResource MaterialDesignPaper}" FontFamily="{DynamicResource MaterialDesignFont}"
-        mc:Ignorable="d" Icon="/dvmconsole;component/Assets/history.png"
+        mc:Ignorable="d" Icon="/dvmconsole;component/Assets/patch_edit_off.png"
         Title="Patch Groups" Height="450" Width="551" WindowStartupLocation="CenterOwner">
     <Grid Margin="10">
         <TabControl x:Name="patchGroupTabs"
