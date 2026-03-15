@@ -16,6 +16,7 @@
 */
 
 using fnecore.P25;
+using YamlDotNet.Serialization;
 
 namespace dvmconsole
 {
@@ -50,6 +51,19 @@ namespace dvmconsole
         /// List of zones (each zone becomes a tab).
         /// </summary>
         public List<Zone> Zones { get; set; }
+        /// <summary>
+        /// List of groups.
+        /// </summary>
+        public List<Group> Groups { get; set; }
+        /// <summary>
+        /// Backward compatibility key for legacy patch groups.
+        /// </summary>
+        [YamlMember(Alias = "patchGroups")]
+        public List<Group> LegacyPatchGroups { get; set; }
+        /// <summary>
+        /// Optional flag to pass through received source ID while patch forwarding.
+        /// </summary>
+        public bool PatchSourceIdPassthrough { get; set; } = false;
 
         /*
         ** Classes
@@ -156,6 +170,79 @@ namespace dvmconsole
         } // public class Zone
 
         /// <summary>
+        /// Data structure representation of a console group.
+        /// </summary>
+        public class Group
+        {
+            /*
+            ** Properties
+            */
+
+            /// <summary>
+            /// Textual name for group.
+            /// </summary>
+            public string Name { get; set; }
+            /// <summary>
+            /// Group type. Supported values: "patch", "multiselect".
+            /// </summary>
+            public string Type { get; set; } = "patch";
+
+            /// <summary>
+            /// Returns true if this group is a patch group.
+            /// </summary>
+            /// <returns></returns>
+            public bool IsPatchGroup()
+            {
+                return !string.Equals(Type?.Trim(), "multiselect", StringComparison.OrdinalIgnoreCase);
+            }
+
+            /// <summary>
+            /// Returns true if this group is a multiselect group.
+            /// </summary>
+            /// <returns></returns>
+            public bool IsMultiselectGroup()
+            {
+                return string.Equals(Type?.Trim(), "multiselect", StringComparison.OrdinalIgnoreCase);
+            }
+        } // public class Group
+
+        /// <summary>
+        /// Normalizes and resolves group configuration from legacy and current keys.
+        /// </summary>
+        public void NormalizeGroups()
+        {
+            List<Group> resolved = new List<Group>();
+            if (Groups != null)
+                resolved.AddRange(Groups);
+
+            if (LegacyPatchGroups != null)
+            {
+                foreach (Group legacy in LegacyPatchGroups)
+                {
+                    if (legacy == null)
+                        continue;
+                    if (string.IsNullOrWhiteSpace(legacy.Type))
+                        legacy.Type = "patch";
+                    resolved.Add(legacy);
+                }
+            }
+
+            Groups = resolved
+                .Where(g => g != null)
+                .GroupBy(g => (g.Name ?? string.Empty).Trim(), StringComparer.OrdinalIgnoreCase)
+                .Select(g =>
+                {
+                    Group first = g.First();
+                    return new Group
+                    {
+                        Name = first.Name?.Trim() ?? string.Empty,
+                        Type = string.IsNullOrWhiteSpace(first.Type) ? "patch" : first.Type.Trim().ToLowerInvariant()
+                    };
+                })
+                .ToList();
+        }
+
+        /// <summary>
         /// Data structure representation of the data for a channel.
         /// </summary>
         public class Channel
@@ -260,6 +347,9 @@ namespace dvmconsole
         /// <returns></returns>
         public System GetSystemForChannel(string channelName)
         {
+            if (Zones == null)
+                return null;
+
             foreach (Zone zone in Zones)
             {
                 Channel channel = zone.Channels.FirstOrDefault(c => c.Name == channelName);
@@ -277,6 +367,9 @@ namespace dvmconsole
         /// <returns></returns>
         public Channel GetChannelByName(string channelName)
         {
+            if (Zones == null)
+                return null;
+
             foreach (Zone zone in Zones)
             {
                 Channel channel = zone.Channels.FirstOrDefault(c => c.Name == channelName);

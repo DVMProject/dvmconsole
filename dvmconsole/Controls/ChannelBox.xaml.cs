@@ -52,6 +52,7 @@ namespace dvmconsole.Controls
         private readonly AudioManager audioManager;
 
         private bool pttState;
+        private bool patchForwardingTxState;
         private bool pageState;
         private bool holdState;
         private string lastSrcId = "0";
@@ -93,6 +94,7 @@ namespace dvmconsole.Controls
         public P25Crypto Crypter = new P25Crypto();
 
         private bool pttToggleMode = false;
+        private bool suppressSelectionToggle = false;
 
         private bool isPrimary = false;
 
@@ -244,6 +246,21 @@ namespace dvmconsole.Controls
         }
 
         /// <summary>
+        /// Flag indicating programmatic transmit activity (patch forwarding/patch PTT) used for UI indication only.
+        /// This does not grant microphone transmit in the main loop.
+        /// </summary>
+        public bool PatchForwardingTxState
+        {
+            get => patchForwardingTxState;
+            set
+            {
+                patchForwardingTxState = value;
+                UpdatePTTColor();
+                Dispatcher.Invoke(() => UpdateBackground());
+            }
+        }
+
+        /// <summary>
         /// Flag indicating the current page state of this channel.
         /// </summary>
         public bool PageState
@@ -320,6 +337,20 @@ namespace dvmconsole.Controls
                 });
             }
         }
+
+        /// <summary>
+        /// Flag to suppress selection toggling during drag workflow.
+        /// </summary>
+        public bool SuppressSelectionToggle
+        {
+            get => suppressSelectionToggle;
+            set => suppressSelectionToggle = value;
+        }
+
+        /// <summary>
+        /// Flag indicating whether this resource belongs to at least one patch group.
+        /// </summary>
+        public bool IsPatchGroupMember { get; private set; }
 
         /// <summary>
         /// Current volume for this channel.
@@ -567,7 +598,7 @@ namespace dvmconsole.Controls
         /// </summary>
         private void UpdatePTTColor()
         {
-            if (PttState)
+            if (PttState || PatchForwardingTxState)
             {
                 if (IsTxEncrypted)
                     PttButton.Background = ORANGE_GRADIENT;
@@ -612,7 +643,7 @@ namespace dvmconsole.Controls
                 return;
             }
 
-            if (PttState)
+            if (PttState || PatchForwardingTxState)
             {
                 ControlBorder.Background = IsTxEncrypted ? ORANGE_GRADIENT : RED_GRADIENT;
             }
@@ -688,6 +719,18 @@ namespace dvmconsole.Controls
         /// <param name="e"></param>
         private void ChannelBox_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
+            if (SuppressSelectionToggle)
+                return;
+
+            ProcessSelectionClick(e);
+        }
+
+        /// <summary>
+        /// Applies channel selection/primary toggle behavior for a resource click.
+        /// </summary>
+        /// <param name="e"></param>
+        public void ProcessSelectionClick(MouseButtonEventArgs e)
+        {
             if (IsSelected)
             {
                 // Check if either CTRL key is down, if so toggle PRIMARY state instead of deselecting
@@ -735,6 +778,19 @@ namespace dvmconsole.Controls
 
             PttState = pttState;
             PTTButtonClicked?.Invoke(null, this);
+        }
+
+        /// <summary>
+        /// Sets the patch membership indicator visibility for this resource.
+        /// </summary>
+        /// <param name="isMember"></param>
+        public void SetPatchMembershipIndicator(bool isMember)
+        {
+            IsPatchGroupMember = isMember;
+            Dispatcher.Invoke(() =>
+            {
+                PatchMemberIcon.Visibility = isMember ? Visibility.Visible : Visibility.Collapsed;
+            });
         }
 
         /// <summary>
@@ -885,7 +941,7 @@ namespace dvmconsole.Controls
         /// <param name="e"></param>
         private void PttButton_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
         {
-            if (!IsSelected || PttState) 
+            if (!IsSelected || PttState || PatchForwardingTxState)
                 return;
 
             ((Button)sender).Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF3FA0FF"));
@@ -898,7 +954,7 @@ namespace dvmconsole.Controls
         /// <param name="e"></param>
         private void PttButton_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
         {
-            if (!IsSelected || PttState) 
+            if (!IsSelected || PttState || PatchForwardingTxState)
                 return;
 
             ((Button)sender).Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFDDDDDD"));

@@ -44,7 +44,7 @@ namespace dvmconsole
         /// <param name="channel"></param>
         /// <param name="cpgChannel"></param>
         /// <param name="system"></param>
-        private void P25EncodeAudioFrame(byte[] pcm, PeerSystem fne, ChannelBox channel, Codeplug.Channel cpgChannel, Codeplug.System system)
+        private void P25EncodeAudioFrame(byte[] pcm, PeerSystem fne, ChannelBox channel, Codeplug.Channel cpgChannel, Codeplug.System system, uint? sourceIdOverride = null)
         {
             bool encryptCall = true; // TODO: make this dynamic somewhere?
 
@@ -226,7 +226,7 @@ namespace dvmconsole
                     break;
             }
 
-            uint srcId = uint.Parse(system.Rid);
+            uint srcId = sourceIdOverride ?? uint.Parse(system.Rid);
             uint dstId = uint.Parse(cpgChannel.Tgid);
 
             FnePeer peer = fne.peer;
@@ -311,7 +311,7 @@ namespace dvmconsole
         /// <param name="system"></param>
         /// <param name="channel"></param>
         /// <param name="duid"></param>
-        private void P25DecodeAudioFrame(byte[] ldu, P25DataReceivedEvent e, PeerSystem system, ChannelBox channel, P25DUID duid = P25DUID.LDU1)
+        private void P25DecodeAudioFrame(byte[] ldu, P25DataReceivedEvent e, PeerSystem system, ChannelBox channel, string sourceSystemName, P25DUID duid = P25DUID.LDU1)
         {
             try
             {
@@ -401,6 +401,7 @@ namespace dvmconsole
                         }
 
                         audioManager.AddTalkgroupStream(e.DstId.ToString(), pcmData);
+                        patchManager.HandleAudio(sourceSystemName, e.DstId.ToString(), e.StreamId, e.SrcId, pcmData);
                     }
                 }
             }
@@ -448,6 +449,9 @@ namespace dvmconsole
                         continue;
 
                     if (cpgChannel.Tgid != e.DstId.ToString())
+                        continue;
+
+                    if (patchManager.IsPatchedTransmitStream(system.Name, cpgChannel.Tgid, e.StreamId))
                         continue;
 
                     if (channel.PttState)
@@ -520,6 +524,8 @@ namespace dvmconsole
                     // is this a new call stream?
                     if (e.StreamId != slot.RxStreamId && ((e.DUID != P25DUID.TDU) && (e.DUID != P25DUID.TDULC)))
                     {
+                        patchManager.HandleCallStart(system.Name, cpgChannel.Tgid, e.StreamId, e.SrcId);
+
                         channel.IsReceiving = true;
                         channel.PeerId = e.PeerId;
                         channel.RxStreamId = e.StreamId;
@@ -554,6 +560,8 @@ namespace dvmconsole
                     // is the call over?
                     if (((e.DUID == P25DUID.TDU) || (e.DUID == P25DUID.TDULC)) && (slot.RxType != fnecore.FrameType.TERMINATOR))
                     {
+                        patchManager.HandleCallEnd(system.Name, cpgChannel.Tgid, e.StreamId);
+
                         channel.IsReceiving = false;
                         channel.PeerId = 0;
                         channel.RxStreamId = 0;
@@ -639,7 +647,7 @@ namespace dvmconsole
                                     count += 16;
 
                                     // decode 9 IMBE codewords into PCM samples
-                                    P25DecodeAudioFrame(channel.netLDU1, e, handler, channel);
+                                    P25DecodeAudioFrame(channel.netLDU1, e, handler, channel, system.Name);
                                 }
                             }
                             break;
@@ -705,7 +713,7 @@ namespace dvmconsole
                                         Array.Copy(newMI, channel.mi, P25Defines.P25_MI_LENGTH);
 
                                     // decode 9 IMBE codewords into PCM samples
-                                    P25DecodeAudioFrame(channel.netLDU2, e, handler, channel, P25DUID.LDU2);
+                                    P25DecodeAudioFrame(channel.netLDU2, e, handler, channel, system.Name, P25DUID.LDU2);
                                 }
                             }
                             break;
