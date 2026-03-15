@@ -40,6 +40,20 @@
                 <TextBlock Text="{Binding SystemName}" FontStyle="Italic" Foreground="Gold" FontSize="10"/>
             </StackPanel>
 
+            <!-- Patch Membership Indicator -->
+            <Image x:Name="PatchMemberIcon"
+                   Source="/dvmconsole;component/Assets/patch_edit_off.png"
+                   Width="28"
+                   Height="28"
+                   Margin="0,6,6,0"
+                   HorizontalAlignment="Right"
+                   VerticalAlignment="Top"
+                   Grid.Column="2"
+                   Grid.Row="0"
+                   Grid.RowSpan="2"
+                   Visibility="Collapsed"
+                   ToolTip="Member of one or more patch groups" />
+
             <!-- PTT Button -->
             <Button x:Name="PttButton" Width="42" Height="42" HorizontalAlignment="Left" Margin="12,5,0,4" Grid.ColumnSpan="2" BorderThickness="0,0,0,0" BorderBrush="#FFC1C1C1" UseLayoutRounding="False" Grid.RowSpan="2" Background="#FFEEA400"
                     ToolTip="Push To Talk" Padding="0">

@@ -50,6 +50,14 @@ namespace dvmconsole
         /// List of zones (each zone becomes a tab).
         /// </summary>
         public List<Zone> Zones { get; set; }
+        /// <summary>
+        /// List of patch groups.
+        /// </summary>
+        public List<PatchGroup> PatchGroups { get; set; }
+        /// <summary>
+        /// Optional flag to pass through received source ID while patch forwarding.
+        /// </summary>
+        public bool PatchSourceIdPassthrough { get; set; } = false;
 
         /*
         ** Classes
@@ -156,6 +164,21 @@ namespace dvmconsole
         } // public class Zone
 
         /// <summary>
+        /// Data structure representation of a patch group.
+        /// </summary>
+        public class PatchGroup
+        {
+            /*
+            ** Properties
+            */
+
+            /// <summary>
+            /// Textual name for patch group.
+            /// </summary>
+            public string Name { get; set; }
+        } // public class PatchGroup
+
+        /// <summary>
         /// Data structure representation of the data for a channel.
         /// </summary>
         public class Channel
@@ -260,6 +283,9 @@ namespace dvmconsole
         /// <returns></returns>
         public System GetSystemForChannel(string channelName)
         {
+            if (Zones == null)
+                return null;
+
             foreach (Zone zone in Zones)
             {
                 Channel channel = zone.Channels.FirstOrDefault(c => c.Name == channelName);
@@ -277,6 +303,9 @@ namespace dvmconsole
         /// <returns></returns>
         public Channel GetChannelByName(string channelName)
         {
+            if (Zones == null)
+                return null;
+
             foreach (Zone zone in Zones)
             {
                 Channel channel = zone.Channels.FirstOrDefault(c => c.Name == channelName);

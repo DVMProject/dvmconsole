@@ -28,6 +28,16 @@ systems:
     # Path to Radio Alias file for this system
     #aliasPath: "Full/Path/To/alias.yml"
     
+# Optional patch groups (each patch group becomes a tab in the Patch Groups window)
+patchGroups:
+    # Textual name of the patch group
+  - name: "Patch 1"
+  - name: "Patch 2"
+
+# Optional: pass through inbound source IDs while patch forwarding
+# If false, forwarded traffic uses the configured console RID for the destination system
+patchSourceIdPassthrough: false
+
 #
 # Zones (each zone becomes a tab)
 #

@@ -1,0 +1,16 @@
+<Window x:Class="dvmconsole.PatchGroupsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        TextElement.Foreground="{DynamicResource MaterialDesignBody}" TextElement.FontWeight="Regular" TextElement.FontSize="13"
+        Style="{StaticResource MaterialDesignWindow}" Background="{DynamicResource MaterialDesignPaper}" FontFamily="{DynamicResource MaterialDesignFont}"
+        mc:Ignorable="d" Icon="/dvmconsole;component/Assets/patch_edit_off.png"
+        Title="Patch Groups" Height="450" Width="551" WindowStartupLocation="CenterOwner">
+    <Grid Margin="10">
+        <TabControl x:Name="patchGroupTabs"
+                    materialDesign:ColorZoneAssist.Mode="PrimaryDark"
+                    Style="{StaticResource MaterialDesignFilledTabControl}" />
+    </Grid>
+</Window>

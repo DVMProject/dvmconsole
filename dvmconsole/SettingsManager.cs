@@ -90,6 +90,19 @@ namespace dvmconsole
         /// 
         /// </summary>
         public Dictionary<string, int> ChannelOutputDevices { get; set; } = new Dictionary<string, int>();
+        /// <summary>
+        /// Saved patch group memberships scoped by codeplug context key.
+        /// </summary>
+        public Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> PatchGroupMemberships { get; set; } = new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>();
+
+        /// <summary>
+        /// Stored member identity for a patch talkgroup.
+        /// </summary>
+        public class PatchTalkgroupMember
+        {
+            public string SystemName { get; set; } = string.Empty;
+            public string Tgid { get; set; } = string.Empty;
+        }
 
         /// <summary>
         /// Flag indicating the PTT mode, Toggle PTT or Regular PTT.
@@ -215,6 +228,7 @@ namespace dvmconsole
                     AlertToneFilePaths = loadedSettings.AlertToneFilePaths ?? new List<string>();
                     AlertTonePositions = loadedSettings.AlertTonePositions ?? new Dictionary<string, ChannelPosition>();
                     ChannelOutputDevices = loadedSettings.ChannelOutputDevices ?? new Dictionary<string, int>();
+                    PatchGroupMemberships = loadedSettings.PatchGroupMemberships ?? new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>();
                     TogglePTTMode = loadedSettings.TogglePTTMode;
                     LockWidgets = loadedSettings.LockWidgets;
                     SnapCallHistoryToWindow = loadedSettings.SnapCallHistoryToWindow;
@@ -365,6 +379,75 @@ namespace dvmconsole
         {
             ChannelOutputDevices[channelName] = deviceIndex;
             SaveSettings();
+        }
+
+        /// <summary>
+        /// Gets a copy of patch group memberships for a codeplug context.
+        /// </summary>
+        /// <param name="contextKey"></param>
+        /// <returns></returns>
+        public Dictionary<string, List<PatchTalkgroupMember>> GetPatchGroupMemberships(string contextKey)
+        {
+            string key = NormalizePatchMembershipKey(contextKey);
+            if (!PatchGroupMemberships.TryGetValue(key, out Dictionary<string, List<PatchTalkgroupMember>> memberships))
+                return new Dictionary<string, List<PatchTalkgroupMember>>();
+
+            Dictionary<string, List<PatchTalkgroupMember>> copy = new Dictionary<string, List<PatchTalkgroupMember>>();
+            foreach (KeyValuePair<string, List<PatchTalkgroupMember>> kvp in memberships)
+                copy[kvp.Key] = NormalizePatchMembers(kvp.Value);
+
+            return copy;
+        }
+
+        /// <summary>
+        /// Saves patch group memberships for a codeplug context.
+        /// </summary>
+        /// <param name="contextKey"></param>
+        /// <param name="memberships"></param>
+        public void SavePatchGroupMemberships(string contextKey, Dictionary<string, List<PatchTalkgroupMember>> memberships)
+        {
+            string key = NormalizePatchMembershipKey(contextKey);
+            Dictionary<string, List<PatchTalkgroupMember>> normalized = new Dictionary<string, List<PatchTalkgroupMember>>();
+            foreach (KeyValuePair<string, List<PatchTalkgroupMember>> kvp in memberships ?? new Dictionary<string, List<PatchTalkgroupMember>>())
+                normalized[kvp.Key] = NormalizePatchMembers(kvp.Value);
+
+            PatchGroupMemberships[key] = normalized;
+            SaveSettings();
+        }
+
+        /// <summary>
+        /// Normalizes and de-duplicates patch membership entries.
+        /// </summary>
+        /// <param name="members"></param>
+        /// <returns></returns>
+        private static List<PatchTalkgroupMember> NormalizePatchMembers(IEnumerable<PatchTalkgroupMember> members)
+        {
+            return (members ?? Enumerable.Empty<PatchTalkgroupMember>())
+                .Where(m => !string.IsNullOrWhiteSpace(m?.SystemName) && !string.IsNullOrWhiteSpace(m?.Tgid))
+                .GroupBy(m => $"{m.SystemName.Trim().ToLowerInvariant()}|{m.Tgid.Trim()}")
+                .Select(g =>
+                {
+                    PatchTalkgroupMember first = g.First();
+                    return new PatchTalkgroupMember
+                    {
+                        SystemName = first.SystemName.Trim(),
+                        Tgid = first.Tgid.Trim()
+                    };
+                })
+                .ToList();
+        }
+
+        /// <summary>
+        /// Normalizes the settings key used to scope patch memberships.
+        /// </summary>
+        /// <param name="contextKey"></param>
+        /// <returns></returns>
+        private static string NormalizePatchMembershipKey(string contextKey)
+        {
+            if (string.IsNullOrWhiteSpace(contextKey))
+                return "__default__";
+
+            return contextKey.Trim().ToLowerInvariant();
         }
     } // public class SettingsManager
 } // namespace dvmconsole

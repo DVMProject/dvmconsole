@@ -11,7 +11,7 @@
 *   Copyright (C) 2025 J. Dean
 *   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
 *   Copyright (C) 2025 Steven Jennison, KD8RHO
-*   Copyright (C) 2025 Lorenzo L Romero, K2LLR
+*   Copyright (C) 2025 Lorenzo L. Romero, K2LLR
 *   Copyright (C) 2026 C. Lovell, K7CBL
 *
 */
@@ -107,6 +107,10 @@ namespace dvmconsole
         private double offsetX;
         private double offsetY;
         private bool isDragging;
+        private Point channelDragStartPoint;
+        private ChannelBox channelDragSource;
+        private bool channelDragMoved;
+        private bool channelDragSuppressSelection;
 
         private bool windowLoaded = false;
         
@@ -126,6 +130,7 @@ namespace dvmconsole
         private ChannelBox playbackChannelBox;
 
         private CallHistoryWindow callHistoryWindow;
+        private PatchGroupsWindow patchGroupsWindow;
 
         public static string PLAYBACKTG = "LOCPLAYBACK";
         public static string PLAYBACKSYS = "Local Playback";
@@ -138,6 +143,9 @@ namespace dvmconsole
 
         private Dictionary<string, SlotStatus> systemStatuses = new Dictionary<string, SlotStatus>();
         private FneSystemManager fneSystemManager = new FneSystemManager();
+        private PatchManager patchManager;
+        private readonly object patchPttSync = new object();
+        private readonly Dictionary<string, PatchPttTargetSession> activePatchPttTargets = new Dictionary<string, PatchPttTargetSession>(StringComparer.OrdinalIgnoreCase);
 
         private bool selectAll = false;
         private KeyboardManager keyboardManager;
@@ -153,6 +161,19 @@ namespace dvmconsole
         /// Codeplug
         /// </summary>
         public Codeplug Codeplug { get; set; }
+
+        private sealed class PatchPttTargetSession
+        {
+            public string Key { get; set; } = string.Empty;
+            public string GroupName { get; set; } = string.Empty;
+            public string SystemName { get; set; } = string.Empty;
+            public string Tgid { get; set; } = string.Empty;
+            public ChannelBox Channel { get; set; }
+            public Codeplug.Channel CodeplugChannel { get; set; }
+            public Codeplug.System CodeplugSystem { get; set; }
+            public PeerSystem Fne { get; set; }
+            public uint SourceId { get; set; }
+        }
 
         /*
         ** Methods
@@ -173,6 +194,14 @@ namespace dvmconsole
             settingsManager.LoadSettings();
             InitializeKeyboardShortcuts();
             callHistoryWindow = new CallHistoryWindow(settingsManager, CallHistoryWindow.MAX_CALL_HISTORY);
+            patchGroupsWindow = new PatchGroupsWindow(settingsManager, ResolvePatchTalkgroupState);
+            patchGroupsWindow.MembershipsCommitted += PatchGroupsWindow_MembershipsCommitted;
+            patchGroupsWindow.PatchPttStateChanged += PatchGroupsWindow_PatchPttStateChanged;
+            patchManager = new PatchManager(
+                BeginPatchForward,
+                EndPatchForward,
+                SendPatchForwardAudio,
+                GetPatchFallbackSourceId);
 
             selectedChannelsManager = new SelectedChannelsManager();
             flashingManager = new FlashingBackgroundManager(null, channelsCanvas, null, this);
@@ -660,6 +689,9 @@ namespace dvmconsole
             btnSelectAll.IsEnabled = true;
             btnKeyStatus.IsEnabled = true;
             btnCallHistory.IsEnabled = true;
+            bool hasPatchGroups = Codeplug?.PatchGroups?.Any(pg => !string.IsNullOrWhiteSpace(pg?.Name)) == true;
+            btnPatchGroups.IsEnabled = hasPatchGroups;
+            menuPatchGroups.IsEnabled = hasPatchGroups;
         }
 
         /// <summary>
@@ -679,6 +711,7 @@ namespace dvmconsole
         /// </summary>
         private void DisableControls()
         {
+            StopAllPatchPttTargets();
             DisableCommandControls();
 
             btnGlobalPtt.IsEnabled = false;
@@ -689,6 +722,8 @@ namespace dvmconsole
             btnSelectAll.IsEnabled = false;
             btnKeyStatus.IsEnabled = false;
             btnCallHistory.IsEnabled = false;
+            btnPatchGroups.IsEnabled = false;
+            menuPatchGroups.IsEnabled = false;
         }
 
         /// <summary>
@@ -698,6 +733,7 @@ namespace dvmconsole
         private void LoadCodeplug(string filePath)
         {
             DisableControls();
+            StopAllPatchPttTargets();
 
             // Clear all canvases
             foreach (var canvas in tabCanvases.Values)
@@ -726,7 +762,7 @@ namespace dvmconsole
                 // ensure string lengths are acceptable
                 // systems
                 Dictionary<string, string> replacedSystemNames = new Dictionary<string, string>();
-                foreach (Codeplug.System system in Codeplug.Systems)
+                foreach (Codeplug.System system in Codeplug.Systems ?? new List<Codeplug.System>())
                 {
                     // ensure system name is less then or equals to the max
                     if (system.Name.Length > MAX_SYSTEM_NAME_LEN)
@@ -739,7 +775,7 @@ namespace dvmconsole
                 }
 
                 // zones
-                foreach (Codeplug.Zone zone in Codeplug.Zones)
+                foreach (Codeplug.Zone zone in Codeplug.Zones ?? new List<Codeplug.Zone>())
                 {
                     // channels
                     foreach (Codeplug.Channel channel in zone.Channels)
@@ -768,6 +804,18 @@ namespace dvmconsole
                     }
                 }
 
+                foreach (Codeplug.PatchGroup patchGroup in Codeplug.PatchGroups ?? new List<Codeplug.PatchGroup>())
+                {
+                    if (string.IsNullOrWhiteSpace(patchGroup.Name))
+                        errors.Add("A patch group is missing a name.");
+                }
+
+                patchGroupsWindow.SetMembershipContext(filePath);
+                patchGroupsWindow.SetPatchGroups(Codeplug.PatchGroups, GetConfiguredChannels());
+                patchManager.SetSourceIdPassthrough(Codeplug.PatchSourceIdPassthrough);
+                Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships = settingsManager.GetPatchGroupMemberships(filePath);
+                patchManager.ApplyMemberships(memberships);
+
                 // compile list of errors and throw up a messagebox of doom
                 if (errors.Count > 0)
                 {
@@ -782,11 +830,19 @@ namespace dvmconsole
 
                 // generate widgets and enable controls
                 GenerateChannelWidgets();
+                UpdatePatchMemberIndicators(memberships);
+                patchGroupsWindow.RefreshMemberStatusIcons();
                 EnableControls();
                 MainWindow_SizeChanged(this, null);
             }
             catch (Exception ex)
             {
+                Codeplug = null;
+                patchGroupsWindow.SetPatchGroups(null, null);
+                patchManager.ApplyMemberships(new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>());
+                UpdatePatchMemberIndicators(new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>());
+                if (patchGroupsWindow.Visibility == Visibility.Visible)
+                    patchGroupsWindow.Hide();
                 MessageBox.Show($"Error loading codeplug: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 Log.StackTrace(ex, false);
                 DisableControls();
@@ -860,7 +916,7 @@ namespace dvmconsole
                 double systemOffsetY = 20;
                 
                 // load and initialize systems
-                foreach (var system in Codeplug.Systems)
+                foreach (var system in Codeplug.Systems ?? new List<Codeplug.System>())
                 {
                     SystemStatusBox systemStatusBox = new SystemStatusBox(system.Name, system.Address, system.Port);
                     if (settingsManager.SystemStatusPositions.TryGetValue(system.Name, out var position))
@@ -965,7 +1021,7 @@ namespace dvmconsole
                 Dictionary<TabItem, Point> tabOffsets = new Dictionary<TabItem, Point>();
                 
                 // iterate through the codeplug zones and begin building channel widgets
-                foreach (var zone in Codeplug.Zones)
+                foreach (var zone in Codeplug.Zones ?? new List<Codeplug.Zone>())
                 {
                     // Get the tab for this zone (zone name = tab name)
                     TabItem targetTab = defaultTab;
@@ -1034,6 +1090,9 @@ namespace dvmconsole
                         channelBox.MouseRightButtonDown += ChannelBox_MouseRightButtonDown;
                         channelBox.MouseRightButtonUp += ChannelBox_MouseRightButtonUp;
                         channelBox.MouseMove += ChannelBox_MouseMove;
+                        channelBox.PreviewMouseLeftButtonDown += ChannelBox_PreviewMouseLeftButtonDown;
+                        channelBox.PreviewMouseMove += ChannelBox_PreviewMouseMove;
+                        channelBox.PreviewMouseLeftButtonUp += ChannelBox_PreviewMouseLeftButtonUp;
 
                         targetCanvas.Children.Add(channelBox);
                         if (targetTab != null)
@@ -1736,6 +1795,7 @@ namespace dvmconsole
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
             isShuttingDown = true;
+            StopAllPatchPttTargets();
 
             // stop maintainence task
             if (maintainenceTask != null)
@@ -1819,6 +1879,9 @@ namespace dvmconsole
                         TimeSpan dt = now - channel.LastPktTime;
                         if (dt.TotalMilliseconds > 2000) // 2 seconds is more then enough time -- the interpacket time for P25 is ~180ms and DMR is ~60ms
                         {
+                            if (cpgChannel != null && channel.RxStreamId > 0)
+                                patchManager.HandleCallEnd(system.Name, cpgChannel.Tgid, channel.RxStreamId);
+
                             Log.WriteLine($"({system.Name}) P25D: Traffic *CALL TIMEOUT   * TGID {channel.DstId} ALGID {channel.algId} KID {channel.kId}");
                             Dispatcher.Invoke(() =>
                             {
@@ -1840,6 +1903,11 @@ namespace dvmconsole
                     await Task.Delay(1000, ct);
                 }
                 catch (TaskCanceledException) { /* stub */ }
+
+                Dispatcher.Invoke(() =>
+                {
+                    patchGroupsWindow.RefreshMemberStatusIcons();
+                });
             }
         }
 
@@ -1863,6 +1931,7 @@ namespace dvmconsole
         private void WaveIn_DataAvailable(object sender, WaveInEventArgs e)
         {
             bool isAnyTgOn = false;
+            HashSet<string> transmittedTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (isShuttingDown)
                 return;
 
@@ -1902,6 +1971,7 @@ namespace dvmconsole
                 if (channel.IsSelected && channel.PttState)
                 {
                     isAnyTgOn = true;
+                    transmittedTargets.Add(BuildPatchTargetKey(system.Name, cpgChannel.Tgid));
                     Task.Run(() =>
                     {
                         channel.chunkedPCM = AudioConverter.SplitToChunks(e.Buffer);
@@ -1919,6 +1989,16 @@ namespace dvmconsole
                         }
                     });
                 }
+            }
+
+            bool patchPttActive;
+            lock (patchPttSync)
+                patchPttActive = activePatchPttTargets.Count > 0;
+
+            if (patchPttActive)
+            {
+                isAnyTgOn = true;
+                SendPatchPttMicAudio(e.Buffer, transmittedTargets);
             }
 
             if (playbackChannelBox != null && isAnyTgOn && playbackChannelBox.IsSelected)
@@ -3044,6 +3124,87 @@ namespace dvmconsole
             if (draggedElement is ChannelBox channelBox)
                 settingsManager.UpdateChannelPosition(channelBox.ChannelName, newLeft, newTop);
         }
+
+        /// <summary>
+        /// Tracks the start point for channel drag into patch groups.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void ChannelBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is ChannelBox channel)
+            {
+                channelDragSource = channel;
+                channelDragStartPoint = e.GetPosition(null);
+                channelDragMoved = false;
+                channelDragSuppressSelection = patchGroupsWindow?.IsAnyGroupEditing == true;
+                if (channelDragSuppressSelection)
+                    channel.SuppressSelectionToggle = true;
+            }
+        }
+
+        /// <summary>
+        /// Starts drag operation from main channel widgets into patch groups.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void ChannelBox_PreviewMouseMove(object sender, MouseEventArgs e)
+        {
+            if (channelDragSource == null || e.LeftButton != MouseButtonState.Pressed)
+                return;
+            if (channelDragSource.SystemName == PLAYBACKSYS || channelDragSource.ChannelName == PLAYBACKCHNAME || channelDragSource.DstId == PLAYBACKTG)
+                return;
+
+            Point currentPosition = e.GetPosition(null);
+            Vector delta = currentPosition - channelDragStartPoint;
+            if (Math.Abs(delta.X) < SystemParameters.MinimumHorizontalDragDistance &&
+                Math.Abs(delta.Y) < SystemParameters.MinimumVerticalDragDistance)
+                return;
+
+            channelDragMoved = true;
+
+            string systemName = NormalizeChannelSystemName(channelDragSource.SystemName);
+            string tgid = channelDragSource.DstId?.Trim();
+            if (string.IsNullOrWhiteSpace(systemName) || string.IsNullOrWhiteSpace(tgid))
+                return;
+
+            PatchGroupsWindow.ChannelDragData dragPayload = new PatchGroupsWindow.ChannelDragData
+            {
+                ChannelName = channelDragSource.ChannelName,
+                SystemName = systemName,
+                Tgid = tgid
+            };
+            System.Windows.DataObject data = new System.Windows.DataObject(PatchGroupsWindow.CHANNEL_DRAG_FORMAT, dragPayload);
+            DragDrop.DoDragDrop(channelDragSource, data, System.Windows.DragDropEffects.Copy);
+            channelDragSource.SuppressSelectionToggle = false;
+            channelDragSource = null;
+            channelDragSuppressSelection = false;
+        }
+
+        /// <summary>
+        /// Completes click-vs-drag handling for patch edit drag workflow.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void ChannelBox_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is not ChannelBox channel)
+                return;
+            if (!ReferenceEquals(channel, channelDragSource))
+            {
+                channel.SuppressSelectionToggle = false;
+                return;
+            }
+
+            // If this started in patch edit mode but did not become a drag, preserve normal click behavior.
+            if (channelDragSuppressSelection && !channelDragMoved)
+                channel.ProcessSelectionClick(e);
+
+            channel.SuppressSelectionToggle = false;
+            channelDragSource = null;
+            channelDragMoved = false;
+            channelDragSuppressSelection = false;
+        }
         
         /// <summary>
         /// Gets the canvas that contains the given element
@@ -3078,6 +3239,397 @@ namespace dvmconsole
             }
             
             return GetActiveCanvas();
+        }
+
+        /// <summary>
+        /// Gets configured channels across all zones.
+        /// </summary>
+        /// <returns></returns>
+        private IEnumerable<Codeplug.Channel> GetConfiguredChannels()
+        {
+            if (Codeplug?.Zones == null)
+                return Enumerable.Empty<Codeplug.Channel>();
+
+            return Codeplug.Zones.SelectMany(z => z.Channels ?? new List<Codeplug.Channel>());
+        }
+
+        /// <summary>
+        /// Resolves patch talkgroup state from existing channel widgets.
+        /// </summary>
+        /// <param name="channelName"></param>
+        /// <returns></returns>
+        private PatchGroupsWindow.PatchTalkgroupState ResolvePatchTalkgroupState(string systemName, string tgid)
+        {
+            if (IsPatchPttTargetActive(systemName, tgid))
+                return PatchGroupsWindow.PatchTalkgroupState.Transmitting;
+
+            ChannelBox channel = FindChannelBySystemAndTgid(systemName, tgid);
+            if (patchManager.IsForwardTargetActive(systemName, tgid))
+                return PatchGroupsWindow.PatchTalkgroupState.Transmitting;
+            if (channel == null)
+                return PatchGroupsWindow.PatchTalkgroupState.Idle;
+
+            if (channel.PttState)
+                return PatchGroupsWindow.PatchTalkgroupState.Transmitting;
+            if (channel.IsReceiving || channel.IsReceivingEncrypted)
+                return PatchGroupsWindow.PatchTalkgroupState.Receiving;
+            return PatchGroupsWindow.PatchTalkgroupState.Idle;
+        }
+
+        /// <summary>
+        /// Finds a channel widget by channel name.
+        /// </summary>
+        /// <param name="channelName"></param>
+        /// <returns></returns>
+        private ChannelBox FindChannelBySystemAndTgid(string systemName, string tgid)
+        {
+            foreach (Canvas canvas in GetAllCanvases())
+            {
+                ChannelBox found = canvas.Children
+                    .OfType<ChannelBox>()
+                    .FirstOrDefault(c => NormalizeChannelSystemName(c.SystemName) == systemName && (c.DstId?.Trim() ?? string.Empty) == (tgid?.Trim() ?? string.Empty));
+                if (found != null)
+                    return found;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Converts channel system label to canonical system name.
+        /// </summary>
+        /// <param name="systemLabel"></param>
+        /// <returns></returns>
+        private static string NormalizeChannelSystemName(string systemLabel)
+        {
+            if (string.IsNullOrWhiteSpace(systemLabel))
+                return string.Empty;
+
+            const string prefix = "System: ";
+            string trimmed = systemLabel.Trim();
+            if (trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return trimmed.Substring(prefix.Length).Trim();
+
+            return trimmed;
+        }
+
+        /// <summary>
+        /// Applies committed patch memberships transactionally.
+        /// </summary>
+        /// <param name="memberships"></param>
+        private void PatchGroupsWindow_MembershipsCommitted(Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships)
+        {
+            patchManager.ApplyMemberships(memberships);
+            UpdatePatchMemberIndicators(memberships);
+        }
+
+        /// <summary>
+        /// Updates channel resource badges indicating patch group membership.
+        /// </summary>
+        /// <param name="memberships"></param>
+        private void UpdatePatchMemberIndicators(Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships)
+        {
+            HashSet<string> patchMembers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (SettingsManager.PatchTalkgroupMember member in (memberships ?? new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>())
+                .SelectMany(kvp => kvp.Value ?? new List<SettingsManager.PatchTalkgroupMember>())
+                .Where(m => !string.IsNullOrWhiteSpace(m?.SystemName) && !string.IsNullOrWhiteSpace(m?.Tgid)))
+            {
+                patchMembers.Add(BuildPatchTargetKey(member.SystemName, member.Tgid));
+            }
+
+            foreach (Canvas canvas in GetAllCanvases())
+            {
+                foreach (ChannelBox channel in canvas.Children.OfType<ChannelBox>())
+                {
+                    if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                    {
+                        channel.SetPatchMembershipIndicator(false);
+                        continue;
+                    }
+
+                    string channelKey = BuildPatchTargetKey(NormalizeChannelSystemName(channel.SystemName), channel.DstId);
+                    channel.SetPatchMembershipIndicator(patchMembers.Contains(channelKey));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Handles patch group PTT state changes from the Patch Groups window.
+        /// </summary>
+        private void PatchGroupsWindow_PatchPttStateChanged(object sender, PatchGroupsWindow.PatchGroupPttEventArgs e)
+        {
+            if (e == null)
+                return;
+
+            if (e.IsActive)
+                StartPatchPttGroup(e.GroupName, e.Members ?? new List<SettingsManager.PatchTalkgroupMember>());
+            else
+                StopPatchPttGroup(e.GroupName);
+
+            patchGroupsWindow.RefreshMemberStatusIcons();
+        }
+
+        /// <summary>
+        /// Starts patch PTT call legs for the selected patch group members.
+        /// </summary>
+        private void StartPatchPttGroup(string groupName, List<SettingsManager.PatchTalkgroupMember> members)
+        {
+            StopPatchPttGroup(groupName);
+
+            foreach (SettingsManager.PatchTalkgroupMember member in members.Where(m => !string.IsNullOrWhiteSpace(m?.SystemName) && !string.IsNullOrWhiteSpace(m?.Tgid)))
+            {
+                string systemName = member.SystemName.Trim();
+                string tgid = member.Tgid.Trim();
+                string key = BuildPatchTargetKey(systemName, tgid);
+
+                if (!TryResolvePatchEndpoint(systemName, tgid, out ChannelBox channelBox, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne))
+                    continue;
+
+                if (channelBox.TxStreamId != 0)
+                {
+                    Log.WriteWarning($"({system.Name}) {cpgChannel.GetChannelMode().ToString().ToUpperInvariant()} Traffic *CALL START     * TGID {tgid} skipped for Patch PTT; channel already has active stream {channelBox.TxStreamId}.");
+                    continue;
+                }
+
+                FneUtils.Memset(channelBox.mi, 0x00, P25Defines.P25_MI_LENGTH);
+                channelBox.TxStreamId = fne.NewStreamId();
+                channelBox.PttState = true;
+                channelBox.VolumeMeterLevel = 0;
+
+                uint sourceId = uint.Parse(system.Rid);
+                uint dstId = uint.Parse(cpgChannel.Tgid);
+                Log.WriteLine($"({system.Name}) {cpgChannel.GetChannelMode().ToString().ToUpperInvariant()} Traffic *CALL START     * SRC_ID {sourceId} TGID {dstId} [STREAM ID {channelBox.TxStreamId}] (Patch PTT: {groupName})");
+
+                if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                    fne.SendP25TDU(sourceId, dstId, true);
+
+                lock (patchPttSync)
+                {
+                    activePatchPttTargets[key] = new PatchPttTargetSession
+                    {
+                        Key = key,
+                        GroupName = groupName ?? string.Empty,
+                        SystemName = systemName,
+                        Tgid = tgid,
+                        Channel = channelBox,
+                        CodeplugChannel = cpgChannel,
+                        CodeplugSystem = system,
+                        Fne = fne,
+                        SourceId = sourceId
+                    };
+                }
+            }
+        }
+
+        /// <summary>
+        /// Stops all patch PTT call legs for a patch group.
+        /// </summary>
+        private void StopPatchPttGroup(string groupName)
+        {
+            List<PatchPttTargetSession> sessionsToStop;
+            lock (patchPttSync)
+            {
+                sessionsToStop = activePatchPttTargets.Values
+                    .Where(s => string.Equals(s.GroupName, groupName ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                foreach (PatchPttTargetSession session in sessionsToStop)
+                    activePatchPttTargets.Remove(session.Key);
+            }
+
+            foreach (PatchPttTargetSession session in sessionsToStop)
+                StopPatchPttSession(session);
+        }
+
+        /// <summary>
+        /// Stops all active patch PTT call legs.
+        /// </summary>
+        private void StopAllPatchPttTargets()
+        {
+            List<PatchPttTargetSession> sessionsToStop;
+            lock (patchPttSync)
+            {
+                sessionsToStop = activePatchPttTargets.Values.ToList();
+                activePatchPttTargets.Clear();
+            }
+
+            foreach (PatchPttTargetSession session in sessionsToStop)
+                StopPatchPttSession(session);
+        }
+
+        /// <summary>
+        /// Stops a single patch PTT call leg.
+        /// </summary>
+        private void StopPatchPttSession(PatchPttTargetSession session)
+        {
+            if (session?.Channel == null || session.CodeplugChannel == null || session.CodeplugSystem == null || session.Fne == null || session.Channel.TxStreamId == 0)
+                return;
+
+            uint dstId = uint.Parse(session.CodeplugChannel.Tgid);
+            Log.WriteLine($"({session.CodeplugSystem.Name}) {session.CodeplugChannel.GetChannelMode().ToString().ToUpperInvariant()} Traffic *CALL END       * SRC_ID {session.SourceId} TGID {dstId} [STREAM ID {session.Channel.TxStreamId}] (Patch PTT: {session.GroupName})");
+
+            if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                session.Fne.SendP25TDU(session.SourceId, dstId, false);
+            else if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                session.Fne.SendDMRTerminator(session.SourceId, dstId, 1, session.Channel.dmrSeqNo, session.Channel.dmrN, session.Channel.embeddedData);
+
+            session.Channel.PttState = false;
+            ResetChannel(session.Channel);
+            session.Channel.VolumeMeterLevel = 0;
+        }
+
+        /// <summary>
+        /// Encodes and forwards microphone audio to active patch PTT legs.
+        /// </summary>
+        private void SendPatchPttMicAudio(byte[] pcmBuffer, HashSet<string> alreadySentTargets)
+        {
+            List<PatchPttTargetSession> sessions;
+            lock (patchPttSync)
+                sessions = activePatchPttTargets.Values.ToList();
+
+            foreach (PatchPttTargetSession session in sessions)
+            {
+                if (session.Channel == null || session.CodeplugChannel == null || session.CodeplugSystem == null || session.Fne == null || session.Channel.TxStreamId == 0)
+                    continue;
+                if (alreadySentTargets.Contains(session.Key))
+                    continue;
+
+                alreadySentTargets.Add(session.Key);
+
+                Task.Run(() =>
+                {
+                    List<byte[]> chunks = AudioConverter.SplitToChunks(pcmBuffer);
+                    foreach (byte[] chunk in chunks)
+                    {
+                        if (chunk.Length != PCM_SAMPLES_LENGTH)
+                            continue;
+
+                        if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                            P25EncodeAudioFrame(chunk, session.Fne, session.Channel, session.CodeplugChannel, session.CodeplugSystem);
+                        else if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                            DMREncodeAudioFrame(chunk, session.Fne, session.Channel, session.CodeplugChannel, session.CodeplugSystem);
+                    }
+                });
+            }
+        }
+
+        /// <summary>
+        /// Returns whether a patch PTT leg is currently active for a system/talkgroup.
+        /// </summary>
+        private bool IsPatchPttTargetActive(string systemName, string tgid)
+        {
+            string key = BuildPatchTargetKey(systemName, tgid);
+            lock (patchPttSync)
+                return activePatchPttTargets.ContainsKey(key);
+        }
+
+        /// <summary>
+        /// Builds a canonical identity key for patch PTT targets.
+        /// </summary>
+        private static string BuildPatchTargetKey(string systemName, string tgid)
+        {
+            string normalizedSystem = (systemName ?? string.Empty).Trim().ToLowerInvariant();
+            string normalizedTgid = (tgid ?? string.Empty).Trim();
+            return $"{normalizedSystem}|{normalizedTgid}";
+        }
+
+        /// <summary>
+        /// Resolves endpoint objects needed for patch forwarding.
+        /// </summary>
+        /// <param name="systemName"></param>
+        /// <param name="tgid"></param>
+        /// <param name="channelBox"></param>
+        /// <param name="cpgChannel"></param>
+        /// <param name="system"></param>
+        /// <param name="fne"></param>
+        /// <returns></returns>
+        private bool TryResolvePatchEndpoint(string systemName, string tgid, out ChannelBox channelBox, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne)
+        {
+            channelBox = FindChannelBySystemAndTgid(systemName, tgid);
+            cpgChannel = GetConfiguredChannels().FirstOrDefault(c => (c.System?.Trim() ?? string.Empty) == (systemName?.Trim() ?? string.Empty) && (c.Tgid?.Trim() ?? string.Empty) == (tgid?.Trim() ?? string.Empty));
+            system = Codeplug?.Systems?.FirstOrDefault(s => (s.Name?.Trim() ?? string.Empty) == (systemName?.Trim() ?? string.Empty));
+            fne = system == null ? null : fneSystemManager.GetFneSystem(system.Name);
+            return channelBox != null && cpgChannel != null && system != null && fne != null;
+        }
+
+        /// <summary>
+        /// Starts an outbound patch forward call to destination member.
+        /// </summary>
+        private uint BeginPatchForward(string systemName, string tgid, uint sourceId)
+        {
+            if (!TryResolvePatchEndpoint(systemName, tgid, out ChannelBox channelBox, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne))
+                return 0;
+
+            // Patch forwarding takes channel out of receive presentation state.
+            channelBox.IsReceiving = false;
+            channelBox.IsReceivingEncrypted = false;
+            channelBox.PttState = true;
+            channelBox.VolumeMeterLevel = 0;
+
+            if (channelBox.TxStreamId == 0)
+                channelBox.TxStreamId = fne.NewStreamId();
+
+            uint dstId = uint.Parse(cpgChannel.Tgid);
+            if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                fne.SendP25TDU(sourceId, dstId, true);
+
+            return channelBox.TxStreamId;
+        }
+
+        /// <summary>
+        /// Stops an outbound patch forward call to destination member.
+        /// </summary>
+        private void EndPatchForward(string systemName, string tgid, uint streamId, uint sourceId)
+        {
+            if (!TryResolvePatchEndpoint(systemName, tgid, out ChannelBox channelBox, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne))
+                return;
+            if (channelBox.TxStreamId == 0)
+                return;
+
+            uint dstId = uint.Parse(cpgChannel.Tgid);
+            if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                fne.SendP25TDU(sourceId, dstId, false);
+            else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                fne.SendDMRTerminator(sourceId, dstId, 1, channelBox.dmrSeqNo, channelBox.dmrN, channelBox.embeddedData);
+
+            if (!IsPatchPttTargetActive(systemName, tgid))
+                channelBox.PttState = false;
+            ResetChannel(channelBox);
+            channelBox.VolumeMeterLevel = 0;
+        }
+
+        /// <summary>
+        /// Sends forwarded PCM audio to destination member.
+        /// </summary>
+        private void SendPatchForwardAudio(string systemName, string tgid, byte[] pcm, uint sourceId)
+        {
+            if (!TryResolvePatchEndpoint(systemName, tgid, out ChannelBox channelBox, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne))
+                return;
+            if (channelBox.TxStreamId == 0)
+                return;
+
+            // Prevent stale receive bar artifacts on forwarded targets.
+            channelBox.VolumeMeterLevel = 0;
+
+            if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                P25EncodeAudioFrame(pcm, fne, channelBox, cpgChannel, system, sourceId);
+            else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                DMREncodeAudioFrame(pcm, fne, channelBox, cpgChannel, system, sourceId);
+        }
+
+        /// <summary>
+        /// Gets fallback source ID when source passthrough is unavailable/disabled.
+        /// </summary>
+        private uint GetPatchFallbackSourceId(string systemName, string tgid)
+        {
+            if (Codeplug?.Systems == null)
+                return 0;
+
+            Codeplug.System system = Codeplug.Systems.FirstOrDefault(s => (s.Name?.Trim() ?? string.Empty) == (systemName?.Trim() ?? string.Empty));
+            if (system == null || string.IsNullOrWhiteSpace(system.Rid))
+                return 0;
+
+            return uint.Parse(system.Rid);
         }
 
         /// <summary>
@@ -3423,6 +3975,26 @@ namespace dvmconsole
                     callHistoryWindow.Left = Left + ActualWidth + 5;
                     callHistoryWindow.Top = Top;
                 }
+            }
+        }
+
+        /// <summary>
+        ///
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void PatchGroups_Click(object sender, RoutedEventArgs e)
+        {
+            if (Codeplug?.PatchGroups?.Any(pg => !string.IsNullOrWhiteSpace(pg?.Name)) != true)
+                return;
+
+            patchGroupsWindow.Owner = this;
+            if (patchGroupsWindow.Visibility == Visibility.Visible)
+                patchGroupsWindow.Hide();
+            else
+            {
+                patchGroupsWindow.RefreshMemberStatusIcons();
+                patchGroupsWindow.Show();
             }
         }
 
