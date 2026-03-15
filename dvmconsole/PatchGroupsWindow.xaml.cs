@@ -402,7 +402,9 @@ namespace dvmconsole
 
                 TextBlock nameText = new TextBlock
                 {
-                    Text = member.ChannelName,
+                    Text = string.IsNullOrWhiteSpace(member.SystemName)
+                        ? member.ChannelName
+                        : $"{member.ChannelName} ({member.SystemName})",
                     VerticalAlignment = VerticalAlignment.Center,
                     TextTrimming = TextTrimming.CharacterEllipsis
                 };
