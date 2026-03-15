@@ -161,7 +161,7 @@ namespace dvmconsole
                         Height = 32
                     },
                     Height = 52,
-                    Margin = new Thickness(0, 0, 6, 8),
+                    Margin = new Thickness(6, 0, 0, 8),
                     HorizontalAlignment = HorizontalAlignment.Stretch,
                     VerticalAlignment = VerticalAlignment.Stretch,
                     Background = Brushes.Transparent,
@@ -182,7 +182,7 @@ namespace dvmconsole
                         Height = 32
                     },
                     Height = 52,
-                    Margin = new Thickness(6, 0, 0, 8),
+                    Margin = new Thickness(0, 0, 6, 8),
                     HorizontalAlignment = HorizontalAlignment.Stretch,
                     VerticalAlignment = VerticalAlignment.Stretch,
                     Background = Brushes.Transparent,
@@ -204,8 +204,8 @@ namespace dvmconsole
                 buttonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 buttonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-                Grid.SetColumn(pttButton, 0);
-                Grid.SetColumn(editButton, 1);
+                Grid.SetColumn(editButton, 0);
+                Grid.SetColumn(pttButton, 1);
                 buttonGrid.Children.Add(pttButton);
                 buttonGrid.Children.Add(editButton);
 
@@ -386,6 +386,9 @@ namespace dvmconsole
         private void RebuildTalkgroupList(PatchTabContext context)
         {
             context.TalkgroupListBox.Items.Clear();
+            context.TalkgroupListBox.ToolTip = context.IsEditing
+                ? "Drag resources from the console into the patch group list to add them, then click Edit button again to save."
+                : null;
 
             foreach (ChannelIdentity member in context.Members)
             {
