@@ -110,10 +110,12 @@ namespace dvmconsole
         private readonly object sync = new object();
         private readonly Dictionary<string, GroupRuntime> groups = new Dictionary<string, GroupRuntime>();
         private readonly HashSet<string> outboundStreams = new HashSet<string>();
+        private readonly Dictionary<string, DateTime> recentlyEndedOutboundStreams = new Dictionary<string, DateTime>();
         private readonly HashSet<string> activeTargetKeys = new HashSet<string>();
 
         private bool sourceIdPassthrough = false;
         private int membershipGeneration = 0;
+        private static readonly TimeSpan LatePacketSuppressWindow = TimeSpan.FromMilliseconds(2000);
 
         /// <summary>
         /// Initializes a new instance of the <see cref="PatchManager"/> class.
@@ -182,6 +184,7 @@ namespace dvmconsole
                         Members = kvp.Value
                     };
                 }
+
             }
 
             ExecuteStops(stops);
@@ -297,7 +300,11 @@ namespace dvmconsole
         public bool IsPatchedTransmitStream(string systemName, string tgid, uint streamId)
         {
             lock (sync)
-                return outboundStreams.Contains(BuildStreamKey(systemName, tgid, streamId));
+            {
+                CleanupExpiredRecentlyEndedUnsafe();
+                string streamKey = BuildStreamKey(systemName, tgid, streamId);
+                return outboundStreams.Contains(streamKey) || recentlyEndedOutboundStreams.ContainsKey(streamKey);
+            }
         }
 
         /// <summary>
@@ -345,7 +352,9 @@ namespace dvmconsole
                             OutboundSourceId = outboundSourceId
                         };
 
-                        outboundStreams.Add(BuildStreamKey(start.Member.SystemName, start.Member.Tgid, streamId));
+                        string streamKey = BuildStreamKey(start.Member.SystemName, start.Member.Tgid, streamId);
+                        outboundStreams.Add(streamKey);
+                        recentlyEndedOutboundStreams.Remove(streamKey);
                         activeTargetKeys.Add(start.Member.Key);
                         accepted = true;
                     }
@@ -376,7 +385,9 @@ namespace dvmconsole
             foreach (ForwardTarget target in group.ActiveTargets.Values)
             {
                 stops.Add(new StopWorkItem(target.SystemName, target.Tgid, target.StreamId, target.OutboundSourceId));
-                outboundStreams.Remove(BuildStreamKey(target.SystemName, target.Tgid, target.StreamId));
+                string streamKey = BuildStreamKey(target.SystemName, target.Tgid, target.StreamId);
+                outboundStreams.Remove(streamKey);
+                recentlyEndedOutboundStreams[streamKey] = DateTime.UtcNow + LatePacketSuppressWindow;
                 activeTargetKeys.Remove(target.MemberKey);
             }
 
@@ -459,5 +470,21 @@ namespace dvmconsole
         {
             return $"{BuildKey(systemName, tgid)}|{streamId}";
         }
+
+        /// <summary>
+        /// Removes expired entries from recently ended outbound stream suppression.
+        /// </summary>
+        private void CleanupExpiredRecentlyEndedUnsafe()
+        {
+            DateTime now = DateTime.UtcNow;
+            List<string> expired = recentlyEndedOutboundStreams
+                .Where(kvp => kvp.Value <= now)
+                .Select(kvp => kvp.Key)
+                .ToList();
+
+            foreach (string key in expired)
+                recentlyEndedOutboundStreams.Remove(key);
+        }
+
     }
 }
