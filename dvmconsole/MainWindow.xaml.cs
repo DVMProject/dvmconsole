@@ -3563,6 +3563,7 @@ namespace dvmconsole
             // Patch forwarding takes channel out of receive presentation state.
             channelBox.IsReceiving = false;
             channelBox.IsReceivingEncrypted = false;
+            channelBox.PttState = true;
             channelBox.VolumeMeterLevel = 0;
 
             if (channelBox.TxStreamId == 0)
@@ -3591,6 +3592,8 @@ namespace dvmconsole
             else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
                 fne.SendDMRTerminator(sourceId, dstId, 1, channelBox.dmrSeqNo, channelBox.dmrN, channelBox.embeddedData);
 
+            if (!IsPatchPttTargetActive(systemName, tgid))
+                channelBox.PttState = false;
             ResetChannel(channelBox);
             channelBox.VolumeMeterLevel = 0;
         }
