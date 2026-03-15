@@ -233,6 +233,7 @@ namespace dvmconsole
                     LockWidgets = loadedSettings.LockWidgets;
                     SnapCallHistoryToWindow = loadedSettings.SnapCallHistoryToWindow;
                     KeepWindowOnTop = loadedSettings.KeepWindowOnTop;
+                    TalkPermitTone = loadedSettings.TalkPermitTone;
                     Maximized = loadedSettings.Maximized;
                     DarkMode = loadedSettings.DarkMode;
                     WindowWidth = loadedSettings.WindowWidth;
