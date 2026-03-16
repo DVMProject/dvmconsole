@@ -838,7 +838,8 @@ namespace dvmconsole
 
                 // generate widgets and enable controls
                 GenerateChannelWidgets();
-                UpdatePatchMemberIndicators(memberships);
+                UpdatePatchMemberIndicators(FilterPatchMemberships(memberships));
+                UpdateMultiSelectIndicators(FilterMultiSelectMemberships(memberships));
                 patchGroupsWindow.RefreshMemberStatusIcons();
                 EnableControls();
                 MainWindow_SizeChanged(this, null);
@@ -851,6 +852,7 @@ namespace dvmconsole
                 currentPatchMemberships = new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>();
                 patchManager.ApplyMemberships(new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>(), patchGroupModes);
                 UpdatePatchMemberIndicators(new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>());
+                UpdateMultiSelectIndicators(new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>());
                 if (patchGroupsWindow.Visibility == Visibility.Visible)
                     patchGroupsWindow.Hide();
                 MessageBox.Show($"Error loading codeplug: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -1216,6 +1218,9 @@ namespace dvmconsole
             playbackCanvas.Children.Add(playbackChannelBox);
             if (defaultTab != null)
                 elementToTabMap[playbackChannelBox] = defaultTab;
+
+            UpdatePatchMemberIndicators(FilterPatchMemberships(currentPatchMemberships));
+            UpdateMultiSelectIndicators(FilterMultiSelectMemberships(currentPatchMemberships));
 
             RestoreSelectedChannels();
             Cursor = Cursors.Arrow;
@@ -3330,8 +3335,31 @@ namespace dvmconsole
         private void PatchGroupsWindow_MembershipsCommitted(Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships)
         {
             currentPatchMemberships = ClonePatchMemberships(memberships);
-            patchManager.ApplyMemberships(FilterPatchMemberships(memberships), patchGroupModes);
-            UpdatePatchMemberIndicators(memberships);
+            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> patchMemberships = FilterPatchMemberships(memberships);
+            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> multiSelectMemberships = FilterMultiSelectMemberships(memberships);
+
+            patchManager.ApplyMemberships(patchMemberships, patchGroupModes);
+            UpdatePatchMemberIndicators(patchMemberships);
+            UpdateMultiSelectIndicators(multiSelectMemberships);
+        }
+
+        private Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> FilterMultiSelectMemberships(
+      Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships)
+        {
+            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> result =
+                new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (KeyValuePair<string, List<SettingsManager.PatchTalkgroupMember>> kvp in
+                memberships ?? new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>())
+            {
+                Codeplug.Group group = Codeplug?.Groups?
+                    .FirstOrDefault(g => string.Equals(g.Name, kvp.Key, StringComparison.OrdinalIgnoreCase));
+
+                if (group != null && group.IsMultiselectGroup())
+                    result[kvp.Key] = kvp.Value ?? new List<SettingsManager.PatchTalkgroupMember>();
+            }
+
+            return result;
         }
 
         /// <summary>
@@ -3416,6 +3444,32 @@ namespace dvmconsole
 
                     string channelKey = BuildPatchTargetKey(NormalizeChannelSystemName(channel.SystemName), channel.DstId);
                     channel.SetPatchMembershipIndicator(patchMembers.Contains(channelKey));
+                }
+            }
+        }
+        private void UpdateMultiSelectIndicators(Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships)
+        {
+            HashSet<string> multiSelectMembers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (SettingsManager.PatchTalkgroupMember member in (memberships ?? new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>())
+                .SelectMany(kvp => kvp.Value ?? new List<SettingsManager.PatchTalkgroupMember>())
+                .Where(m => !string.IsNullOrWhiteSpace(m?.SystemName) && !string.IsNullOrWhiteSpace(m?.Tgid)))
+            {
+                multiSelectMembers.Add(BuildPatchTargetKey(member.SystemName, member.Tgid));
+            }
+
+            foreach (Canvas canvas in GetAllCanvases())
+            {
+                foreach (ChannelBox channel in canvas.Children.OfType<ChannelBox>())
+                {
+                    if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                    {
+                        channel.SetMultiSelectIndicator(false);
+                        continue;
+                    }
+
+                    string channelKey = BuildPatchTargetKey(NormalizeChannelSystemName(channel.SystemName), channel.DstId);
+                    channel.SetMultiSelectIndicator(multiSelectMembers.Contains(channelKey));
                 }
             }
         }

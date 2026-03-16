@@ -33,8 +33,6 @@ groups:
     # Textual name of the group and type ("patch" or "multiselect")
   - name: "Patch 1"
     type: "patch"
-  - name: "Patch 2"
-    type: "patch"
   - name: "Multi Select 1"
     type: "multiselect"
 

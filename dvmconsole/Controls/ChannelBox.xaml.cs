@@ -59,6 +59,11 @@ namespace dvmconsole.Controls
         private double volume = 1.0;
         private bool isSelected;
 
+        private bool isMultiSelectMember = false;
+        private string indicatorIconSource = "/dvmconsole;component/Assets/patch_edit_off.png";
+        private Visibility indicatorIconVisibility = Visibility.Collapsed;
+        private string indicatorIconToolTip = "Member of one or more patch groups";
+
         public FlashingBackgroundManager flashingBackgroundManager;
 
         public byte[] netLDU1 = new byte[9 * 25];
@@ -352,6 +357,69 @@ namespace dvmconsole.Controls
         /// </summary>
         public bool IsPatchGroupMember { get; private set; }
 
+        /// <summary>
+        /// Flag indicating whether this resource belongs to the current multi-select group.
+        /// </summary>
+        public bool IsMultiSelectMember
+        {
+            get => isMultiSelectMember;
+            private set
+            {
+                if (isMultiSelectMember != value)
+                {
+                    isMultiSelectMember = value;
+                    OnPropertyChanged(nameof(IsMultiSelectMember));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Source path for the top-right indicator icon.
+        /// </summary>
+        public string IndicatorIconSource
+        {
+            get => indicatorIconSource;
+            private set
+            {
+                if (indicatorIconSource != value)
+                {
+                    indicatorIconSource = value;
+                    OnPropertyChanged(nameof(IndicatorIconSource));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Visibility for the top-right indicator icon.
+        /// </summary>
+        public Visibility IndicatorIconVisibility
+        {
+            get => indicatorIconVisibility;
+            private set
+            {
+                if (indicatorIconVisibility != value)
+                {
+                    indicatorIconVisibility = value;
+                    OnPropertyChanged(nameof(IndicatorIconVisibility));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Tooltip text for the top-right indicator icon.
+        /// </summary>
+        public string IndicatorIconToolTip
+        {
+            get => indicatorIconToolTip;
+            private set
+            {
+                if (indicatorIconToolTip != value)
+                {
+                    indicatorIconToolTip = value;
+                    OnPropertyChanged(nameof(IndicatorIconToolTip));
+                }
+            }
+        }
         /// <summary>
         /// Current volume for this channel.
         /// </summary>
@@ -781,16 +849,50 @@ namespace dvmconsole.Controls
         }
 
         /// <summary>
-        /// Sets the patch membership indicator visibility for this resource.
+        /// Updates the top-right indicator icon based on current state.
+        /// Multi-select takes priority over patch membership.
+        /// </summary>
+        private void UpdateIndicatorIcon()
+        {
+            Dispatcher.Invoke(() =>
+            {
+                if (IsMultiSelectMember)
+                {
+                    IndicatorIconSource = "/dvmconsole;component/Assets/msel_inactive.png";
+                    IndicatorIconToolTip = "Member of the current multi-select group";
+                    IndicatorIconVisibility = Visibility.Visible;
+                }
+                else if (IsPatchGroupMember)
+                {
+                    IndicatorIconSource = "/dvmconsole;component/Assets/patch_edit_off.png";
+                    IndicatorIconToolTip = "Member of one or more patch groups";
+                    IndicatorIconVisibility = Visibility.Visible;
+                }
+                else
+                {
+                    IndicatorIconVisibility = Visibility.Collapsed;
+                }
+            });
+        }
+
+        /// <summary>
+        /// Sets the patch membership indicator state for this resource.
         /// </summary>
         /// <param name="isMember"></param>
         public void SetPatchMembershipIndicator(bool isMember)
         {
             IsPatchGroupMember = isMember;
-            Dispatcher.Invoke(() =>
-            {
-                PatchMemberIcon.Visibility = isMember ? Visibility.Visible : Visibility.Collapsed;
-            });
+            UpdateIndicatorIcon();
+        }
+
+        /// <summary>
+        /// Sets the multi-select indicator state for this resource.
+        /// </summary>
+        /// <param name="isMember"></param>
+        public void SetMultiSelectIndicator(bool isMember)
+        {
+            IsMultiSelectMember = isMember;
+            UpdateIndicatorIcon();
         }
 
         /// <summary>
