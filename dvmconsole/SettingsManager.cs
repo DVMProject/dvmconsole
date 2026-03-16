@@ -232,7 +232,9 @@ namespace dvmconsole
                     AlertToneFilePaths = loadedSettings.AlertToneFilePaths ?? new List<string>();
                     AlertTonePositions = loadedSettings.AlertTonePositions ?? new Dictionary<string, ChannelPosition>();
                     ChannelOutputDevices = loadedSettings.ChannelOutputDevices ?? new Dictionary<string, int>();
-                    PatchGroupMemberships = loadedSettings.PatchGroupMemberships ?? new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>();
+                    // Group memberships are intentionally session-only for now and
+                    // are not restored on startup unless a future explicit setting re-enables it.
+                    PatchGroupMemberships = new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>();
                     PatchGroupModes = loadedSettings.PatchGroupModes ?? new Dictionary<string, Dictionary<string, bool>>();
                     TogglePTTMode = loadedSettings.TogglePTTMode;
                     LockWidgets = loadedSettings.LockWidgets;
@@ -393,15 +395,7 @@ namespace dvmconsole
         /// <returns></returns>
         public Dictionary<string, List<PatchTalkgroupMember>> GetPatchGroupMemberships(string contextKey)
         {
-            string key = NormalizePatchMembershipKey(contextKey);
-            if (!PatchGroupMemberships.TryGetValue(key, out Dictionary<string, List<PatchTalkgroupMember>> memberships))
-                return new Dictionary<string, List<PatchTalkgroupMember>>();
-
-            Dictionary<string, List<PatchTalkgroupMember>> copy = new Dictionary<string, List<PatchTalkgroupMember>>();
-            foreach (KeyValuePair<string, List<PatchTalkgroupMember>> kvp in memberships)
-                copy[kvp.Key] = NormalizePatchMembers(kvp.Value);
-
-            return copy;
+            return new Dictionary<string, List<PatchTalkgroupMember>>();
         }
 
         /// <summary>
@@ -412,12 +406,8 @@ namespace dvmconsole
         public void SavePatchGroupMemberships(string contextKey, Dictionary<string, List<PatchTalkgroupMember>> memberships)
         {
             string key = NormalizePatchMembershipKey(contextKey);
-            Dictionary<string, List<PatchTalkgroupMember>> normalized = new Dictionary<string, List<PatchTalkgroupMember>>();
-            foreach (KeyValuePair<string, List<PatchTalkgroupMember>> kvp in memberships ?? new Dictionary<string, List<PatchTalkgroupMember>>())
-                normalized[kvp.Key] = NormalizePatchMembers(kvp.Value);
-
-            PatchGroupMemberships[key] = normalized;
-            SaveSettings();
+            if (PatchGroupMemberships.Remove(key))
+                SaveSettings();
         }
 
         /// <summary>

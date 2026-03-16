@@ -10,6 +10,7 @@
 *   Copyright (C) 2025 Caleb, K4PHP
 *   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
 *   Copyright (C) 2026 Lorenzo L. Romero, K2LLR
+*   Copyright (C) 2026 C. Lovell, K7CBL
 *
 */
 
@@ -69,8 +70,16 @@ namespace dvmconsole
             public string GroupType { get; set; } = "patch";
             public Image PttIcon { get; set; }
             public Button PttButton { get; set; }
+            public TextBlock PttText { get; set; }
+            public Button EditButton { get; set; }
             public Image EditIcon { get; set; }
+            public TextBlock EditText { get; set; }
             public CheckBox OneWayToggle { get; set; }
+            public TextBlock OneWayModeTitle { get; set; }
+            public TextBlock OneWayDescription { get; set; }
+            public TextBlock MemberOrderHint { get; set; }
+            public Border StatusBorder { get; set; }
+            public TextBlock StatusText { get; set; }
             public ListBox TalkgroupListBox { get; set; }
             public List<ChannelIdentity> Members { get; set; } = new List<ChannelIdentity>();
             public bool IsEditing { get; set; }
@@ -89,6 +98,12 @@ namespace dvmconsole
         private static readonly BitmapImage STATUS_RECEIVING_ICON = new BitmapImage(new Uri("pack://application:,,,/dvmconsole;component/Assets/ind_transmit_busy.png"));
         private static readonly BitmapImage STATUS_TRANSMITTING_ICON = new BitmapImage(new Uri("pack://application:,,,/dvmconsole;component/Assets/ind_transmit_select.png"));
         private static readonly BitmapImage STATUS_IDLE_ICON = new BitmapImage(new Uri("pack://application:,,,/dvmconsole;component/Assets/ind_transmit_callback_select.png"));
+        private static readonly Brush BUTTON_IDLE_BACKGROUND = new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33));
+        private static readonly Brush PANEL_IDLE_BACKGROUND = new SolidColorBrush(Color.FromRgb(0x2B, 0x2B, 0x2B));
+        private static readonly Brush EDIT_STATUS_BACKGROUND = new SolidColorBrush(Color.FromRgb(0x0D, 0x47, 0x6B));
+        private static readonly Brush INFO_TEXT_BRUSH = new SolidColorBrush(Color.FromRgb(0xE6, 0xE6, 0xE6));
+        private static readonly Brush MUTED_TEXT_BRUSH = new SolidColorBrush(Color.FromRgb(0xC0, 0xC0, 0xC0));
+        private static readonly Brush LIST_BACKGROUND = new SolidColorBrush(Color.FromRgb(0x28, 0x28, 0x28));
 
         private readonly SettingsManager settingsManager;
         private readonly Func<string, string, PatchTalkgroupState> talkgroupStateResolver;
@@ -102,6 +117,22 @@ namespace dvmconsole
         /// Gets whether any patch group is currently in edit mode.
         /// </summary>
         public bool IsAnyGroupEditing => tabContexts.Values.Any(c => c.IsEditing);
+
+        /// <summary>
+        /// Gets the in-memory memberships for the current session.
+        /// </summary>
+        public Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> GetCurrentMemberships()
+        {
+            return CloneMemberships(tabContexts.ToDictionary(
+                kvp => kvp.Key,
+                kvp => kvp.Value.Members
+                    .Select(m => new SettingsManager.PatchTalkgroupMember
+                    {
+                        SystemName = m.SystemName,
+                        Tgid = m.Tgid
+                    })
+                    .ToList()));
+        }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="PatchGroupsWindow"/> class.
@@ -157,9 +188,9 @@ namespace dvmconsole
             if (patchGroups == null)
                 return;
 
-            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> persistedMemberships = settingsManager.GetPatchGroupMemberships(membershipContextKey);
             Dictionary<string, bool> persistedModes = settingsManager.GetPatchGroupModes(membershipContextKey);
-            lastPersistedMemberships = CloneMemberships(persistedMemberships);
+            lastPersistedMemberships = new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>(
+                StringComparer.OrdinalIgnoreCase);
             lastPersistedModes = new Dictionary<string, bool>(persistedModes ?? new Dictionary<string, bool>(), StringComparer.OrdinalIgnoreCase);
 
             foreach (Codeplug.Group patchGroup in patchGroups.Where(pg => !string.IsNullOrWhiteSpace(pg?.Name)))
@@ -175,51 +206,89 @@ namespace dvmconsole
                     IsOneWay = isOneWay
                 };
 
+                Image pttIcon = new Image
+                {
+                    Source = isMultiSelect ? TRANSMIT_OUT_MSEL_ICON : TRANSMIT_OUT_PATCH_ICON,
+                    Width = 24,
+                    Height = 24,
+                    Margin = new Thickness(0, 0, 8, 0)
+                };
+                TextBlock pttText = new TextBlock
+                {
+                    VerticalAlignment = VerticalAlignment.Center,
+                    FontWeight = FontWeights.SemiBold,
+                    Text = isMultiSelect ? "Multi-Select PTT" : "Patch PTT"
+                };
                 Button pttButton = new Button
                 {
-                    Content = new Image
+                    Content = new StackPanel
                     {
-                        Source = isMultiSelect ? TRANSMIT_OUT_MSEL_ICON : TRANSMIT_OUT_PATCH_ICON,
-                        Width = 32,
-                        Height = 32
+                        Orientation = Orientation.Horizontal,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        Children = { pttIcon, pttText }
                     },
-                    Height = 52,
+                    Height = 56,
                     Margin = new Thickness(6, 0, 0, 8),
                     HorizontalAlignment = HorizontalAlignment.Stretch,
                     VerticalAlignment = VerticalAlignment.Stretch,
-                    Background = Brushes.Transparent,
-                    ToolTip = $"Group PTT - {patchGroup.Name}",
+                    Padding = new Thickness(12, 6, 12, 6),
+                    Background = BUTTON_IDLE_BACKGROUND,
+                    Foreground = Brushes.White,
+                    BorderThickness = new Thickness(1),
+                    BorderBrush = GetAccentBrush(context),
+                    ToolTip = string.Empty,
                     Uid = "PatchPtt",
                     Tag = context
                 };
                 pttButton.Click += PatchPttButton_Click;
                 context.PttButton = pttButton;
-                context.PttIcon = pttButton.Content as Image;
+                context.PttIcon = pttIcon;
+                context.PttText = pttText;
 
+                Image editIcon = new Image
+                {
+                    Source = isMultiSelect ? MSEL_EDIT_OFF_ICON : PATCH_EDIT_OFF_ICON,
+                    Width = 24,
+                    Height = 24,
+                    Margin = new Thickness(0, 0, 8, 0)
+                };
+                TextBlock editText = new TextBlock
+                {
+                    VerticalAlignment = VerticalAlignment.Center,
+                    FontWeight = FontWeights.SemiBold,
+                    Text = "Edit Members"
+                };
                 Button editButton = new Button
                 {
-                    Content = new Image
+                    Content = new StackPanel
                     {
-                        Source = isMultiSelect ? MSEL_EDIT_OFF_ICON : PATCH_EDIT_OFF_ICON,
-                        Width = 32,
-                        Height = 32
+                        Orientation = Orientation.Horizontal,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        Children = { editIcon, editText }
                     },
-                    Height = 52,
+                    Height = 56,
                     Margin = new Thickness(0, 0, 6, 8),
                     HorizontalAlignment = HorizontalAlignment.Stretch,
                     VerticalAlignment = VerticalAlignment.Stretch,
-                    Background = Brushes.Transparent,
-                    ToolTip = $"Edit Group - {patchGroup.Name}",
+                    Padding = new Thickness(12, 6, 12, 6),
+                    Background = BUTTON_IDLE_BACKGROUND,
+                    Foreground = Brushes.White,
+                    BorderThickness = new Thickness(1),
+                    BorderBrush = GetAccentBrush(context),
+                    ToolTip = string.Empty,
                     Uid = "PatchEdit",
                     Tag = context
                 };
                 editButton.Click += PatchEditButton_Click;
-                context.EditIcon = editButton.Content as Image;
+                context.EditButton = editButton;
+                context.EditIcon = editIcon;
+                context.EditText = editText;
 
                 Grid contentGrid = new Grid
                 {
                     Margin = new Thickness(8)
                 };
+                contentGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
                 contentGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
                 contentGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
                 contentGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -233,10 +302,26 @@ namespace dvmconsole
                 buttonGrid.Children.Add(pttButton);
                 buttonGrid.Children.Add(editButton);
 
+                TextBlock statusText = new TextBlock
+                {
+                    TextWrapping = TextWrapping.Wrap,
+                    Foreground = INFO_TEXT_BRUSH
+                };
+                Border statusBorder = new Border
+                {
+                    CornerRadius = new CornerRadius(4),
+                    Padding = new Thickness(10, 8, 10, 8),
+                    Margin = new Thickness(0, 0, 0, 8),
+                    Background = PANEL_IDLE_BACKGROUND,
+                    Child = statusText
+                };
+                context.StatusBorder = statusBorder;
+                context.StatusText = statusText;
+
                 CheckBox oneWayToggle = new CheckBox
                 {
-                    Content = "One Way",
-                    Margin = new Thickness(6, 0, 6, 8),
+                    Content = "Enable One-Way Patch",
+                    Margin = new Thickness(6, 0, 6, 2),
                     IsChecked = context.IsOneWay,
                     Visibility = isMultiSelect ? Visibility.Collapsed : Visibility.Visible,
                     Tag = context
@@ -245,10 +330,48 @@ namespace dvmconsole
                 oneWayToggle.Unchecked += OneWayToggle_Changed;
                 context.OneWayToggle = oneWayToggle;
 
+                TextBlock oneWayModeTitle = new TextBlock
+                {
+                    Margin = new Thickness(26, 0, 6, 0),
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = INFO_TEXT_BRUSH,
+                    Visibility = isMultiSelect ? Visibility.Collapsed : Visibility.Visible
+                };
+                context.OneWayModeTitle = oneWayModeTitle;
+
+                TextBlock oneWayDescription = new TextBlock
+                {
+                    Margin = new Thickness(26, 0, 6, 0),
+                    TextWrapping = TextWrapping.Wrap,
+                    Foreground = MUTED_TEXT_BRUSH,
+                    Visibility = isMultiSelect ? Visibility.Collapsed : Visibility.Visible
+                };
+                context.OneWayDescription = oneWayDescription;
+
+                TextBlock memberOrderHint = new TextBlock
+                {
+                    Margin = new Thickness(26, 4, 6, 8),
+                    Text = "Member Order: 1 = Source, 2+ = Destinations",
+                    TextWrapping = TextWrapping.Wrap,
+                    Foreground = MUTED_TEXT_BRUSH,
+                    FontStyle = FontStyles.Italic,
+                    Visibility = Visibility.Collapsed
+                };
+                context.MemberOrderHint = memberOrderHint;
+
+                StackPanel oneWayPanel = new StackPanel();
+                oneWayPanel.Children.Add(oneWayToggle);
+                oneWayPanel.Children.Add(oneWayModeTitle);
+                oneWayPanel.Children.Add(oneWayDescription);
+                oneWayPanel.Children.Add(memberOrderHint);
+
                 ListBox talkgroupListBox = new ListBox
                 {
                     Margin = new Thickness(0),
                     AllowDrop = true,
+                    Background = LIST_BACKGROUND,
+                    BorderThickness = new Thickness(1),
+                    BorderBrush = Brushes.DimGray,
                     Tag = context
                 };
                 talkgroupListBox.DragOver += TalkgroupListBox_DragOver;
@@ -256,21 +379,13 @@ namespace dvmconsole
                 context.TalkgroupListBox = talkgroupListBox;
 
                 Grid.SetRow(buttonGrid, 0);
-                Grid.SetRow(oneWayToggle, 1);
-                Grid.SetRow(talkgroupListBox, 2);
+                Grid.SetRow(statusBorder, 1);
+                Grid.SetRow(oneWayPanel, 2);
+                Grid.SetRow(talkgroupListBox, 3);
                 contentGrid.Children.Add(buttonGrid);
-                contentGrid.Children.Add(oneWayToggle);
+                contentGrid.Children.Add(statusBorder);
+                contentGrid.Children.Add(oneWayPanel);
                 contentGrid.Children.Add(talkgroupListBox);
-
-                if (persistedMemberships.TryGetValue(context.GroupName, out List<SettingsManager.PatchTalkgroupMember> savedMembers))
-                {
-                    context.Members = savedMembers
-                        .Select(m => BuildIdentity(m.SystemName, m.Tgid))
-                        .Where(m => validChannelsByKey.ContainsKey(m.Key))
-                        .GroupBy(m => m.Key)
-                        .Select(g => validChannelsByKey[g.Key])
-                        .ToList();
-                }
 
                 TabItem tab = new TabItem
                 {
@@ -285,13 +400,12 @@ namespace dvmconsole
 
                 patchGroupTabs.Items.Add(tab);
                 tabContexts[context.GroupName] = context;
+                UpdateContextVisualState(context);
                 RebuildTalkgroupList(context);
             }
 
             if (patchGroupTabs.Items.Count > 0)
                 patchGroupTabs.SelectedIndex = 0;
-
-            PersistAllMemberships();
             PersistAllModes();
             GroupModesCommitted?.Invoke(BuildGroupModesMap());
         }
@@ -333,10 +447,7 @@ namespace dvmconsole
             context.IsPttActive = false;
             if (context.PttButton != null)
                 context.PttButton.Tag = context;
-            if (context.EditIcon != null)
-                context.EditIcon.Source = GetEditInactiveIcon(context);
-            if (context.PttIcon != null)
-                context.PttIcon.Source = GetPttInactiveIcon(context);
+            UpdateContextVisualState(context);
             if (wasPttActive)
                 RaisePatchPttStateChanged(context, false);
             RebuildTalkgroupList(context);
@@ -351,11 +462,11 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void PatchPttButton_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is not Button button || button.Content is not Image icon || button.Tag is not PatchTabContext context)
+            if (sender is not Button button || button.Tag is not PatchTabContext context)
                 return;
 
             context.IsPttActive = !context.IsPttActive;
-            icon.Source = context.IsPttActive ? GetPttActiveIcon(context) : GetPttInactiveIcon(context);
+            UpdateContextVisualState(context);
             RaisePatchPttStateChanged(context, context.IsPttActive);
         }
 
@@ -366,7 +477,7 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void PatchEditButton_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is not Button button || button.Content is not Image icon || button.Tag is not PatchTabContext context)
+            if (sender is not Button button || button.Tag is not PatchTabContext context)
                 return;
 
             bool isActive = !context.IsEditing;
@@ -374,7 +485,7 @@ namespace dvmconsole
                 DeactivateContext(otherContext, commitChanges: true);
 
             context.IsEditing = isActive;
-            icon.Source = isActive ? GetEditActiveIcon(context) : GetEditInactiveIcon(context);
+            UpdateContextVisualState(context);
             RebuildTalkgroupList(context);
             if (!isActive)
                 PersistAllMemberships();
@@ -393,6 +504,7 @@ namespace dvmconsole
                 return;
 
             context.IsOneWay = checkBox.IsChecked == true;
+            UpdateContextVisualState(context);
             PersistAllModes();
             GroupModesCommitted?.Invoke(BuildGroupModesMap());
         }
@@ -448,9 +560,26 @@ namespace dvmconsole
         private void RebuildTalkgroupList(PatchTabContext context)
         {
             context.TalkgroupListBox.Items.Clear();
-            context.TalkgroupListBox.ToolTip = context.IsEditing
-                ? "Drag resources from the console into the group list to add them, then click Edit button again to save."
-                : null;
+            UpdateContextVisualState(context);
+
+            if (context.Members.Count == 0)
+            {
+                context.TalkgroupListBox.Items.Add(new ListBoxItem
+                {
+                    Content = new TextBlock
+                    {
+                        Text = context.IsEditing
+                            ? "Drag channels here from the main console to add them to this group."
+                            : "No members yet. Click Edit Members to start building this group.",
+                        Foreground = MUTED_TEXT_BRUSH,
+                        TextWrapping = TextWrapping.Wrap,
+                        Margin = new Thickness(8)
+                    },
+                    IsEnabled = false
+                });
+
+                return;
+            }
 
             foreach (ChannelIdentity member in context.Members)
             {
@@ -475,23 +604,24 @@ namespace dvmconsole
                 {
                     Content = new TextBlock
                     {
-                        Text = "X",
-                        Foreground = Brushes.Gray,
+                        Text = "Remove",
+                        Foreground = Brushes.White,
                         FontWeight = FontWeights.SemiBold,
                         VerticalAlignment = VerticalAlignment.Center,
                         HorizontalAlignment = HorizontalAlignment.Center
                     },
-                    Width = 20,
-                    Height = 20,
-                    Padding = new Thickness(0),
+                    MinWidth = 70,
+                    Height = 24,
+                    Padding = new Thickness(8, 0, 8, 0),
                     HorizontalAlignment = HorizontalAlignment.Right,
                     VerticalAlignment = VerticalAlignment.Center,
-                    Background = Brushes.Transparent,
-                    BorderBrush = Brushes.Transparent,
-                    BorderThickness = new Thickness(0),
+                    Background = BUTTON_IDLE_BACKGROUND,
+                    Foreground = Brushes.White,
+                    BorderBrush = GetAccentBrush(context),
+                    BorderThickness = new Thickness(1),
                     Visibility = context.IsEditing ? Visibility.Visible : Visibility.Collapsed,
                     Tag = member.Key,
-                    ToolTip = "Remove from group"
+                    ToolTip = $"Remove {member.ChannelName} from {context.GroupName}"
                 };
                 removeButton.Click += (s, e) =>
                 {
@@ -574,7 +704,7 @@ namespace dvmconsole
         }
 
         /// <summary>
-        /// Persists all patch memberships to settings.
+        /// Commits all patch memberships to the host window for the current session.
         /// </summary>
         private void PersistAllMemberships()
         {
@@ -593,7 +723,6 @@ namespace dvmconsole
             if (MembershipsEqual(lastPersistedMemberships, memberships))
                 return;
 
-            settingsManager.SavePatchGroupMemberships(membershipContextKey, memberships);
             lastPersistedMemberships = CloneMemberships(memberships);
             MembershipsCommitted?.Invoke(CloneMemberships(memberships));
         }
@@ -747,6 +876,101 @@ namespace dvmconsole
             }
 
             return modes;
+        }
+
+        private void UpdateContextVisualState(PatchTabContext context)
+        {
+            if (context == null)
+                return;
+
+            bool isMultiSelect = context.GroupType.Equals("multiselect", StringComparison.OrdinalIgnoreCase);
+            string groupKind = isMultiSelect ? "multi-select" : "patch";
+
+            if (context.EditIcon != null)
+                context.EditIcon.Source = context.IsEditing ? GetEditActiveIcon(context) : GetEditInactiveIcon(context);
+            if (context.PttIcon != null)
+                context.PttIcon.Source = context.IsPttActive ? GetPttActiveIcon(context) : GetPttInactiveIcon(context);
+
+            if (context.EditText != null)
+                context.EditText.Text = context.IsEditing ? "Stop Editing" : "Edit Members";
+            if (context.PttText != null)
+                context.PttText.Text = context.IsPttActive
+                    ? (isMultiSelect ? "Stop Multi-Select PTT" : "Stop Patch PTT")
+                    : (isMultiSelect ? "Multi-Select PTT" : "Patch PTT");
+
+            if (context.EditButton != null)
+            {
+                context.EditButton.Background = context.IsEditing ? GetAccentBrush(context) : BUTTON_IDLE_BACKGROUND;
+                context.EditButton.ToolTip = context.IsEditing
+                    ? $"Editing {context.GroupName}. Drag channels from the main console into this group, use Remove to take them out, then click Stop Editing."
+                    : $"Edit members for {context.GroupName}. Click to start editing, then drag channels from the main console into this group.";
+            }
+
+            if (context.PttButton != null)
+            {
+                context.PttButton.Background = context.IsPttActive ? GetAccentBrush(context) : BUTTON_IDLE_BACKGROUND;
+                context.PttButton.ToolTip = context.IsPttActive
+                    ? $"Transmitting to every member in {context.GroupName}. Click again to stop."
+                    : $"Transmit to every member in {context.GroupName}. Use this when you want to talk to the whole {groupKind} at once.";
+            }
+
+            if (context.StatusBorder != null)
+                context.StatusBorder.Background = context.IsEditing ? EDIT_STATUS_BACKGROUND : PANEL_IDLE_BACKGROUND;
+
+            if (context.StatusText != null)
+            {
+                if (context.IsEditing)
+                {
+                    context.StatusText.Text = "Editing is active. Drag channels from the main console into this list. Use Remove to take channels out, then click Stop Editing when you are done.";
+                }
+                else if (context.Members.Count == 0)
+                {
+                    context.StatusText.Text = "This group is empty. Click Edit Members, then drag channels from the main console into the list below.";
+                }
+                else
+                {
+                    context.StatusText.Text = $"This {groupKind} currently has {context.Members.Count} member{(context.Members.Count == 1 ? string.Empty : "s")}. Click Edit Members to change it.";
+                }
+            }
+
+            if (context.OneWayDescription != null)
+            {
+                context.OneWayDescription.Text = context.IsOneWay
+                    ? "First listed member is the source.\nAll following members receive audio."
+                    : "All members can transmit and receive.";
+            }
+
+            if (context.OneWayModeTitle != null)
+            {
+                context.OneWayModeTitle.Text = context.IsOneWay
+                    ? "Patch Mode: One-Way"
+                    : "Patch Mode: Two-Way";
+            }
+
+            if (context.MemberOrderHint != null)
+            {
+                context.MemberOrderHint.Visibility = context.IsOneWay ? Visibility.Visible : Visibility.Collapsed;
+            }
+
+            if (context.OneWayToggle != null)
+            {
+                context.OneWayToggle.ToolTip = "Limits the patch so only the first listed member can start it. The other listed members receive the forwarded traffic.";
+            }
+
+            if (context.TalkgroupListBox != null)
+            {
+                context.TalkgroupListBox.BorderBrush = context.IsEditing ? GetAccentBrush(context) : Brushes.DimGray;
+                context.TalkgroupListBox.ToolTip = context.IsEditing
+                    ? "Editing is active. Drag channels here from the main console."
+                    : "Group members appear here.";
+            }
+        }
+
+        private static Brush GetAccentBrush(PatchTabContext context)
+        {
+            return context.GroupType.Equals("multiselect", StringComparison.OrdinalIgnoreCase)
+                ? new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32))
+                : new SolidColorBrush(Color.FromRgb(0x15, 0x65, 0xC0));
         }
 
         private static BitmapImage GetPttInactiveIcon(PatchTabContext context) => context.GroupType == "multiselect" ? TRANSMIT_OUT_MSEL_ICON : TRANSMIT_OUT_PATCH_ICON;

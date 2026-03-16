@@ -29,6 +29,8 @@ systems:
     #aliasPath: "Full/Path/To/alias.yml"
     
 # Optional groups (each group becomes a tab in the Groups window)
+# Group memberships are assigned at runtime from the Groups window.
+# They are not defined in the codeplug.
 groups:
     # Textual name of the group and type ("patch" or "multiselect")
   - name: "Patch 1"

@@ -820,7 +820,7 @@ namespace dvmconsole
                 patchGroupsWindow.SetPatchGroups(Codeplug.Groups, GetConfiguredChannels());
                 patchGroupModes = patchGroupsWindow.GetPatchGroupModes();
                 patchManager.SetSourceIdPassthrough(Codeplug.PatchSourceIdPassthrough);
-                Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships = settingsManager.GetPatchGroupMemberships(filePath);
+                Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships = patchGroupsWindow.GetCurrentMemberships();
                 currentPatchMemberships = ClonePatchMemberships(memberships);
                 patchManager.ApplyMemberships(FilterPatchMemberships(memberships), patchGroupModes);
 
@@ -2124,7 +2124,6 @@ namespace dvmconsole
             menuToggleLockWidgets.IsChecked = settingsManager.LockWidgets;
             menuSnapCallHistory.IsChecked = settingsManager.SnapCallHistoryToWindow;
             menuTogglePTTMode.IsChecked = settingsManager.TogglePTTMode;
-            menuToggleGlobalPTTMode.IsChecked = settingsManager.GlobalPTTKeysAllChannels;
             menuTalkPermitTone.IsChecked = settingsManager.TalkPermitTone;
             menuRestoreSelectedChannels.IsChecked = settingsManager.RestoreSelectedChannelsOnStartup;
             menuKeepWindowOnTop.IsChecked = settingsManager.KeepWindowOnTop;

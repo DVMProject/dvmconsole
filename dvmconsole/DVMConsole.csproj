@@ -78,6 +78,7 @@
     <None Remove="Docs\Getting Started\03-Configurations\01-Codeplug Creation.md" />
     <None Remove="Docs\Getting Started\03-Configurations\02-Encryption Keys.md" />
     <None Remove="Docs\Getting Started\03-Configurations\03-RID Aliases.md" />
+    <None Remove="Docs\Getting Started\03-Configurations\04-Groups and Patching.md" />
     <None Remove="Docs\Getting Started\Building.md" />
     <None Remove="Docs\Getting Started\Overview.md" />
     <None Remove="page.png" />
@@ -98,6 +99,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Docs\Getting Started\03-Configurations\03-RID Aliases.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Docs\Getting Started\03-Configurations\04-Groups and Patching.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

@@ -7,6 +7,7 @@ A codeplug is a YAML configuration file that defines:
 - Systems the console connects to
 - Zones (tabs) shown in the UI
 - Channels displayed in each zone
+- Optional patch and multi-select group definitions
 - Optional encryption and visual settings
 
 The console loads this configuration file at startup.
@@ -24,12 +25,15 @@ systems
 zones
 ```
 
-Optional sections such as encryption key files may also be defined.
+Optional sections such as `groups`, `keyFile`, and `patchSourceIdPassthrough` may also be defined.
 
 Example structure:
 
 ```yaml
 systems:
+  - ...
+
+groups:
   - ...
 
 zones:
@@ -170,6 +174,66 @@ List of channel resources displayed within the zone.
 
 ---
 
+# Groups (Optional)
+
+The `groups` section defines the tabs shown in the **Groups** window.
+
+Each group entry defines:
+
+- the group name shown in the UI
+- the group type
+
+Example:
+
+```yaml
+groups:
+  - name: "Patch 1"
+    type: "patch"
+  - name: "Multi Select 1"
+    type: "multiselect"
+```
+
+Fields:
+
+### name
+
+Display name shown on the group tab.
+
+### type
+
+Defines how the group behaves.
+
+Supported values:
+
+```
+patch
+multiselect
+```
+
+Notes:
+
+- Group memberships are not stored in the codeplug itself.
+- Operators build the live member list from the **Groups** window by clicking **Edit Members** and dragging channels from the main console.
+- Group memberships are currently session-only and are cleared after restart.
+
+---
+
+# Patch Source ID Passthrough (Optional)
+
+The `patchSourceIdPassthrough` flag controls how forwarded patch traffic handles source IDs.
+
+Example:
+
+```yaml
+patchSourceIdPassthrough: false
+```
+
+When `false`, forwarded patch traffic uses the configured console RID for the destination system.
+
+When `true`, the console attempts to pass through the inbound source ID while patch forwarding.
+
+---
+
 # Channels
 
 Channels represent individual dispatch resources.
@@ -287,6 +351,14 @@ systems:
     encrypted: false
     presharedKey: "123ABC1234"
 
+groups:
+  - name: "Patch 1"
+    type: "patch"
+  - name: "Multi Select 1"
+    type: "multiselect"
+
+patchSourceIdPassthrough: false
+
 zones:
   - name: "Primary"
     tabColor: "#E57373"
@@ -305,6 +377,8 @@ zones:
 
 - Keep system names short and consistent
 - Use clear zone names for tab organization
+- Use clear group names such as "Dispatch Patch" or "Fire Multi Select"
 - Group channels logically by purpose
 - Verify that each channel references a valid system
+- Verify that each group uses a valid `type`
 - Test codeplug changes before deploying large configurations
