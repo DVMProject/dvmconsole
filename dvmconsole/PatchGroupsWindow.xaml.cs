@@ -188,9 +188,9 @@ namespace dvmconsole
             if (patchGroups == null)
                 return;
 
+            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> persistedMemberships = settingsManager.GetPatchGroupMemberships(membershipContextKey);
             Dictionary<string, bool> persistedModes = settingsManager.GetPatchGroupModes(membershipContextKey);
-            lastPersistedMemberships = new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>(
-                StringComparer.OrdinalIgnoreCase);
+            lastPersistedMemberships = CloneMemberships(persistedMemberships);
             lastPersistedModes = new Dictionary<string, bool>(persistedModes ?? new Dictionary<string, bool>(), StringComparer.OrdinalIgnoreCase);
 
             foreach (Codeplug.Group patchGroup in patchGroups.Where(pg => !string.IsNullOrWhiteSpace(pg?.Name)))
@@ -386,6 +386,16 @@ namespace dvmconsole
                 contentGrid.Children.Add(statusBorder);
                 contentGrid.Children.Add(oneWayPanel);
                 contentGrid.Children.Add(talkgroupListBox);
+
+                if (persistedMemberships.TryGetValue(context.GroupName, out List<SettingsManager.PatchTalkgroupMember> savedMembers))
+                {
+                    context.Members = savedMembers
+                        .Select(m => BuildIdentity(m.SystemName, m.Tgid))
+                        .Where(m => validChannelsByKey.ContainsKey(m.Key))
+                        .GroupBy(m => m.Key)
+                        .Select(g => validChannelsByKey[g.Key])
+                        .ToList();
+                }
 
                 TabItem tab = new TabItem
                 {
@@ -704,7 +714,7 @@ namespace dvmconsole
         }
 
         /// <summary>
-        /// Commits all patch memberships to the host window for the current session.
+        /// Persists all patch memberships to settings.
         /// </summary>
         private void PersistAllMemberships()
         {
@@ -723,6 +733,7 @@ namespace dvmconsole
             if (MembershipsEqual(lastPersistedMemberships, memberships))
                 return;
 
+            settingsManager.SavePatchGroupMemberships(membershipContextKey, memberships);
             lastPersistedMemberships = CloneMemberships(memberships);
             MembershipsCommitted?.Invoke(CloneMemberships(memberships));
         }
