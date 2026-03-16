@@ -98,12 +98,20 @@ namespace dvmconsole
         private static readonly BitmapImage STATUS_RECEIVING_ICON = new BitmapImage(new Uri("pack://application:,,,/dvmconsole;component/Assets/ind_transmit_busy.png"));
         private static readonly BitmapImage STATUS_TRANSMITTING_ICON = new BitmapImage(new Uri("pack://application:,,,/dvmconsole;component/Assets/ind_transmit_select.png"));
         private static readonly BitmapImage STATUS_IDLE_ICON = new BitmapImage(new Uri("pack://application:,,,/dvmconsole;component/Assets/ind_transmit_callback_select.png"));
-        private static readonly Brush BUTTON_IDLE_BACKGROUND = new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33));
-        private static readonly Brush PANEL_IDLE_BACKGROUND = new SolidColorBrush(Color.FromRgb(0x2B, 0x2B, 0x2B));
-        private static readonly Brush EDIT_STATUS_BACKGROUND = new SolidColorBrush(Color.FromRgb(0x0D, 0x47, 0x6B));
-        private static readonly Brush INFO_TEXT_BRUSH = new SolidColorBrush(Color.FromRgb(0xE6, 0xE6, 0xE6));
-        private static readonly Brush MUTED_TEXT_BRUSH = new SolidColorBrush(Color.FromRgb(0xC0, 0xC0, 0xC0));
-        private static readonly Brush LIST_BACKGROUND = new SolidColorBrush(Color.FromRgb(0x28, 0x28, 0x28));
+        private static readonly Brush BUTTON_IDLE_BACKGROUND_DARK = new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33));
+        private static readonly Brush BUTTON_IDLE_BACKGROUND_LIGHT = new SolidColorBrush(Color.FromRgb(0xF2, 0xF2, 0xF2));
+        private static readonly Brush PANEL_IDLE_BACKGROUND_DARK = new SolidColorBrush(Color.FromRgb(0x2B, 0x2B, 0x2B));
+        private static readonly Brush PANEL_IDLE_BACKGROUND_LIGHT = new SolidColorBrush(Color.FromRgb(0xF7, 0xF7, 0xF7));
+        private static readonly Brush EDIT_STATUS_BACKGROUND_DARK = new SolidColorBrush(Color.FromRgb(0x0D, 0x47, 0x6B));
+        private static readonly Brush EDIT_STATUS_BACKGROUND_LIGHT = new SolidColorBrush(Color.FromRgb(0xD8, 0xEC, 0xFB));
+        private static readonly Brush INFO_TEXT_BRUSH_DARK = new SolidColorBrush(Color.FromRgb(0xE6, 0xE6, 0xE6));
+        private static readonly Brush INFO_TEXT_BRUSH_LIGHT = new SolidColorBrush(Color.FromRgb(0x22, 0x22, 0x22));
+        private static readonly Brush MUTED_TEXT_BRUSH_DARK = new SolidColorBrush(Color.FromRgb(0xC0, 0xC0, 0xC0));
+        private static readonly Brush MUTED_TEXT_BRUSH_LIGHT = new SolidColorBrush(Color.FromRgb(0x55, 0x55, 0x55));
+        private static readonly Brush LIST_BACKGROUND_DARK = new SolidColorBrush(Color.FromRgb(0x28, 0x28, 0x28));
+        private static readonly Brush LIST_BACKGROUND_LIGHT = new SolidColorBrush(Color.FromRgb(0xFF, 0xFF, 0xFF));
+        private static readonly Brush LIST_BORDER_DARK = Brushes.DimGray;
+        private static readonly Brush LIST_BORDER_LIGHT = new SolidColorBrush(Color.FromRgb(0xB8, 0xB8, 0xB8));
 
         private readonly SettingsManager settingsManager;
         private readonly Func<string, string, PatchTalkgroupState> talkgroupStateResolver;
@@ -112,6 +120,15 @@ namespace dvmconsole
         private Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> lastPersistedMemberships = new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>();
         private Dictionary<string, bool> lastPersistedModes = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         private string membershipContextKey = string.Empty;
+
+        private bool IsDarkTheme => settingsManager?.DarkMode == true;
+        private Brush ButtonIdleBackground => IsDarkTheme ? BUTTON_IDLE_BACKGROUND_DARK : BUTTON_IDLE_BACKGROUND_LIGHT;
+        private Brush PanelIdleBackground => IsDarkTheme ? PANEL_IDLE_BACKGROUND_DARK : PANEL_IDLE_BACKGROUND_LIGHT;
+        private Brush EditStatusBackground => IsDarkTheme ? EDIT_STATUS_BACKGROUND_DARK : EDIT_STATUS_BACKGROUND_LIGHT;
+        private Brush InfoTextBrush => IsDarkTheme ? INFO_TEXT_BRUSH_DARK : INFO_TEXT_BRUSH_LIGHT;
+        private Brush MutedTextBrush => IsDarkTheme ? MUTED_TEXT_BRUSH_DARK : MUTED_TEXT_BRUSH_LIGHT;
+        private Brush ListBackground => IsDarkTheme ? LIST_BACKGROUND_DARK : LIST_BACKGROUND_LIGHT;
+        private Brush ListBorderBrush => IsDarkTheme ? LIST_BORDER_DARK : LIST_BORDER_LIGHT;
 
         /// <summary>
         /// Gets whether any patch group is currently in edit mode.
@@ -232,8 +249,8 @@ namespace dvmconsole
                     HorizontalAlignment = HorizontalAlignment.Stretch,
                     VerticalAlignment = VerticalAlignment.Stretch,
                     Padding = new Thickness(12, 6, 12, 6),
-                    Background = BUTTON_IDLE_BACKGROUND,
-                    Foreground = Brushes.White,
+                    Background = ButtonIdleBackground,
+                    Foreground = InfoTextBrush,
                     BorderThickness = new Thickness(1),
                     BorderBrush = GetAccentBrush(context),
                     ToolTip = string.Empty,
@@ -271,8 +288,8 @@ namespace dvmconsole
                     HorizontalAlignment = HorizontalAlignment.Stretch,
                     VerticalAlignment = VerticalAlignment.Stretch,
                     Padding = new Thickness(12, 6, 12, 6),
-                    Background = BUTTON_IDLE_BACKGROUND,
-                    Foreground = Brushes.White,
+                    Background = ButtonIdleBackground,
+                    Foreground = InfoTextBrush,
                     BorderThickness = new Thickness(1),
                     BorderBrush = GetAccentBrush(context),
                     ToolTip = string.Empty,
@@ -305,14 +322,14 @@ namespace dvmconsole
                 TextBlock statusText = new TextBlock
                 {
                     TextWrapping = TextWrapping.Wrap,
-                    Foreground = INFO_TEXT_BRUSH
+                    Foreground = InfoTextBrush
                 };
                 Border statusBorder = new Border
                 {
                     CornerRadius = new CornerRadius(4),
                     Padding = new Thickness(10, 8, 10, 8),
                     Margin = new Thickness(0, 0, 0, 8),
-                    Background = PANEL_IDLE_BACKGROUND,
+                    Background = PanelIdleBackground,
                     Child = statusText
                 };
                 context.StatusBorder = statusBorder;
@@ -334,7 +351,7 @@ namespace dvmconsole
                 {
                     Margin = new Thickness(26, 0, 6, 0),
                     FontWeight = FontWeights.SemiBold,
-                    Foreground = INFO_TEXT_BRUSH,
+                    Foreground = InfoTextBrush,
                     Visibility = isMultiSelect ? Visibility.Collapsed : Visibility.Visible
                 };
                 context.OneWayModeTitle = oneWayModeTitle;
@@ -343,7 +360,7 @@ namespace dvmconsole
                 {
                     Margin = new Thickness(26, 0, 6, 0),
                     TextWrapping = TextWrapping.Wrap,
-                    Foreground = MUTED_TEXT_BRUSH,
+                    Foreground = MutedTextBrush,
                     Visibility = isMultiSelect ? Visibility.Collapsed : Visibility.Visible
                 };
                 context.OneWayDescription = oneWayDescription;
@@ -353,7 +370,7 @@ namespace dvmconsole
                     Margin = new Thickness(26, 4, 6, 8),
                     Text = "Member Order: 1 = Source, 2+ = Destinations",
                     TextWrapping = TextWrapping.Wrap,
-                    Foreground = MUTED_TEXT_BRUSH,
+                    Foreground = MutedTextBrush,
                     FontStyle = FontStyles.Italic,
                     Visibility = Visibility.Collapsed
                 };
@@ -369,9 +386,9 @@ namespace dvmconsole
                 {
                     Margin = new Thickness(0),
                     AllowDrop = true,
-                    Background = LIST_BACKGROUND,
+                    Background = ListBackground,
                     BorderThickness = new Thickness(1),
-                    BorderBrush = Brushes.DimGray,
+                    BorderBrush = ListBorderBrush,
                     Tag = context
                 };
                 talkgroupListBox.DragOver += TalkgroupListBox_DragOver;
@@ -427,6 +444,15 @@ namespace dvmconsole
         {
             foreach (PatchTabContext context in tabContexts.Values)
                 RefreshMemberStatusIcons(context);
+        }
+
+        /// <summary>
+        /// Reapplies dynamic light/dark theme brushes to all group controls.
+        /// </summary>
+        public void RefreshTheme()
+        {
+            foreach (PatchTabContext context in tabContexts.Values)
+                RebuildTalkgroupList(context);
         }
 
         /// <summary>
@@ -581,7 +607,7 @@ namespace dvmconsole
                         Text = context.IsEditing
                             ? "Drag channels here from the main console to add them to this group."
                             : "No members yet. Click Edit Members to start building this group.",
-                        Foreground = MUTED_TEXT_BRUSH,
+                        Foreground = MutedTextBrush,
                         TextWrapping = TextWrapping.Wrap,
                         Margin = new Thickness(8)
                     },
@@ -615,7 +641,7 @@ namespace dvmconsole
                     Content = new TextBlock
                     {
                         Text = "Remove",
-                        Foreground = Brushes.White,
+                        Foreground = InfoTextBrush,
                         FontWeight = FontWeights.SemiBold,
                         VerticalAlignment = VerticalAlignment.Center,
                         HorizontalAlignment = HorizontalAlignment.Center
@@ -625,8 +651,8 @@ namespace dvmconsole
                     Padding = new Thickness(8, 0, 8, 0),
                     HorizontalAlignment = HorizontalAlignment.Right,
                     VerticalAlignment = VerticalAlignment.Center,
-                    Background = BUTTON_IDLE_BACKGROUND,
-                    Foreground = Brushes.White,
+                    Background = ButtonIdleBackground,
+                    Foreground = InfoTextBrush,
                     BorderBrush = GetAccentBrush(context),
                     BorderThickness = new Thickness(1),
                     Visibility = context.IsEditing ? Visibility.Visible : Visibility.Collapsed,
@@ -911,7 +937,8 @@ namespace dvmconsole
 
             if (context.EditButton != null)
             {
-                context.EditButton.Background = context.IsEditing ? GetAccentBrush(context) : BUTTON_IDLE_BACKGROUND;
+                context.EditButton.Background = context.IsEditing ? GetAccentBrush(context) : ButtonIdleBackground;
+                context.EditButton.Foreground = InfoTextBrush;
                 context.EditButton.ToolTip = context.IsEditing
                     ? $"Editing {context.GroupName}. Drag channels from the main console into this group, use Remove to take them out, then click Stop Editing."
                     : $"Edit members for {context.GroupName}. Click to start editing, then drag channels from the main console into this group.";
@@ -919,14 +946,15 @@ namespace dvmconsole
 
             if (context.PttButton != null)
             {
-                context.PttButton.Background = context.IsPttActive ? GetAccentBrush(context) : BUTTON_IDLE_BACKGROUND;
+                context.PttButton.Background = context.IsPttActive ? GetAccentBrush(context) : ButtonIdleBackground;
+                context.PttButton.Foreground = InfoTextBrush;
                 context.PttButton.ToolTip = context.IsPttActive
                     ? $"Transmitting to every member in {context.GroupName}. Click again to stop."
                     : $"Transmit to every member in {context.GroupName}. Use this when you want to talk to the whole {groupKind} at once.";
             }
 
             if (context.StatusBorder != null)
-                context.StatusBorder.Background = context.IsEditing ? EDIT_STATUS_BACKGROUND : PANEL_IDLE_BACKGROUND;
+                context.StatusBorder.Background = context.IsEditing ? EditStatusBackground : PanelIdleBackground;
 
             if (context.StatusText != null)
             {
@@ -942,6 +970,7 @@ namespace dvmconsole
                 {
                     context.StatusText.Text = $"This {groupKind} currently has {context.Members.Count} member{(context.Members.Count == 1 ? string.Empty : "s")}. Click Edit Members to change it.";
                 }
+                context.StatusText.Foreground = InfoTextBrush;
             }
 
             if (context.OneWayDescription != null)
@@ -949,6 +978,7 @@ namespace dvmconsole
                 context.OneWayDescription.Text = context.IsOneWay
                     ? "First listed member is the source.\nAll following members receive audio."
                     : "All members can transmit and receive.";
+                context.OneWayDescription.Foreground = MutedTextBrush;
             }
 
             if (context.OneWayModeTitle != null)
@@ -956,11 +986,13 @@ namespace dvmconsole
                 context.OneWayModeTitle.Text = context.IsOneWay
                     ? "Patch Mode: One-Way"
                     : "Patch Mode: Two-Way";
+                context.OneWayModeTitle.Foreground = InfoTextBrush;
             }
 
             if (context.MemberOrderHint != null)
             {
                 context.MemberOrderHint.Visibility = context.IsOneWay ? Visibility.Visible : Visibility.Collapsed;
+                context.MemberOrderHint.Foreground = MutedTextBrush;
             }
 
             if (context.OneWayToggle != null)
@@ -970,7 +1002,8 @@ namespace dvmconsole
 
             if (context.TalkgroupListBox != null)
             {
-                context.TalkgroupListBox.BorderBrush = context.IsEditing ? GetAccentBrush(context) : Brushes.DimGray;
+                context.TalkgroupListBox.Background = ListBackground;
+                context.TalkgroupListBox.BorderBrush = context.IsEditing ? GetAccentBrush(context) : ListBorderBrush;
                 context.TalkgroupListBox.ToolTip = context.IsEditing
                     ? "Editing is active. Drag channels here from the main console."
                     : "Group members appear here.";

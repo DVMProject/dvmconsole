@@ -2653,6 +2653,7 @@ namespace dvmconsole
 
             settingsManager.DarkMode = menuDarkMode.IsChecked;
             UpdateBackground();
+            patchGroupsWindow?.RefreshTheme();
         }
 
         /// <summary>
@@ -4109,6 +4110,7 @@ namespace dvmconsole
                 return;
 
             patchGroupsWindow.Owner = this;
+            patchGroupsWindow.RefreshTheme();
             if (patchGroupsWindow.Visibility == Visibility.Visible)
                 patchGroupsWindow.Hide();
             else
