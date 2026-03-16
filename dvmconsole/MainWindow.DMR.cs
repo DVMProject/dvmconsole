@@ -37,7 +37,7 @@ namespace dvmconsole
         /// <param name="channel"></param>
         /// <param name="cpgChannel"></param>
         /// <param name="system"></param>
-        private void DMREncodeAudioFrame(byte[] pcm, PeerSystem fne, ChannelBox channel, Codeplug.Channel cpgChannel, Codeplug.System system)
+        private void DMREncodeAudioFrame(byte[] pcm, PeerSystem fne, ChannelBox channel, Codeplug.Channel cpgChannel, Codeplug.System system, uint? sourceIdOverride = null)
         {
             // make sure we have a valid stream ID
             if (channel.TxStreamId == 0)
@@ -46,6 +46,8 @@ namespace dvmconsole
             try
             {
                 byte slot = (byte)(cpgChannel.Slot - 1);
+                uint srcId = sourceIdOverride ?? uint.Parse(system.Rid);
+                uint dstId = uint.Parse(cpgChannel.Tgid);
 
                 byte[] data = null, dmrpkt = null;
                 channel.dmrN = (byte)(channel.dmrSeqNo % 6);
@@ -62,8 +64,8 @@ namespace dvmconsole
                         // generate DMR LC
                         LC dmrLC = new LC();
                         dmrLC.FLCO = (byte)DMRFLCO.FLCO_GROUP;
-                        dmrLC.SrcId = uint.Parse(system.Rid);
-                        dmrLC.DstId = uint.Parse(cpgChannel.Tgid);
+                        dmrLC.SrcId = srcId;
+                        dmrLC.DstId = dstId;
                         channel.embeddedData.SetLC(dmrLC);
 
                         // generate the Slot Type
@@ -75,7 +77,7 @@ namespace dvmconsole
 
                         // generate DMR network frame
                         dmrpkt = new byte[FneSystemBase.DMR_PACKET_SIZE];
-                        fne.CreateDMRMessage(ref dmrpkt, uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), slot, FrameType.VOICE_SYNC, (byte)channel.dmrSeqNo, 0);
+                        fne.CreateDMRMessage(ref dmrpkt, srcId, dstId, slot, FrameType.VOICE_SYNC, (byte)channel.dmrSeqNo, 0);
                         Buffer.BlockCopy(data, 0, dmrpkt, 20, FneSystemBase.DMR_FRAME_LENGTH_BYTES);
 
                         fne.peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_DMR), dmrpkt, channel.pktSeq, channel.TxStreamId);
@@ -114,7 +116,7 @@ namespace dvmconsole
 
                     // generate DMR network frame
                     dmrpkt = new byte[FneSystemBase.DMR_PACKET_SIZE];
-                    fne.CreateDMRMessage(ref dmrpkt, uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), 1, frameType, (byte)channel.dmrSeqNo, channel.dmrN);
+                    fne.CreateDMRMessage(ref dmrpkt, srcId, dstId, 1, frameType, (byte)channel.dmrSeqNo, channel.dmrN);
                     Buffer.BlockCopy(data, 0, dmrpkt, 20, FneSystemBase.DMR_FRAME_LENGTH_BYTES);
 
                     fne.peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_DMR), dmrpkt, channel.pktSeq, channel.TxStreamId);
@@ -170,7 +172,7 @@ namespace dvmconsole
         /// <param name="e"></param>
         /// <param name="system"></param>
         /// <param name="channel"></param>
-        private void DMRDecodeAudioFrame(byte[] ambe, DMRDataReceivedEvent e, PeerSystem system, ChannelBox channel)
+        private void DMRDecodeAudioFrame(byte[] ambe, DMRDataReceivedEvent e, PeerSystem system, ChannelBox channel, string sourceSystemName)
         {
             try
             {
@@ -215,6 +217,7 @@ namespace dvmconsole
 
                         //Log.WriteLine($"PCM BYTE BUFFER {FneUtils.HexDump(pcm)}");
                         audioManager.AddTalkgroupStream(e.DstId.ToString(), pcm);
+                        patchManager.HandleAudio(sourceSystemName, e.DstId.ToString(), e.StreamId, e.SrcId, pcm);
                     }
                 }
             }
@@ -251,6 +254,9 @@ namespace dvmconsole
                         continue;
 
                     if (cpgChannel.Tgid != e.DstId.ToString())
+                        continue;
+
+                    if (patchManager.IsPatchedTransmitStream(system.Name, cpgChannel.Tgid, e.StreamId))
                         continue;
 
                     if (channel.PttState)
@@ -304,6 +310,8 @@ namespace dvmconsole
                     // is this a new call stream?
                     if (e.StreamId != systemStatuses[cpgChannel.Name + e.Slot].RxStreamId)
                     {
+                        patchManager.HandleCallStart(system.Name, cpgChannel.Tgid, e.StreamId, e.SrcId);
+
                         channel.IsReceiving = true;
                         channel.PeerId = e.PeerId;
                         channel.RxStreamId = e.StreamId;
@@ -355,6 +363,8 @@ namespace dvmconsole
 
                     if ((e.FrameType == FrameType.DATA_SYNC) && (e.DataType == DMRDataType.TERMINATOR_WITH_LC) && (systemStatuses[cpgChannel.Name + e.Slot].RxType != FrameType.TERMINATOR))
                     {
+                        patchManager.HandleCallEnd(system.Name, cpgChannel.Tgid, e.StreamId);
+
                         channel.IsReceiving = false;
                         channel.PeerId = 0;
                         channel.RxStreamId = 0;
@@ -388,7 +398,7 @@ namespace dvmconsole
                         ambe[13] &= 0xF0;
                         ambe[13] |= (byte)(data[19] & 0x0F);
                         Buffer.BlockCopy(data, 20, ambe, 14, 13);
-                        DMRDecodeAudioFrame(ambe, e, handler, channel);
+                        DMRDecodeAudioFrame(ambe, e, handler, channel, system.Name);
                     }
 
                     systemStatuses[cpgChannel.Name + e.Slot].RxRFS = e.SrcId;
