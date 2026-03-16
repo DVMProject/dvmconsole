@@ -75,8 +75,6 @@ namespace dvmconsole
             public Image EditIcon { get; set; }
             public TextBlock EditText { get; set; }
             public CheckBox OneWayToggle { get; set; }
-            public TextBlock OneWayModeTitle { get; set; }
-            public TextBlock OneWayDescription { get; set; }
             public TextBlock MemberOrderHint { get; set; }
             public Border StatusBorder { get; set; }
             public TextBlock StatusText { get; set; }
@@ -347,27 +345,9 @@ namespace dvmconsole
                 oneWayToggle.Unchecked += OneWayToggle_Changed;
                 context.OneWayToggle = oneWayToggle;
 
-                TextBlock oneWayModeTitle = new TextBlock
-                {
-                    Margin = new Thickness(26, 0, 6, 0),
-                    FontWeight = FontWeights.SemiBold,
-                    Foreground = InfoTextBrush,
-                    Visibility = isMultiSelect ? Visibility.Collapsed : Visibility.Visible
-                };
-                context.OneWayModeTitle = oneWayModeTitle;
-
-                TextBlock oneWayDescription = new TextBlock
-                {
-                    Margin = new Thickness(26, 0, 6, 0),
-                    TextWrapping = TextWrapping.Wrap,
-                    Foreground = MutedTextBrush,
-                    Visibility = isMultiSelect ? Visibility.Collapsed : Visibility.Visible
-                };
-                context.OneWayDescription = oneWayDescription;
-
                 TextBlock memberOrderHint = new TextBlock
                 {
-                    Margin = new Thickness(26, 4, 6, 8),
+                    Margin = new Thickness(26, 2, 6, 8),
                     Text = "Member Order: 1 = Source, 2+ = Destinations",
                     TextWrapping = TextWrapping.Wrap,
                     Foreground = MutedTextBrush,
@@ -378,8 +358,6 @@ namespace dvmconsole
 
                 StackPanel oneWayPanel = new StackPanel();
                 oneWayPanel.Children.Add(oneWayToggle);
-                oneWayPanel.Children.Add(oneWayModeTitle);
-                oneWayPanel.Children.Add(oneWayDescription);
                 oneWayPanel.Children.Add(memberOrderHint);
 
                 ListBox talkgroupListBox = new ListBox
@@ -954,7 +932,10 @@ namespace dvmconsole
             }
 
             if (context.StatusBorder != null)
+            {
                 context.StatusBorder.Background = context.IsEditing ? EditStatusBackground : PanelIdleBackground;
+                context.StatusBorder.Visibility = context.IsEditing ? Visibility.Visible : Visibility.Collapsed;
+            }
 
             if (context.StatusText != null)
             {
@@ -962,31 +943,11 @@ namespace dvmconsole
                 {
                     context.StatusText.Text = "Editing is active. Drag channels from the main console into this list. Use Remove to take channels out, then click Stop Editing when you are done.";
                 }
-                else if (context.Members.Count == 0)
-                {
-                    context.StatusText.Text = "This group is empty. Click Edit Members, then drag channels from the main console into the list below.";
-                }
                 else
                 {
-                    context.StatusText.Text = $"This {groupKind} currently has {context.Members.Count} member{(context.Members.Count == 1 ? string.Empty : "s")}. Click Edit Members to change it.";
+                    context.StatusText.Text = string.Empty;
                 }
                 context.StatusText.Foreground = InfoTextBrush;
-            }
-
-            if (context.OneWayDescription != null)
-            {
-                context.OneWayDescription.Text = context.IsOneWay
-                    ? "First listed member is the source.\nAll following members receive audio."
-                    : "All members can transmit and receive.";
-                context.OneWayDescription.Foreground = MutedTextBrush;
-            }
-
-            if (context.OneWayModeTitle != null)
-            {
-                context.OneWayModeTitle.Text = context.IsOneWay
-                    ? "Patch Mode: One-Way"
-                    : "Patch Mode: Two-Way";
-                context.OneWayModeTitle.Foreground = InfoTextBrush;
             }
 
             if (context.MemberOrderHint != null)
@@ -997,7 +958,9 @@ namespace dvmconsole
 
             if (context.OneWayToggle != null)
             {
-                context.OneWayToggle.ToolTip = "Limits the patch so only the first listed member can start it. The other listed members receive the forwarded traffic.";
+                context.OneWayToggle.ToolTip = context.IsOneWay
+                    ? "Disable one-way patch mode."
+                    : "Enable one-way patch mode.";
             }
 
             if (context.TalkgroupListBox != null)

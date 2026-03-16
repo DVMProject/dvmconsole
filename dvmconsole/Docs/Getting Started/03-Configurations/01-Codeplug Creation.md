@@ -214,7 +214,6 @@ Notes:
 
 - Group memberships are not stored in the codeplug itself.
 - Operators build the live member list from the **Groups** window by clicking **Edit Members** and dragging channels from the main console.
-- Group memberships are currently session-only and are cleared after restart.
 
 ---
 

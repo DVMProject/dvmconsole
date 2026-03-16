@@ -62,7 +62,6 @@ Notes:
 
 - Editing applies to the currently selected group tab.
 - Switching tabs exits edit mode for the current tab.
-- Group memberships are currently **session-only** and do **not** persist across console restart.
 
 ---
 
@@ -87,7 +86,6 @@ This is separate from **Edit Members**:
 # Current Operator Notes
 
 - Group members are added from the main console by drag and drop.
-- Patch and multi-select memberships are not loaded back after restart.
 - One-way patch direction is determined by the current member order.
 - If you need a different source channel in one-way mode, reorder the group by removing and re-adding members in the order you want.
 
