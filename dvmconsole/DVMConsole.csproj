@@ -177,9 +177,6 @@
     <Resource Include="Assets\connection.png">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </Resource>
-    <Resource Include="Assets\logo.png">
-      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
-    </Resource>
     <Resource Include="Assets\instantptt.png">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </Resource>

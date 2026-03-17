@@ -23,21 +23,24 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0" Orientation="Horizontal">
-            <Image Source="/dvmconsole;component/Assets/AppIcon.ico"
-                   Width="48"
-                   Height="48"
+		<StackPanel Grid.Row="0"
+            Orientation="Horizontal"
+            SnapsToDevicePixels="True"
+            UseLayoutRounding="True">
+			<Image Source="/dvmconsole;component/Assets/AppIcon.ico"
+				   Width="64"
+                   Height="64"
                    Margin="0,0,12,0"/>
 
-            <StackPanel VerticalAlignment="Center">
-                <TextBlock Text="Digital Voice Modem"
-                           FontSize="20"
-                           FontWeight="Bold"/>
-                <TextBlock Text="Desktop Dispatch Console"
-                           FontSize="14"
-                           Opacity="0.85"/>
-            </StackPanel>
-        </StackPanel>
+			<StackPanel VerticalAlignment="Center">
+				<TextBlock Text="Digital Voice Modem"
+						   FontSize="20"
+						   FontWeight="Bold"/>
+				<TextBlock Text="Desktop Dispatch Console"
+						   FontSize="14"
+						   Opacity="0.85"/>
+			</StackPanel>
+		</StackPanel>
 
         <Border Grid.Row="2"
                 Padding="16"

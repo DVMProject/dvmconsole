@@ -18,7 +18,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
-        
+
         <Menu materialDesign:MenuAssist.TopLevelMenuItemHeight="24" Grid.ColumnSpan="2" Background="{DynamicResource MaterialDesignPaper}">
             <MenuItem Header="_File">
                 <MenuItem Header="_Open Codeplug..." Click="OpenCodeplug_Click" />
@@ -74,17 +74,7 @@
         <ToolBarTray Grid.Row="1" Background="{DynamicResource MaterialDesignPaper}">
             <ToolBar ClipToBounds="False" Style="{StaticResource MaterialDesignToolBar}" Background="{DynamicResource MaterialDesignPaper}">
                 <!-- Application Banner -->
-                <Image Width="224" Height="50" VerticalAlignment="Center" HorizontalAlignment="Left" Source="/dvmconsole;component/Assets/logo.png" Stretch="UniformToFill">
-                    <Image.RenderTransform>
-                        <TransformGroup>
-                            <ScaleTransform/>
-                            <SkewTransform AngleY="-0.164"/>
-                            <RotateTransform/>
-                            <TranslateTransform Y="-0.247"/>
-                        </TransformGroup>
-                    </Image.RenderTransform>
-                </Image>
-
+                <Image Width="48" Height="48" VerticalAlignment="Top" HorizontalAlignment="Left" Source="/dvmconsole;component/Assets/AppIcon.png" Stretch="Uniform" SnapsToDevicePixels="True"/>
                 <Separator />
 
                 <!-- Open Codeplug -->
