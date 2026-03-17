@@ -3147,15 +3147,24 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void ChannelBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (sender is ChannelBox channel)
+            if (sender is not ChannelBox channel)
+                return;
+
+            // Ignore patch-group drag workflow entirely unless a group is currently in edit mode.
+            if (patchGroupsWindow?.IsAnyGroupEditing != true)
             {
-                channelDragSource = channel;
-                channelDragStartPoint = e.GetPosition(null);
+                channelDragSource = null;
                 channelDragMoved = false;
-                channelDragSuppressSelection = patchGroupsWindow?.IsAnyGroupEditing == true;
-                if (channelDragSuppressSelection)
-                    channel.SuppressSelectionToggle = true;
+                channelDragSuppressSelection = false;
+                channel.SuppressSelectionToggle = false;
+                return;
             }
+
+            channelDragSource = channel;
+            channelDragStartPoint = e.GetPosition(null);
+            channelDragMoved = false;
+            channelDragSuppressSelection = true;
+            channel.SuppressSelectionToggle = true;
         }
 
         /// <summary>
@@ -3165,9 +3174,20 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void ChannelBox_PreviewMouseMove(object sender, MouseEventArgs e)
         {
-            if (channelDragSource == null || e.LeftButton != MouseButtonState.Pressed)
+            if (patchGroupsWindow?.IsAnyGroupEditing != true)
+            {
+                if (channelDragSource != null)
+                    channelDragSource.SuppressSelectionToggle = false;
+                channelDragSource = null;
+                channelDragMoved = false;
+                channelDragSuppressSelection = false;
                 return;
-            if (channelDragSource.SystemName == PLAYBACKSYS || channelDragSource.ChannelName == PLAYBACKCHNAME || channelDragSource.DstId == PLAYBACKTG)
+            }
+
+            ChannelBox dragSource = channelDragSource;
+            if (dragSource == null || e.LeftButton != MouseButtonState.Pressed)
+                return;
+            if (dragSource.SystemName == PLAYBACKSYS || dragSource.ChannelName == PLAYBACKCHNAME || dragSource.DstId == PLAYBACKTG)
                 return;
 
             Point currentPosition = e.GetPosition(null);
@@ -3178,22 +3198,29 @@ namespace dvmconsole
 
             channelDragMoved = true;
 
-            string systemName = NormalizeChannelSystemName(channelDragSource.SystemName);
-            string tgid = channelDragSource.DstId?.Trim();
+            string systemName = NormalizeChannelSystemName(dragSource.SystemName);
+            string tgid = dragSource.DstId?.Trim();
             if (string.IsNullOrWhiteSpace(systemName) || string.IsNullOrWhiteSpace(tgid))
                 return;
 
             PatchGroupsWindow.ChannelDragData dragPayload = new PatchGroupsWindow.ChannelDragData
             {
-                ChannelName = channelDragSource.ChannelName,
+                ChannelName = dragSource.ChannelName,
                 SystemName = systemName,
                 Tgid = tgid
             };
             System.Windows.DataObject data = new System.Windows.DataObject(PatchGroupsWindow.CHANNEL_DRAG_FORMAT, dragPayload);
-            DragDrop.DoDragDrop(channelDragSource, data, System.Windows.DragDropEffects.Copy);
-            channelDragSource.SuppressSelectionToggle = false;
-            channelDragSource = null;
-            channelDragSuppressSelection = false;
+            try
+            {
+                DragDrop.DoDragDrop(dragSource, data, System.Windows.DragDropEffects.Copy);
+            }
+            finally
+            {
+                dragSource.SuppressSelectionToggle = false;
+                if (ReferenceEquals(channelDragSource, dragSource))
+                    channelDragSource = null;
+                channelDragSuppressSelection = false;
+            }
         }
 
         /// <summary>
