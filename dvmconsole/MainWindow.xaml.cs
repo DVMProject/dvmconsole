@@ -993,6 +993,11 @@ namespace dvmconsole
 
                                 if (channel.IsReceiving || channel.IsReceivingEncrypted)
                                 {
+                                    Codeplug.System disconnectedSystem = Codeplug.GetSystemForChannel(channel.ChannelName);
+                                    Codeplug.Channel disconnectedChannel = Codeplug.GetChannelByName(channel.ChannelName);
+                                    if (disconnectedSystem != null && disconnectedChannel != null && channel.RxStreamId > 0)
+                                        patchManager.HandleCallEnd(disconnectedSystem.Name, disconnectedChannel.Tgid, channel.RxStreamId);
+
                                     channel.IsReceiving = false;
                                     channel.PeerId = 0;
                                     channel.RxStreamId = 0;

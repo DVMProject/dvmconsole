@@ -32,6 +32,7 @@ namespace dvmconsole
             public uint StreamId { get; set; }
             public uint SourceId { get; set; }
             public bool SourceIdLatched { get; set; }
+            public DateTime LastActivityUtc { get; set; }
         }
 
         private sealed class ForwardTarget
@@ -223,22 +224,37 @@ namespace dvmconsole
                 return;
 
             List<StartWorkItem> starts = new List<StartWorkItem>();
+            List<StopWorkItem> stops = new List<StopWorkItem>();
             lock (sync)
             {
                 bool passthrough = sourceIdPassthrough;
                 int generation = membershipGeneration;
+                DateTime now = DateTime.UtcNow;
 
                 foreach (GroupRuntime group in groups.Values.Where(g => IsEligibleSource(g, sourceKey)))
                 {
                     if (group.Source != null)
-                        continue;
+                    {
+                        bool sameSourceStream = group.Source.SourceKey == sourceKey && group.Source.StreamId == streamId;
+                        if (sameSourceStream)
+                            continue;
+
+                        // If call-end was missed and the previous source has gone quiet,
+                        // recover automatically by failing over to the new inbound source.
+                        if (!IsSourceStale(group.Source, now))
+                            continue;
+
+                        CollectAndClearStops(group, stops);
+                        group.Source = null;
+                    }
 
                     group.Source = new ActiveSource
                     {
                         SourceKey = sourceKey,
                         StreamId = streamId,
                         SourceId = sourceId,
-                        SourceIdLatched = sourceId != 0
+                        SourceIdLatched = sourceId != 0,
+                        LastActivityUtc = now
                     };
 
                     foreach (PatchMember member in group.Members.Where(m => m.Key != sourceKey))
@@ -246,6 +262,7 @@ namespace dvmconsole
                 }
             }
 
+            ExecuteStops(stops);
             ExecuteStarts(starts);
         }
 
@@ -259,22 +276,28 @@ namespace dvmconsole
                 return;
 
             List<StartWorkItem> starts = new List<StartWorkItem>();
+            List<StopWorkItem> stops = new List<StopWorkItem>();
             List<AudioWorkItem> sends = new List<AudioWorkItem>();
             lock (sync)
             {
                 bool passthrough = sourceIdPassthrough;
                 int generation = membershipGeneration;
+                DateTime now = DateTime.UtcNow;
 
                 foreach (GroupRuntime group in groups.Values.Where(g => IsEligibleSource(g, sourceKey)))
                 {
-                    if (group.Source == null)
+                    if (group.Source == null || (group.Source.SourceKey != sourceKey || group.Source.StreamId != streamId) && IsSourceStale(group.Source, now))
                     {
+                        if (group.Source != null)
+                            CollectAndClearStops(group, stops);
+
                         group.Source = new ActiveSource
                         {
                             SourceKey = sourceKey,
                             StreamId = streamId,
                             SourceId = sourceId,
-                            SourceIdLatched = sourceId != 0
+                            SourceIdLatched = sourceId != 0,
+                            LastActivityUtc = now
                         };
 
                         foreach (PatchMember member in group.Members.Where(m => m.Key != sourceKey))
@@ -283,6 +306,8 @@ namespace dvmconsole
 
                     if (group.Source.SourceKey != sourceKey || group.Source.StreamId != streamId)
                         continue;
+
+                    group.Source.LastActivityUtc = now;
 
                     // Passthrough source ID is latched once per active source stream.
                     // If call start provided 0, latch the first non-zero ID observed.
@@ -306,6 +331,7 @@ namespace dvmconsole
                 }
             }
 
+            ExecuteStops(stops);
             ExecuteStarts(starts);
 
             foreach (AudioWorkItem send in sends)
@@ -563,6 +589,17 @@ namespace dvmconsole
 
             foreach (string key in expired)
                 recentlyEndedOutboundStreams.Remove(key);
+        }
+
+        /// <summary>
+        /// Determines whether an active source has likely gone stale due to a missed call end.
+        /// </summary>
+        private static bool IsSourceStale(ActiveSource source, DateTime nowUtc)
+        {
+            if (source == null)
+                return true;
+
+            return nowUtc - source.LastActivityUtc > LatePacketSuppressWindow;
         }
 
     }
