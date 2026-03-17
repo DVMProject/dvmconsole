@@ -31,6 +31,7 @@ namespace dvmconsole
     /// </summary>
     public class Log
     {
+        private const int MAX_RECENT_LOG_LINES = 500;
         public static FileStream logStream = null;
         /// <summary>
         /// Flag indicating logging should display on a console window.
@@ -38,6 +39,8 @@ namespace dvmconsole
         public static bool DisplayToConsole = false;
         private static TextWriter tw;
         private const string LOG_TIME_FORMAT = "MM/dd/yyyy HH:mm:ss";
+        private static readonly object recentLinesSync = new object();
+        private static readonly Queue<string> recentLines = new Queue<string>();
 
         private static ConsoleColor defColor = Console.ForegroundColor;
 
@@ -54,6 +57,11 @@ namespace dvmconsole
         /// Gets or sets a delegate to also write logs to.
         /// </summary>
         public static LogWriteLine LogWriter { get; set; } = null;
+
+        /// <summary>
+        /// Raised whenever a new rendered log line is written.
+        /// </summary>
+        public static event Action<string> LogLineWritten;
 
         /*
         ** Methods
@@ -83,19 +91,15 @@ namespace dvmconsole
         public static void WriteLog(string message, bool noTimeStamp = false)
         {
             string logTime = DateTime.Now.ToString(LOG_TIME_FORMAT) + " ";
+            string renderedMessage = noTimeStamp ? message : logTime + message;
             if (tw != null)
             {
-                if (noTimeStamp)
-                    tw.WriteLine(message);
-                else
-                    tw.WriteLine(logTime + message);
+                tw.WriteLine(renderedMessage);
                 tw.Flush();
             }
 
-            if (noTimeStamp)
-                System.Diagnostics.Trace.WriteLine(message);
-            else
-                System.Diagnostics.Trace.WriteLine(logTime + message);
+            System.Diagnostics.Trace.WriteLine(renderedMessage);
+            AddRecentLine(renderedMessage);
             if (LogWriter != null)
                 LogWriter(message);
             if (DisplayToConsole)
@@ -112,6 +116,28 @@ namespace dvmconsole
 
                 Console.ForegroundColor = defColor;
             }
+        }
+
+        /// <summary>
+        /// Returns a snapshot of the most recent rendered log lines.
+        /// </summary>
+        public static IReadOnlyList<string> GetRecentLines()
+        {
+            lock (recentLinesSync)
+                return recentLines.ToList();
+        }
+
+        private static void AddRecentLine(string line)
+        {
+            lock (recentLinesSync)
+            {
+                while (recentLines.Count >= MAX_RECENT_LOG_LINES)
+                    recentLines.Dequeue();
+
+                recentLines.Enqueue(line);
+            }
+
+            LogLineWritten?.Invoke(line);
         }
 
         /// <summary>
