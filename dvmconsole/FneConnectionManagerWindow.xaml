@@ -1,0 +1,79 @@
+<Window x:Class="dvmconsole.FneConnectionManagerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        Title="FNE Connection Manager"
+        Width="760"
+        Height="420"
+        MinWidth="680"
+        MinHeight="320"
+        WindowStartupLocation="CenterOwner"
+        Style="{StaticResource MaterialDesignWindow}"
+        Background="{DynamicResource MaterialDesignPaper}"
+        FontFamily="{DynamicResource MaterialDesignFont}"
+        TextElement.Foreground="{DynamicResource MaterialDesignBody}"
+        Icon="/dvmconsole;component/Assets/AppIcon.ico">
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="12" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   FontSize="16"
+                   FontWeight="SemiBold"
+                   Text="Manual control for configured FNE system connections." />
+
+        <Border Grid.Row="2"
+                Padding="8"
+                CornerRadius="8"
+                Background="{DynamicResource MaterialDesignCardBackground}">
+            <ListView x:Name="SystemsListView"
+                      BorderThickness="0"
+                      Background="Transparent">
+                <ListView.View>
+                    <GridView>
+                        <GridViewColumn Header="System Name"
+                                        Width="240"
+                                        DisplayMemberBinding="{Binding SystemName}" />
+                        <GridViewColumn Header="Status"
+                                        Width="140">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding StatusText}"
+                                               FontWeight="SemiBold"
+                                               Foreground="{Binding StatusBrush}"
+                                               VerticalAlignment="Center" />
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+                        <GridViewColumn Header="Controls"
+                                        Width="280">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Button Content="{Binding ToggleButtonText}"
+                                                Width="90"
+                                                Height="30"
+                                                Margin="0,0,8,0"
+                                                Click="StartStop_Click"
+                                                IsEnabled="{Binding ButtonsEnabled}"
+                                                Style="{StaticResource MaterialDesignRaisedButton}" />
+                                        <Button Content="Restart"
+                                                Width="90"
+                                                Height="30"
+                                                Click="Restart_Click"
+                                                IsEnabled="{Binding ButtonsEnabled}"
+                                                Style="{StaticResource MaterialDesignRaisedButton}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+                    </GridView>
+                </ListView.View>
+            </ListView>
+        </Border>
+    </Grid>
+</Window>

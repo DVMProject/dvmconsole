@@ -747,7 +747,7 @@ namespace dvmconsole
             elementToTabMap.Clear();
             systemStatuses.Clear();
 
-            fneSystemManager.ClearAll();
+            ResetFneConnections();
 
             try
             {
@@ -877,7 +877,7 @@ namespace dvmconsole
             
             // Note: tabHeaders is not cleared here as tabs are recreated in CreateTabsFromCodeplug
 
-            fneSystemManager.ClearAll();
+            ResetFneConnections();
 
             Cursor = Cursors.Wait;
 
@@ -962,69 +962,7 @@ namespace dvmconsole
                     if (File.Exists(system.AliasPath))
                         system.RidAlias = AliasTools.LoadAliases(system.AliasPath);
 
-                    fneSystemManager.AddFneSystem(system.Name, system, this);
-                    PeerSystem peer = fneSystemManager.GetFneSystem(system.Name);
-
-                    // hook FNE events
-                    peer.peer.PeerConnected += (sender, response) =>
-                    {
-                        Log.WriteLine("FNE Peer connected");
-                        Dispatcher.Invoke(() =>
-                        {
-                            EnableCommandControls();
-                            systemStatusBox.Background = ChannelBox.GREEN_GRADIENT;
-                            systemStatusBox.ConnectionState = "Connected";
-                        });
-                    };
-
-                    peer.peer.PeerDisconnected += (response) =>
-                    {
-                        Log.WriteLine("FNE Peer disconnected");
-                        Dispatcher.Invoke(() =>
-                        {
-                            DisableCommandControls();
-                            systemStatusBox.Background = ChannelBox.RED_GRADIENT;
-                            systemStatusBox.ConnectionState = "Disconnected";
-
-                            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
-                            {
-                                if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
-                                    continue;
-
-                                if (channel.IsReceiving || channel.IsReceivingEncrypted)
-                                {
-                                    Codeplug.System disconnectedSystem = Codeplug.GetSystemForChannel(channel.ChannelName);
-                                    Codeplug.Channel disconnectedChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                                    if (disconnectedSystem != null && disconnectedChannel != null && channel.RxStreamId > 0)
-                                        patchManager.HandleCallEnd(disconnectedSystem.Name, disconnectedChannel.Tgid, channel.RxStreamId);
-
-                                    channel.IsReceiving = false;
-                                    channel.PeerId = 0;
-                                    channel.RxStreamId = 0;
-
-                                    channel.IsReceivingEncrypted = false;
-                                    channel.VolumeMeterLevel = 0;
-                                    
-                                    // Update tab audio indicator
-                                    UpdateTabAudioIndicatorForChannel(channel);
-                                }
-                            }
-                        });
-                    };
-
-                    // start peer
-                    Task.Run(() =>
-                    {
-                        try
-                        {
-                            peer.Start();
-                        }
-                        catch (Exception ex)
-                        {
-                            MessageBox.Show($"Fatal error while connecting to server. {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                            Log.StackTrace(ex, false);
-                        }
-                    });
+                    RegisterFneConnection(system, systemStatusBox, autoStart: true);
 
                     if (!settingsManager.ShowSystemStatus)
                         systemStatusBox.Visibility = Visibility.Collapsed;
@@ -1835,7 +1773,7 @@ namespace dvmconsole
 
             waveIn.StopRecording();
 
-            fneSystemManager.ClearAll();
+            ResetFneConnections();
 
             if (!noSaveSettingsOnClose)
             {

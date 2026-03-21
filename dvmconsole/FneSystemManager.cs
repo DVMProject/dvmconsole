@@ -8,6 +8,7 @@
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
 *   Copyright (C) 2025 Caleb, K4PHP
+*   Copyright (C) 2026 C. Lovell, K7CBL
 *
 */
 
@@ -43,6 +44,17 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// Replaces any existing system handler with a new instance.
+        /// </summary>
+        public PeerSystem AddOrReplaceFneSystem(string systemId, Codeplug.System system, MainWindow mainWindow)
+        {
+            RemoveFneSystem(systemId);
+            PeerSystem handler = new PeerSystem(mainWindow, system);
+            peerHandlers[systemId] = handler;
+            return handler;
+        }
+
+        /// <summary>
         /// Return a <see cref="PeerSystem"/> by looking up a systemid
         /// </summary>
         /// <param name="systemId"></param>
@@ -65,7 +77,7 @@ namespace dvmconsole
         {
             if (peerHandlers.TryGetValue(systemId, out var handler))
             {
-                handler.peer.Stop();
+                handler.Stop();
                 peerHandlers.Remove(systemId);
             }
         }
@@ -86,7 +98,7 @@ namespace dvmconsole
         public void ClearAll()
         {
             foreach (var handler in peerHandlers.Values)
-                handler.peer.Stop();
+                handler.Stop();
 
             peerHandlers.Clear();
         }

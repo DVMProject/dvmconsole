@@ -65,6 +65,9 @@
                 <Separator />
                 <MenuItem Header="_Always on Top" IsCheckable="True" Checked="ToggleKeepWindowOnTop_Click" Unchecked="ToggleKeepWindowOnTop_Click" x:Name="menuKeepWindowOnTop" />
             </MenuItem>
+            <MenuItem Header="_Tools">
+                <MenuItem Header="_FNE Connection Manager" Click="FneConnectionManager_Click" />
+            </MenuItem>
             <MenuItem Header="_Help">
                 <MenuItem Header="_Documentation" Click="Documentation_Click" />
                 <MenuItem Header="_About" Click="About_Click" />
