@@ -1348,16 +1348,36 @@ namespace dvmconsole
         /// </summary>
         /// <param name="filePath"></param>
         /// <param name="forHold"></param>
-        private void SendAlertTone(string filePath, bool forHold = false)
+        /// <param name="targetChannel"></param>
+        private void SendAlertTone(string filePath, bool forHold = false, ChannelBox targetChannel = null)
         {
             if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
             {
                 try
                 {
                     ChannelBox primaryChannel = selectedChannelsManager.PrimaryChannel;
-                    List<ChannelBox> channelsToProcess = primaryChannel != null
-                        ? new List<ChannelBox> { primaryChannel }
-                        : selectedChannelsManager.GetSelectedChannels().ToList();
+                    List<ChannelBox> channelsToProcess;
+
+                    if (targetChannel != null)
+                    {
+                        channelsToProcess = new List<ChannelBox> { targetChannel };
+                    }
+                    else if (forHold)
+                    {
+                        channelsToProcess = selectedChannelsManager.GetSelectedChannels()
+                            .Where(channel => channel.HoldState)
+                            .ToList();
+                    }
+                    else if (primaryChannel != null)
+                    {
+                        channelsToProcess = new List<ChannelBox> { primaryChannel };
+                    }
+                    else
+                    {
+                        channelsToProcess = selectedChannelsManager.GetSelectedChannels()
+                            .Where(channel => channel.PageState)
+                            .ToList();
+                    }
 
                     foreach (ChannelBox channel in channelsToProcess)
                     {
@@ -1392,10 +1412,14 @@ namespace dvmconsole
                             return;
                         }
 
-                        if (!ValidateTalkgroupAvailability(fne, cpgChannel, channel, current => current.PageState = false))
+                        Action<ChannelBox> rollback = forHold
+                            ? current => current.HoldState = false
+                            : current => current.PageState = false;
+
+                        if (!ValidateTalkgroupAvailability(fne, cpgChannel, channel, rollback))
                             return;
 
-                        if (channel.PageState || (forHold && channel.HoldState) || primaryChannel != null)
+                        if (channel.PageState || (forHold && channel.HoldState) || (!forHold && primaryChannel != null))
                         {
                             byte[] pcmData;
 
@@ -1777,7 +1801,7 @@ namespace dvmconsole
                     handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
                     await Task.Delay(1000);
 
-                    SendAlertTone(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/hold.wav"), true);
+                    SendAlertTone(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/hold.wav"), true, channel);
                 }
             }
         }
