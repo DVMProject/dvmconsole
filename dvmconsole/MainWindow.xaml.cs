@@ -1175,6 +1175,7 @@ namespace dvmconsole
         /// </summary>
         private void SelectedChannelsChanged()
         {
+            bool loadedConfiguredKeys = false;
             foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
             {
                 if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
@@ -1209,61 +1210,34 @@ namespace dvmconsole
                 }
 
                 // is the channel selected?
-                if (channel.IsSelected)
-                {
-                    // if the channel is configured for encryption request the key from the FNE
-                    uint newTgid = uint.Parse(cpgChannel.Tgid);
-                    if (cpgChannel.GetAlgoId() != 0 && cpgChannel.GetKeyId() != 0)
-                    {
-                        fne.peer.SendMasterKeyRequest(cpgChannel.GetAlgoId(), cpgChannel.GetKeyId());
-                        if (Codeplug.KeyFile != null)
-                        {
-                            if (!File.Exists(Codeplug.KeyFile))
-                            {
-                                MessageBox.Show($"Key file {Codeplug.KeyFile} not found. {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                            }
-                            else
-                            {
-                                var deserializer = new DeserializerBuilder()
-                                    .WithNamingConvention(CamelCaseNamingConvention.Instance)
-                                    .IgnoreUnmatchedProperties()
-                                    .Build();
-                                var keys = deserializer.Deserialize<KeyContainer>(File.ReadAllText(Codeplug.KeyFile));
-                                var KeysetItems = new Dictionary<int, KeysetItem>();
+                  if (channel.IsSelected)
+                  {
+                      // if the channel is configured for encryption request the key from the FNE
+                      if (cpgChannel.GetAlgoId() != 0 && cpgChannel.GetKeyId() != 0)
+                      {
+                          if (!loadedConfiguredKeys)
+                          {
+                              LoadConfiguredKeyFileKeys();
+                              loadedConfiguredKeys = true;
+                          }
 
-                                foreach (var keyEntry in keys.Keys)
-                                {
-                                    var keyItem = new KeyItem();
-                                    keyItem.KeyId = keyEntry.KeyId;
-                                    var keyBytes = keyEntry.KeyBytes;
-                                    keyItem.SetKey(keyBytes,(uint)keyBytes.Length);
-                                    if (!KeysetItems.ContainsKey(keyEntry.AlgId))
-                                    {
-                                        var asByte = (byte)keyEntry.AlgId;
-                                        KeysetItems.Add(keyEntry.AlgId, new KeysetItem() { AlgId = asByte });
-                                    }
-
-
-                                    KeysetItems[keyEntry.AlgId].AddKey(keyItem);
-                                }
-
-                                foreach (var eventData in KeysetItems.Select(keyValuePair => keyValuePair.Value).Select(keysetItem => new KeyResponseEvent(0, new KmmModifyKey
-                                         {
-                                             AlgId = 0,
-                                             KeyId = 0,
-                                             MessageId = 0,
-                                             MessageLength = 0,
-                                             KeysetItem = keysetItem
-                                         }, [])))
-                                {
-                                    KeyResponseReceived(eventData);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+                          if (isRestoringSelectedChannelsOnStartup)
+                          {
+                              QueueStartupKeyRequest(system.Name, cpgChannel.GetAlgoId(), cpgChannel.GetKeyId());
+                          }
+                          else if (GetFneConnectionEntry(system.Name)?.IsConnected == true)
+                          {
+                              fne.peer.SendMasterKeyRequest(cpgChannel.GetAlgoId(), cpgChannel.GetKeyId());
+                          }
+                          else
+                          {
+                              Log.WriteWarning($"({system.Name}) Deferring key request for {channel.ChannelName} until FNE is connected.");
+                              QueueStartupKeyRequest(system.Name, cpgChannel.GetAlgoId(), cpgChannel.GetKeyId());
+                          }
+                      }
+                  }
+              }
+          }
         private void RestoreSelectedChannels()
         {
             if (!settingsManager.RestoreSelectedChannelsOnStartup)
@@ -1272,19 +1246,27 @@ namespace dvmconsole
             if (settingsManager.SelectedChannels == null || settingsManager.SelectedChannels.Count == 0)
                 return;
 
-            foreach (var canvas in GetAllCanvases())
+            isRestoringSelectedChannelsOnStartup = true;
+            try
             {
-                foreach (ChannelBox channel in canvas.Children.OfType<ChannelBox>())
+                foreach (var canvas in GetAllCanvases())
                 {
-                    if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
-                        continue;
-
-                    if (settingsManager.SelectedChannels.Contains(channel.ChannelName))
+                    foreach (ChannelBox channel in canvas.Children.OfType<ChannelBox>())
                     {
-                        channel.IsSelected = true;
-                        selectedChannelsManager.AddSelectedChannel(channel);
+                        if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                            continue;
+
+                        if (settingsManager.SelectedChannels.Contains(channel.ChannelName))
+                        {
+                            channel.IsSelected = true;
+                            selectedChannelsManager.AddSelectedChannel(channel);
+                        }
                     }
                 }
+            }
+            finally
+            {
+                isRestoringSelectedChannelsOnStartup = false;
             }
         }
         /// <summary>

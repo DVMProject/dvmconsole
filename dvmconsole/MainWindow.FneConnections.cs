@@ -212,6 +212,7 @@ namespace dvmconsole
             {
                 try
                 {
+                    CancelDeferredStartupKeyRequests(entry.SystemName);
                     RemovePeerForEntry(entry);
                     entry.Sync.Dispose();
                 }
@@ -251,6 +252,7 @@ namespace dvmconsole
                     UpdateSystemStatusBox(entry);
                     RefreshCommandControlsForConnectionState();
                     PublishConnectionState(entry);
+                    ScheduleDeferredStartupKeyRequests(entry.SystemName);
                 });
             };
 
@@ -261,6 +263,7 @@ namespace dvmconsole
                 {
                     ApplyDisconnectedState(entry);
                     PublishConnectionState(entry);
+                    CancelDeferredStartupKeyRequests(entry.SystemName);
                 });
             };
 
