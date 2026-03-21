@@ -522,11 +522,13 @@ namespace dvmconsole
                     }
 
                     // is this a new call stream?
-                    if (e.StreamId != slot.RxStreamId && ((e.DUID != P25DUID.TDU) && (e.DUID != P25DUID.TDULC)))
+                    bool isNewCallStream = !channel.IsReceiving || e.StreamId != slot.RxStreamId;
+                    if (isNewCallStream && ((e.DUID != P25DUID.TDU) && (e.DUID != P25DUID.TDULC)))
                     {
                         patchManager.HandleCallStart(system.Name, cpgChannel.Tgid, e.StreamId, e.SrcId);
 
                         channel.IsReceiving = true;
+                        channel.IsReceivingEncrypted = encrypted;
                         channel.PeerId = e.PeerId;
                         channel.RxStreamId = e.StreamId;
                         
@@ -562,25 +564,19 @@ namespace dvmconsole
                     {
                         patchManager.HandleCallEnd(system.Name, cpgChannel.Tgid, e.StreamId);
 
-                        channel.IsReceiving = false;
-                        channel.PeerId = 0;
-                        channel.RxStreamId = 0;
+                        ClearReceiveState(channel, slot);
                         
                         // Update tab audio indicator
                         Dispatcher.Invoke(() => UpdateTabAudioIndicatorForChannel(channel));
 
                         TimeSpan callDuration = pktTime - slot.RxStart;
                         Log.WriteLine($"({system.Name}) P25D: Traffic *CALL END       * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} DUR {callDuration} [STREAM ID {e.StreamId}]");
-                        channel.VolumeMeterLevel = 0;
                         callHistoryWindow.ChannelUnkeyed(cpgChannel.Name, (int)e.SrcId);
                         continue;
                     }
 
                     // do background updates here -- this catches late entry
-                    if (channel.algId != P25Defines.P25_ALGO_UNENCRYPT)
-                        channel.Background = ChannelBox.ORANGE_GRADIENT;
-                    else
-                        channel.Background = ChannelBox.GREEN_GRADIENT;
+                    channel.IsReceivingEncrypted = channel.algId != P25Defines.P25_ALGO_UNENCRYPT;
 
                     string alias = string.Empty;
 

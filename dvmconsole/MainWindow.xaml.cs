@@ -1306,6 +1306,53 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// Clears the UI-facing receive state for a channel and optionally resets the tracked slot status.
+        /// </summary>
+        private void ClearReceiveState(ChannelBox channel, SlotStatus slotStatus = null)
+        {
+            channel.IsReceiving = false;
+            channel.IsReceivingEncrypted = false;
+            channel.PeerId = 0;
+            channel.RxStreamId = 0;
+            channel.VolumeMeterLevel = 0;
+
+            if (slotStatus != null)
+            {
+                slotStatus.RxRFS = 0;
+                slotStatus.RxTGId = 0;
+                slotStatus.RxStreamId = 0;
+                slotStatus.RxType = FrameType.TERMINATOR;
+                slotStatus.DMR_RxLC = null;
+                slotStatus.DMR_RxPILC = null;
+                slotStatus.RxTime = DateTime.Now;
+            }
+        }
+
+        /// <summary>
+        /// Finds the active receive slot status that matches a channel's current receive stream.
+        /// </summary>
+        private SlotStatus FindActiveReceiveStatus(ChannelBox channel, Codeplug.Channel cpgChannel)
+        {
+            if (channel == null || cpgChannel == null)
+                return null;
+
+            if (systemStatuses.TryGetValue(cpgChannel.Name, out SlotStatus exactStatus) &&
+                (channel.RxStreamId == 0 || exactStatus.RxStreamId == channel.RxStreamId))
+            {
+                return exactStatus;
+            }
+
+            if (channel.RxStreamId == 0)
+                return null;
+
+            uint.TryParse(cpgChannel.Tgid, out uint talkgroupId);
+
+            return systemStatuses.Values.FirstOrDefault(status =>
+                status.RxStreamId == channel.RxStreamId &&
+                (talkgroupId == 0 || status.RxTGId == talkgroupId));
+        }
+
+        /// <summary>
         /// 
         /// </summary>
         /// <param name="e"></param>
@@ -1838,28 +1885,24 @@ namespace dvmconsole
                         continue;
 
                     // check if the channel is stuck reporting Rx
-                    if (channel.IsReceiving)
-                    {
-                        DateTime now = DateTime.Now;
-                        TimeSpan dt = now - channel.LastPktTime;
-                        if (dt.TotalMilliseconds > 2000) // 2 seconds is more then enough time -- the interpacket time for P25 is ~180ms and DMR is ~60ms
-                        {
-                            if (cpgChannel != null && channel.RxStreamId > 0)
-                                patchManager.HandleCallEnd(system.Name, cpgChannel.Tgid, channel.RxStreamId);
+                      if (channel.IsReceiving)
+                      {
+                          DateTime now = DateTime.Now;
+                          TimeSpan dt = now - channel.LastPktTime;
+                          if (dt.TotalMilliseconds > 2000) // 2 seconds is more then enough time -- the interpacket time for P25 is ~180ms and DMR is ~60ms
+                          {
+                              if (cpgChannel != null && channel.RxStreamId > 0)
+                                  patchManager.HandleCallEnd(system.Name, cpgChannel.Tgid, channel.RxStreamId);
 
-                            Log.WriteLine($"({system.Name}) P25D: Traffic *CALL TIMEOUT   * TGID {channel.DstId} ALGID {channel.algId} KID {channel.kId}");
-                            Dispatcher.Invoke(() =>
-                            {
-                                channel.IsReceiving = false;
-                                channel.PeerId = 0;
-                                channel.RxStreamId = 0;
-
-                                channel.VolumeMeterLevel = 0;
-                                
-                                // Update tab audio indicator
-                                UpdateTabAudioIndicatorForChannel(channel);
-                            });
-                        }
+                              Log.WriteLine($"({system.Name}) P25D: Traffic *CALL TIMEOUT   * TGID {channel.DstId} ALGID {channel.algId} KID {channel.kId}");
+                              Dispatcher.Invoke(() =>
+                              {
+                                  ClearReceiveState(channel, FindActiveReceiveStatus(channel, cpgChannel));
+                                  
+                                  // Update tab audio indicator
+                                  UpdateTabAudioIndicatorForChannel(channel);
+                              });
+                          }
                     }
                 }
 

@@ -262,8 +262,9 @@ namespace dvmconsole
                     if (channel.PttState)
                         continue;
 
-                    if (!systemStatuses.ContainsKey(cpgChannel.Name + e.Slot))
-                        systemStatuses[cpgChannel.Name + e.Slot] = new SlotStatus();
+                    string statusKey = cpgChannel.Name + e.Slot;
+                    if (!systemStatuses.ContainsKey(statusKey))
+                        systemStatuses[statusKey] = new SlotStatus();
 
                     if (channel.Decoder == null)
                         channel.Decoder = new MBEDecoder(MBE_MODE.DMR_AMBE);
@@ -308,41 +309,43 @@ namespace dvmconsole
                     }
 
                     // is this a new call stream?
-                    if (e.StreamId != systemStatuses[cpgChannel.Name + e.Slot].RxStreamId)
+                    SlotStatus slotStatus = systemStatuses[statusKey];
+                    bool isNewCallStream = !channel.IsReceiving || e.StreamId != slotStatus.RxStreamId;
+                    if (isNewCallStream)
                     {
                         patchManager.HandleCallStart(system.Name, cpgChannel.Tgid, e.StreamId, e.SrcId);
 
                         channel.IsReceiving = true;
+                        channel.IsReceivingEncrypted = false;
                         channel.PeerId = e.PeerId;
                         channel.RxStreamId = e.StreamId;
                         
                         // Update tab audio indicator
                         Dispatcher.Invoke(() => UpdateTabAudioIndicatorForChannel(channel));
 
-                        systemStatuses[cpgChannel.Name + e.Slot].RxStart = pktTime;
+                        slotStatus.RxStart = pktTime;
                         Log.WriteLine($"({system.Name}) DMRD: Traffic *CALL START     * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} TS {e.Slot} [STREAM ID {e.StreamId}]");
 
                         // if we can, use the LC from the voice header as to keep all options intact
                         if ((e.FrameType == FrameType.DATA_SYNC) && (e.DataType == DMRDataType.VOICE_LC_HEADER))
                         {
                             LC lc = FullLC.Decode(data, DMRDataType.VOICE_LC_HEADER);
-                            systemStatuses[cpgChannel.Name + e.Slot].DMR_RxLC = lc;
+                            slotStatus.DMR_RxLC = lc;
                         }
                         else // if we don't have a voice header; don't wait to decode it, just make a dummy header
-                            systemStatuses[cpgChannel.Name + e.Slot].DMR_RxLC = new LC()
+                            slotStatus.DMR_RxLC = new LC()
                             {
                                 SrcId = e.SrcId,
                                 DstId = e.DstId
                             };
 
-                        systemStatuses[cpgChannel.Name + e.Slot].DMR_RxPILC = new PrivacyLC();
-                        Log.WriteLine($"({system.Name}) TS {e.Slot + 1} [STREAM ID {e.StreamId}] RX_LC {FneUtils.HexDump(systemStatuses[cpgChannel.Name + e.Slot].DMR_RxLC.GetBytes())}");
+                        slotStatus.DMR_RxPILC = new PrivacyLC();
+                        Log.WriteLine($"({system.Name}) TS {e.Slot + 1} [STREAM ID {e.StreamId}] RX_LC {FneUtils.HexDump(slotStatus.DMR_RxLC.GetBytes())}");
 
                         callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, DateTime.Now.ToString());
                         channel.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, DateTime.Now.ToString());
                         callHistoryWindow.ChannelKeyed(cpgChannel.Name, (int)e.SrcId, false); // TODO: Encrypted state
 
-                        channel.Background = ChannelBox.GREEN_GRADIENT;
                     }
 
                     // reset the channel state if we're not Rx
@@ -356,26 +359,24 @@ namespace dvmconsole
                     if ((e.FrameType == FrameType.DATA_SYNC) && (e.DataType == DMRDataType.VOICE_PI_HEADER))
                     {
                         PrivacyLC lc = FullLC.DecodePI(data);
-                        systemStatuses[cpgChannel.Name + e.Slot].DMR_RxPILC = lc;
+                        slotStatus.DMR_RxPILC = lc;
                         //Log.WriteLine($"({SystemName}) DMRD: Traffic *CALL PI PARAMS  * PEER {e.PeerId} DST_ID {e.DstId} TS {e.Slot + 1} ALGID {lc.AlgId} KID {lc.KId} [STREAM ID {e.StreamId}]");
                         //Log.WriteLine($"({SystemName}) TS {e.Slot + 1} [STREAM ID {e.StreamId}] RX_PI_LC {FneUtils.HexDump(systemStatuses[cpgChannel.Name + e.Slot].DMR_RxPILC.GetBytes())}");
                     }
 
-                    if ((e.FrameType == FrameType.DATA_SYNC) && (e.DataType == DMRDataType.TERMINATOR_WITH_LC) && (systemStatuses[cpgChannel.Name + e.Slot].RxType != FrameType.TERMINATOR))
+                    if ((e.FrameType == FrameType.DATA_SYNC) && (e.DataType == DMRDataType.TERMINATOR_WITH_LC) && (slotStatus.RxType != FrameType.TERMINATOR))
                     {
                         patchManager.HandleCallEnd(system.Name, cpgChannel.Tgid, e.StreamId);
 
-                        channel.IsReceiving = false;
-                        channel.PeerId = 0;
-                        channel.RxStreamId = 0;
+                        ClearReceiveState(channel, slotStatus);
                         
                         // Update tab audio indicator
                         Dispatcher.Invoke(() => UpdateTabAudioIndicatorForChannel(channel));
 
-                        TimeSpan callDuration = pktTime - systemStatuses[cpgChannel.Name + e.Slot].RxStart;
+                        TimeSpan callDuration = pktTime - slotStatus.RxStart;
                         Log.WriteLine($"({system.Name}) DMRD: Traffic *CALL END       * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} TS {e.Slot} DUR {callDuration} [STREAM ID {e.StreamId}]");
-                        channel.VolumeMeterLevel = 0;
                         callHistoryWindow.ChannelUnkeyed(cpgChannel.Name, (int)e.SrcId);
+                        continue;
                     }
 
                     string alias = string.Empty;
@@ -401,11 +402,11 @@ namespace dvmconsole
                         DMRDecodeAudioFrame(ambe, e, handler, channel, system.Name);
                     }
 
-                    systemStatuses[cpgChannel.Name + e.Slot].RxRFS = e.SrcId;
-                    systemStatuses[cpgChannel.Name + e.Slot].RxType = e.FrameType;
-                    systemStatuses[cpgChannel.Name + e.Slot].RxTGId = e.DstId;
-                    systemStatuses[cpgChannel.Name + e.Slot].RxTime = pktTime;
-                    systemStatuses[cpgChannel.Name + e.Slot].RxStreamId = e.StreamId;
+                    slotStatus.RxRFS = e.SrcId;
+                    slotStatus.RxType = e.FrameType;
+                    slotStatus.RxTGId = e.DstId;
+                    slotStatus.RxTime = pktTime;
+                    slotStatus.RxStreamId = e.StreamId;
                 }
             });
         }
