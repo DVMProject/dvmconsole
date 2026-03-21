@@ -141,6 +141,11 @@ namespace dvmconsole.Controls
         */
 
         /// <summary>
+        /// Optional callback used to approve a new outbound PTT start before UI state is latched.
+        /// </summary>
+        public Func<ChannelBox, bool> CanStartPtt { get; set; }
+
+        /// <summary>
         /// Private internal reference ID for this channel.
         /// </summary>
         public int InternalID { get; private set; }
@@ -837,6 +842,9 @@ namespace dvmconsole.Controls
             if (!IsSelected)
                 return;
 
+            if (pttState && CanStartPtt != null && !CanStartPtt(this))
+                return;
+
             if (IsTxEncrypted && !Crypter.HasKey())
             {
                 MessageBox.Show($"{ChannelName} {ERR_NO_LOADED_ENC_KEY}.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -905,6 +913,10 @@ namespace dvmconsole.Controls
             if (!IsSelected)
                 return;
 
+            bool nextState = !PttState;
+            if (nextState && CanStartPtt != null && !CanStartPtt(this))
+                return;
+
             if (IsTxEncrypted && !Crypter.HasKey())
             {
                 MessageBox.Show($"{ChannelName} {ERR_NO_LOADED_ENC_KEY}.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -912,7 +924,7 @@ namespace dvmconsole.Controls
                 return;
             }
 
-            PttState = !PttState;
+            PttState = nextState;
             PTTButtonClicked?.Invoke(sender, this);
         }
 
@@ -957,12 +969,19 @@ namespace dvmconsole.Controls
             if (pttToggleMode)
             {
                 // Toggle mode: toggle PttState and invoke clicked event
-                PttState = !PttState;
+                bool nextState = !PttState;
+                if (nextState && CanStartPtt != null && !CanStartPtt(this))
+                    return;
+
+                PttState = nextState;
                 PTTButtonClicked?.Invoke(sender, this);
             }
             else
             {
                 // Normal mode: set PttState to true and invoke pressed event
+                if (CanStartPtt != null && !CanStartPtt(this))
+                    return;
+
                 PTTButtonPressed?.Invoke(sender, this);
                 PttState = true;
             }

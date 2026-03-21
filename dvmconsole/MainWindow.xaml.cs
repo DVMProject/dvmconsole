@@ -1002,6 +1002,7 @@ namespace dvmconsole
 
                         ChannelBox channelBox = new ChannelBox(selectedChannelsManager, audioManager, channel.Name, channel.System, channel.Tgid, settingsManager.TogglePTTMode);
                         channelBox.ChannelMode = channel.Mode.ToUpperInvariant();
+                        channelBox.CanStartPtt = CanStartChannelPtt;
 
                         if (channel.GetAlgoId() != P25Defines.P25_ALGO_UNENCRYPT && channel.GetKeyId() > 0)
                             channelBox.IsTxEncrypted = true;
@@ -1361,6 +1362,9 @@ namespace dvmconsole
                             selectedChannelsManager.RemoveSelectedChannel(channel);
                             return;
                         }
+
+                        if (!ValidateTalkgroupAvailability(fne, cpgChannel, channel, current => current.PageState = false))
+                            return;
 
                         if (channel.PageState || (forHold && channel.HoldState) || primaryChannel != null)
                         {
@@ -1738,6 +1742,9 @@ namespace dvmconsole
 
                 if (channel.HoldState && !channel.IsReceiving && !channel.PttState && !channel.PageState)
                 {
+                    if (!ValidateTalkgroupAvailability(handler, cpgChannel, channel, current => current.HoldState = false))
+                        continue;
+
                     handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
                     await Task.Delay(1000);
 
@@ -2367,6 +2374,9 @@ namespace dvmconsole
                         continue;
                     }
 
+                    if (!ValidateTalkgroupAvailability(fne, cpgChannel, channel, current => current.PageState = false))
+                        continue;
+
                     // 
                     if (channel.PageState)
                     {
@@ -2792,7 +2802,12 @@ namespace dvmconsole
             }
 
             if (e.PageState)
+            {
+                if (!ValidateTalkgroupAvailability(fne, cpgChannel, e, current => current.PageState = false))
+                    return;
+
                 fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
+            }
             else
                 fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
         }
@@ -2845,6 +2860,14 @@ namespace dvmconsole
 
             if (e.PttState)
             {
+                if (!ValidateTalkgroupAvailability(fne, cpgChannel, e, current =>
+                {
+                    current.PttState = false;
+                    ResetChannel(current);
+                    current.VolumeMeterLevel = 0;
+                }))
+                    return;
+
                 if (e.TxStreamId != 0)
                     Log.WriteWarning($"{e.ChannelName} CHANNEL still had a TxStreamId? This shouldn't happen.");
 
@@ -2916,6 +2939,14 @@ namespace dvmconsole
                     return;
 
                 FneUtils.Memset(e.mi, 0x00, P25Defines.P25_MI_LENGTH);
+
+                if (!ValidateTalkgroupAvailability(fne, cpgChannel, e, current =>
+                {
+                    current.PttState = false;
+                    ResetChannel(current);
+                    current.VolumeMeterLevel = 0;
+                }))
+                    return;
 
                 uint srcId = uint.Parse(system.Rid);
                 uint dstId = uint.Parse(cpgChannel.Tgid);
@@ -3476,6 +3507,9 @@ namespace dvmconsole
                 if (!TryResolvePatchEndpoint(systemName, tgid, out ChannelBox channelBox, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne))
                     continue;
 
+                if (!ValidateTalkgroupAvailability(fne, cpgChannel))
+                    continue;
+
                 if (channelBox.TxStreamId != 0)
                 {
                     Log.WriteWarning($"({system.Name}) {cpgChannel.GetChannelMode().ToString().ToUpperInvariant()} Traffic *CALL START     * TGID {tgid} skipped for Patch PTT; channel already has active stream {channelBox.TxStreamId}.");
@@ -3649,6 +3683,9 @@ namespace dvmconsole
         private uint BeginPatchForward(string systemName, string tgid, uint sourceId)
         {
             if (!TryResolvePatchEndpoint(systemName, tgid, out ChannelBox channelBox, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne))
+                return 0;
+
+            if (!ValidateTalkgroupAvailability(fne, cpgChannel))
                 return 0;
 
             // Patch forwarding takes channel out of receive presentation state.
@@ -3862,6 +3899,13 @@ namespace dvmconsole
                 channel.TxStreamId = fne.NewStreamId();
                 if (globalPttState)
                 {
+                    if (!ValidateTalkgroupAvailability(fne, cpgChannel, channel, current =>
+                    {
+                        current.PttState = false;
+                        ResetChannel(current);
+                    }))
+                        continue;
+
                     Dispatcher.Invoke(() =>
                     {
                         btnGlobalPtt.Background = ChannelBox.RED_GRADIENT;
