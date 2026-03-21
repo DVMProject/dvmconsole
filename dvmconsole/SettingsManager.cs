@@ -111,7 +111,7 @@ namespace dvmconsole
         /// <summary>
         /// Flag indicating the PTT mode, Toggle PTT or Regular PTT.
         /// </summary>
-        public bool TogglePTTMode { get; set; } = true;
+        public bool TogglePTTMode { get; set; } = false;
 
         /// <summary>
         /// Flag indicating channel and other widgets are locked in place.
