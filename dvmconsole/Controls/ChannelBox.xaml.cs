@@ -17,6 +17,8 @@
 using System.ComponentModel;
 using System.IO;
 using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -34,6 +36,7 @@ namespace dvmconsole.Controls
     public partial class ChannelBox : UserControl, INotifyPropertyChanged
     {
         public const int MAX_CALL_HISTORY = 10;
+        public const int DEFAULT_PTT_RELEASE_TAIL_MS = 500;
 
         public readonly static Border BORDER_DEFAULT;
         public readonly static Border BORDER_GREEN;
@@ -100,6 +103,7 @@ namespace dvmconsole.Controls
 
         private bool pttToggleMode = false;
         private bool suppressSelectionToggle = false;
+        private CancellationTokenSource pendingPttReleaseCts;
 
         private bool isPrimary = false;
 
@@ -306,6 +310,11 @@ namespace dvmconsole.Controls
             get => pttToggleMode;
             set => pttToggleMode = value;
         }
+
+        /// <summary>
+        /// Tail hold duration used before the transmit path is actually de-keyed.
+        /// </summary>
+        public int PttReleaseTailMs { get; set; } = DEFAULT_PTT_RELEASE_TAIL_MS;
 
         /// <summary>
         /// 
@@ -845,6 +854,13 @@ namespace dvmconsole.Controls
             if (pttState && CanStartPtt != null && !CanStartPtt(this))
                 return;
 
+            if (pttState)
+            {
+                CancelPendingPttRelease();
+                if (PttState)
+                    return;
+            }
+
             if (IsTxEncrypted && !Crypter.HasKey())
             {
                 MessageBox.Show($"{ChannelName} {ERR_NO_LOADED_ENC_KEY}.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -852,8 +868,21 @@ namespace dvmconsole.Controls
                 return;
             }
 
-            PttState = pttState;
-            PTTButtonClicked?.Invoke(null, this);
+            if (pttState)
+            {
+                PttState = true;
+                PTTButtonClicked?.Invoke(null, this);
+                return;
+            }
+
+            if (!PttState)
+                return;
+
+            BeginPttReleaseTail(() =>
+            {
+                PttState = false;
+                PTTButtonClicked?.Invoke(null, this);
+            });
         }
 
         /// <summary>
@@ -913,6 +942,12 @@ namespace dvmconsole.Controls
             if (!IsSelected)
                 return;
 
+            if (HasPendingPttRelease)
+            {
+                CancelPendingPttRelease();
+                return;
+            }
+
             bool nextState = !PttState;
             if (nextState && CanStartPtt != null && !CanStartPtt(this))
                 return;
@@ -924,8 +959,22 @@ namespace dvmconsole.Controls
                 return;
             }
 
-            PttState = nextState;
-            PTTButtonClicked?.Invoke(sender, this);
+            if (nextState)
+            {
+                CancelPendingPttRelease();
+                PttState = true;
+                PTTButtonClicked?.Invoke(sender, this);
+                return;
+            }
+
+            if (!PttState)
+                return;
+
+            BeginPttReleaseTail(() =>
+            {
+                PttState = false;
+                PTTButtonClicked?.Invoke(sender, this);
+            });
         }
 
         /// <summary>
@@ -956,6 +1005,12 @@ namespace dvmconsole.Controls
             if (!IsSelected)
                 return;
 
+            if (HasPendingPttRelease)
+            {
+                CancelPendingPttRelease();
+                return;
+            }
+
             if (IsTxEncrypted && !Crypter.HasKey())
             {
                 MessageBox.Show($"{ChannelName} {ERR_NO_LOADED_ENC_KEY}.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -973,8 +1028,20 @@ namespace dvmconsole.Controls
                 if (nextState && CanStartPtt != null && !CanStartPtt(this))
                     return;
 
-                PttState = nextState;
-                PTTButtonClicked?.Invoke(sender, this);
+                if (nextState)
+                {
+                    CancelPendingPttRelease();
+                    PttState = true;
+                    PTTButtonClicked?.Invoke(sender, this);
+                }
+                else
+                {
+                    BeginPttReleaseTail(() =>
+                    {
+                        PttState = false;
+                        PTTButtonClicked?.Invoke(sender, this);
+                    });
+                }
             }
             else
             {
@@ -982,6 +1049,7 @@ namespace dvmconsole.Controls
                 if (CanStartPtt != null && !CanStartPtt(this))
                     return;
 
+                CancelPendingPttRelease();
                 PTTButtonPressed?.Invoke(sender, this);
                 PttState = true;
             }
@@ -999,9 +1067,52 @@ namespace dvmconsole.Controls
                 return;
             if (!IsSelected)
                 return;
+            if (!PttState)
+                return;
 
-            PTTButtonReleased?.Invoke(sender, this);
-            PttState = false;
+            BeginPttReleaseTail(() =>
+            {
+                PTTButtonReleased?.Invoke(sender, this);
+                PttState = false;
+            });
+        }
+
+        private bool HasPendingPttRelease => pendingPttReleaseCts != null;
+
+        private void CancelPendingPttRelease()
+        {
+            pendingPttReleaseCts?.Cancel();
+            pendingPttReleaseCts = null;
+        }
+
+        private async void BeginPttReleaseTail(Action releaseAction)
+        {
+            CancelPendingPttRelease();
+
+            CancellationTokenSource cts = new CancellationTokenSource();
+            pendingPttReleaseCts = cts;
+
+            try
+            {
+                if (PttReleaseTailMs > 0)
+                    await Task.Delay(PttReleaseTailMs, cts.Token);
+
+                if (cts.IsCancellationRequested || pendingPttReleaseCts != cts)
+                    return;
+
+                releaseAction?.Invoke();
+            }
+            catch (TaskCanceledException)
+            {
+                /* stub */
+            }
+            finally
+            {
+                if (pendingPttReleaseCts == cts)
+                    pendingPttReleaseCts = null;
+
+                cts.Dispose();
+            }
         }
 
         /// <summary>

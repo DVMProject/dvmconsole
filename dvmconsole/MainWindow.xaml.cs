@@ -3896,34 +3896,22 @@ namespace dvmconsole
                     continue;
                 }
 
-                channel.TxStreamId = fne.NewStreamId();
                 if (globalPttState)
                 {
-                    if (!ValidateTalkgroupAvailability(fne, cpgChannel, channel, current =>
-                    {
-                        current.PttState = false;
-                        ResetChannel(current);
-                    }))
-                        continue;
-
                     Dispatcher.Invoke(() =>
                     {
                         btnGlobalPtt.Background = ChannelBox.RED_GRADIENT;
-                        channel.PttState = true;
                     });
-
-                    fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
                 }
                 else
                 {
                     Dispatcher.Invoke(() =>
                     {
                         btnGlobalPtt.Background = btnGlobalPttDefaultBg;
-                        channel.PttState = false;
                     });
-
-                    fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
                 }
+
+                channel.TriggerPTTState(globalPttState);
             }
         }
 
