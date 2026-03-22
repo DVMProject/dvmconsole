@@ -11,6 +11,11 @@
 *
 */
 
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 
@@ -22,7 +27,9 @@ namespace dvmconsole
     public class AudioManager
     {
         private Dictionary<string, (WaveOutEvent waveOut, MixingSampleProvider mixer, BufferedWaveProvider buffer, GainSampleProvider gainProvider)> talkgroupProviders;
+        private readonly List<WaveOutEvent> oneShotPlayers;
         private SettingsManager settingsManager;
+        private readonly object talkgroupProvidersSync = new object();
 
         /*
         ** Methods
@@ -35,6 +42,7 @@ namespace dvmconsole
         {
             this.settingsManager = settingsManager;
             talkgroupProviders = new Dictionary<string, (WaveOutEvent, MixingSampleProvider, BufferedWaveProvider, GainSampleProvider)>();
+            oneShotPlayers = new List<WaveOutEvent>();
         }
 
         /// <summary>
@@ -44,10 +52,84 @@ namespace dvmconsole
         /// <param name="audioData"></param>
         public void AddTalkgroupStream(string talkgroupId, byte[] audioData)
         {
-            if (!talkgroupProviders.ContainsKey(talkgroupId))
-                AddTalkgroupStream(talkgroupId);
+            if (audioData == null || audioData.Length == 0)
+                return;
 
-            talkgroupProviders[talkgroupId].buffer.AddSamples(audioData, 0, audioData.Length);
+            lock (talkgroupProvidersSync)
+            {
+                var provider = GetOrCreateTalkgroupProvider(talkgroupId);
+                provider.buffer.AddSamples(audioData, 0, audioData.Length);
+            }
+        }
+
+        /// <summary>
+        /// Adds live monitor audio while shedding stale backlog to keep playback current.
+        /// </summary>
+        public void AddLiveMonitorStream(string talkgroupId, byte[] audioData, TimeSpan maxBufferedDuration)
+        {
+            if (audioData == null || audioData.Length == 0)
+                return;
+
+            lock (talkgroupProvidersSync)
+            {
+                var provider = GetOrCreateTalkgroupProvider(talkgroupId);
+                if (provider.buffer.BufferedDuration > maxBufferedDuration)
+                    provider.buffer.ClearBuffer();
+
+                provider.buffer.AddSamples(audioData, 0, audioData.Length);
+            }
+        }
+
+        /// <summary>
+        /// Plays a one-shot PCM clip without reusing the long-lived talkgroup playback provider.
+        /// </summary>
+        public void PlayOneShot(string talkgroupId, byte[] audioData)
+        {
+            if (audioData == null || audioData.Length == 0)
+                return;
+
+            int deviceIndex = settingsManager.ChannelOutputDevices.ContainsKey(talkgroupId) ? settingsManager.ChannelOutputDevices[talkgroupId] : 0;
+
+            Task.Run(() =>
+            {
+                WaveOutEvent waveOut = null;
+                RawSourceWaveStream rawStream = null;
+                MemoryStream memoryStream = null;
+
+                try
+                {
+                    memoryStream = new MemoryStream(audioData, writable: false);
+                    rawStream = new RawSourceWaveStream(memoryStream, new WaveFormat(8000, 16, 1));
+                    waveOut = new WaveOutEvent { DeviceNumber = deviceIndex };
+
+                    lock (talkgroupProvidersSync)
+                        oneShotPlayers.Add(waveOut);
+
+                    waveOut.Init(rawStream);
+                    waveOut.Play();
+
+                    while (waveOut.PlaybackState == PlaybackState.Playing)
+                        Thread.Sleep(25);
+                }
+                catch (Exception ex)
+                {
+                    Log.WriteWarning($"Failed to play local one-shot audio for {talkgroupId}: {ex.Message}");
+                }
+                finally
+                {
+                    if (waveOut != null)
+                    {
+                        waveOut.Stop();
+                        waveOut.Dispose();
+
+                        lock (talkgroupProvidersSync)
+                            oneShotPlayers.Remove(waveOut);
+                    }
+
+                    rawStream?.Dispose();
+                    memoryStream?.Dispose();
+                }
+            });
         }
 
         /// <summary>
@@ -59,7 +141,11 @@ namespace dvmconsole
             int deviceIndex = settingsManager.ChannelOutputDevices.ContainsKey(talkgroupId) ? settingsManager.ChannelOutputDevices[talkgroupId] : 0;
 
             var waveOut = new WaveOutEvent { DeviceNumber = deviceIndex };
-            var bufferProvider = new BufferedWaveProvider(new WaveFormat(8000, 16, 1)) { DiscardOnBufferOverflow = true };
+            var bufferProvider = new BufferedWaveProvider(new WaveFormat(8000, 16, 1))
+            {
+                BufferDuration = TimeSpan.FromSeconds(10),
+                DiscardOnBufferOverflow = true
+            };
             var gainProvider = new GainSampleProvider(bufferProvider.ToSampleProvider()) { Gain = 1.0f };
             var mixer = new MixingSampleProvider(WaveFormat.CreateIeeeFloatWaveFormat(8000, 1)) { ReadFully = true };
 
@@ -71,17 +157,23 @@ namespace dvmconsole
             talkgroupProviders[talkgroupId] = (waveOut, mixer, bufferProvider, gainProvider);
         }
 
+        private (WaveOutEvent waveOut, MixingSampleProvider mixer, BufferedWaveProvider buffer, GainSampleProvider gainProvider) GetOrCreateTalkgroupProvider(string talkgroupId)
+        {
+            if (!talkgroupProviders.ContainsKey(talkgroupId))
+                AddTalkgroupStream(talkgroupId);
+
+            return talkgroupProviders[talkgroupId];
+        }
+
         /// <summary>
         /// Adjusts the volume of a specific talkgroup stream
         /// </summary>
         public void SetTalkgroupVolume(string talkgroupId, float volume)
         {
-            if (talkgroupProviders.ContainsKey(talkgroupId))
-                talkgroupProviders[talkgroupId].gainProvider.Gain = volume;
-            else
+            lock (talkgroupProvidersSync)
             {
-                AddTalkgroupStream(talkgroupId);
-                talkgroupProviders[talkgroupId].gainProvider.Gain = volume;
+                var provider = GetOrCreateTalkgroupProvider(talkgroupId);
+                provider.gainProvider.Gain = volume;
             }
         }
 
@@ -92,14 +184,17 @@ namespace dvmconsole
         /// <param name="deviceIndex"></param>
         public void SetTalkgroupOutputDevice(string talkgroupId, int deviceIndex)
         {
-            if (talkgroupProviders.ContainsKey(talkgroupId))
+            lock (talkgroupProvidersSync)
             {
-                talkgroupProviders[talkgroupId].waveOut.Stop();
-                talkgroupProviders.Remove(talkgroupId);
-            }
+                if (talkgroupProviders.ContainsKey(talkgroupId))
+                {
+                    talkgroupProviders[talkgroupId].waveOut.Stop();
+                    talkgroupProviders.Remove(talkgroupId);
+                }
 
-            settingsManager.UpdateChannelOutputDevice(talkgroupId, deviceIndex);
-            AddTalkgroupStream(talkgroupId);
+                settingsManager.UpdateChannelOutputDevice(talkgroupId, deviceIndex);
+                AddTalkgroupStream(talkgroupId);
+            }
         }
 
         /// <summary>
@@ -107,8 +202,14 @@ namespace dvmconsole
         /// </summary>
         public void Stop()
         {
-            foreach (var provider in talkgroupProviders.Values)
-                provider.waveOut.Stop();
+            lock (talkgroupProvidersSync)
+            {
+                foreach (var provider in talkgroupProviders.Values)
+                    provider.waveOut.Stop();
+
+                foreach (WaveOutEvent player in oneShotPlayers.ToList())
+                    player.Stop();
+            }
         }
     } // public class AudioManager
 } // namespace dvmconsole

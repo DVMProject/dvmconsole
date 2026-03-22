@@ -1453,10 +1453,7 @@ namespace dvmconsole
                                     pcmData = paddedData;
                                 }
 
-                                Task.Run(() =>
-                                {
-                                    audioManager.AddTalkgroupStream(cpgChannel.Tgid, pcmData);
-                                });
+                                audioManager.PlayOneShot(cpgChannel.Tgid, pcmData);
 
                                 DateTime startTime = DateTime.UtcNow;
 
@@ -1949,8 +1946,11 @@ namespace dvmconsole
             if (isShuttingDown)
                 return;
 
-            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
-            {
+            byte[] micBuffer = new byte[e.BytesRecorded];
+            Buffer.BlockCopy(e.Buffer, 0, micBuffer, 0, e.BytesRecorded);
+  
+              foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
+              {
                 if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
                     continue;
 
@@ -1982,19 +1982,19 @@ namespace dvmconsole
                 }
 
                 // is the channel selected and in a PTT state?
-                if (channel.IsSelected && channel.PttState)
-                {
-                    isAnyTgOn = true;
-                    transmittedTargets.Add(BuildPatchTargetKey(system.Name, cpgChannel.Tgid));
-                    Task.Run(() =>
-                    {
-                        channel.chunkedPCM = AudioConverter.SplitToChunks(e.Buffer);
-                        foreach (byte[] chunk in channel.chunkedPCM)
-                        {
-                            if (chunk.Length == PCM_SAMPLES_LENGTH)
-                            {
-                                if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                                    P25EncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
+                  if (channel.IsSelected && channel.PttState)
+                  {
+                      isAnyTgOn = true;
+                      transmittedTargets.Add(BuildPatchTargetKey(system.Name, cpgChannel.Tgid));
+                      Task.Run(() =>
+                      {
+                          List<byte[]> chunks = AudioConverter.SplitToChunks(micBuffer);
+                          foreach (byte[] chunk in chunks)
+                          {
+                              if (chunk.Length == PCM_SAMPLES_LENGTH)
+                              {
+                                  if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                                      P25EncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
                                 else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
                                     DMREncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
                             }
@@ -2009,15 +2009,15 @@ namespace dvmconsole
             lock (patchPttSync)
                 patchPttActive = activePatchPttTargets.Count > 0;
 
-            if (patchPttActive)
-            {
-                isAnyTgOn = true;
-                SendPatchPttMicAudio(e.Buffer, transmittedTargets);
-            }
-
-            if (playbackChannelBox != null && isAnyTgOn && playbackChannelBox.IsSelected)
-                audioManager.AddTalkgroupStream(PLAYBACKTG, e.Buffer);
-        }
+              if (patchPttActive)
+              {
+                  isAnyTgOn = true;
+                  SendPatchPttMicAudio(micBuffer, transmittedTargets);
+              }
+  
+              if (playbackChannelBox != null && isAnyTgOn && playbackChannelBox.IsSelected)
+                  audioManager.AddLiveMonitorStream(PLAYBACKTG, micBuffer, TimeSpan.FromMilliseconds(250));
+          }
 
         /** WPF Window Events */
 
@@ -2444,11 +2444,7 @@ namespace dvmconsole
                         int chunkSize = PCM_SAMPLES_LENGTH;
                         int totalChunks = (combinedAudio.Length + chunkSize - 1) / chunkSize;
 
-                        Task.Run(() =>
-                        {
-                            //_waveProvider.ClearBuffer();
-                            audioManager.AddTalkgroupStream(cpgChannel.Tgid, combinedAudio);
-                        });
+                        audioManager.PlayOneShot(cpgChannel.Tgid, combinedAudio);
 
                         await Task.Run(() =>
                         {
