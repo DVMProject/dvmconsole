@@ -89,7 +89,6 @@ namespace dvmconsole
                 Details = new PeerDetails
                 {
                     ConventionalPeer = true,
-                    PeerClass = PeerConnectionClass.PEER_CONN_CLASS_CONSOLE,
                     Software = software,
                     Identity = system.Identity
                 }

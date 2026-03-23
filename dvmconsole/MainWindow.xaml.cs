@@ -201,10 +201,10 @@ namespace dvmconsole
             patchGroupsWindow.GroupModesCommitted += PatchGroupsWindow_GroupModesCommitted;
             patchGroupsWindow.PatchPttStateChanged += PatchGroupsWindow_PatchPttStateChanged;
             patchManager = new PatchManager(
-                BeginPatchForward,
-                EndPatchForward,
-                SendPatchForwardAudio,
-                GetPatchFallbackSourceId);
+                BeginPatchForwardOnUiThread,
+                EndPatchForwardOnUiThread,
+                SendPatchForwardAudioOnUiThread,
+                GetPatchFallbackSourceIdOnUiThread);
 
             selectedChannelsManager = new SelectedChannelsManager();
             flashingManager = new FlashingBackgroundManager(null, channelsCanvas, null, this);
@@ -3750,6 +3750,17 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// UI-thread wrapper for patch forward call starts.
+        /// </summary>
+        private uint BeginPatchForwardOnUiThread(string systemName, string tgid, uint sourceId)
+        {
+            if (Dispatcher.CheckAccess())
+                return BeginPatchForward(systemName, tgid, sourceId);
+
+            return Dispatcher.Invoke(() => BeginPatchForward(systemName, tgid, sourceId));
+        }
+
+        /// <summary>
         /// Stops an outbound patch forward call to destination member.
         /// </summary>
         private void EndPatchForward(string systemName, string tgid, uint streamId, uint sourceId)
@@ -3772,6 +3783,20 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// UI-thread wrapper for patch forward call stops.
+        /// </summary>
+        private void EndPatchForwardOnUiThread(string systemName, string tgid, uint streamId, uint sourceId)
+        {
+            if (Dispatcher.CheckAccess())
+            {
+                EndPatchForward(systemName, tgid, streamId, sourceId);
+                return;
+            }
+
+            Dispatcher.Invoke(() => EndPatchForward(systemName, tgid, streamId, sourceId));
+        }
+
+        /// <summary>
         /// Sends forwarded PCM audio to destination member.
         /// </summary>
         private void SendPatchForwardAudio(string systemName, string tgid, byte[] pcm, uint sourceId)
@@ -3791,6 +3816,20 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// UI-thread wrapper for patch forward audio sends.
+        /// </summary>
+        private void SendPatchForwardAudioOnUiThread(string systemName, string tgid, byte[] pcm, uint sourceId)
+        {
+            if (Dispatcher.CheckAccess())
+            {
+                SendPatchForwardAudio(systemName, tgid, pcm, sourceId);
+                return;
+            }
+
+            Dispatcher.Invoke(() => SendPatchForwardAudio(systemName, tgid, pcm, sourceId));
+        }
+
+        /// <summary>
         /// Gets fallback source ID when source passthrough is unavailable/disabled.
         /// </summary>
         private uint GetPatchFallbackSourceId(string systemName, string tgid)
@@ -3803,6 +3842,17 @@ namespace dvmconsole
                 return 0;
 
             return uint.Parse(system.Rid);
+        }
+
+        /// <summary>
+        /// UI-thread wrapper for resolving fallback source ID.
+        /// </summary>
+        private uint GetPatchFallbackSourceIdOnUiThread(string systemName, string tgid)
+        {
+            if (Dispatcher.CheckAccess())
+                return GetPatchFallbackSourceId(systemName, tgid);
+
+            return Dispatcher.Invoke(() => GetPatchFallbackSourceId(systemName, tgid));
         }
 
         /// <summary>
