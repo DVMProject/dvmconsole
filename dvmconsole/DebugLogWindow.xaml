@@ -33,7 +33,9 @@
                 <CheckBox x:Name="PauseAutoScrollCheckBox"
                           VerticalAlignment="Center"
                           Margin="0,0,12,0"
-                          Content="Pause Auto-Scroll" />
+                          Content="Pause Auto-Scroll"
+                          Checked="PauseAutoScrollCheckBox_Checked"
+                          Unchecked="PauseAutoScrollCheckBox_Unchecked" />
 
                 <Button Content="Clear"
                         Width="90"

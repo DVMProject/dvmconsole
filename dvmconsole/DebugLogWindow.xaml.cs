@@ -30,6 +30,7 @@ namespace dvmconsole
         private ScrollViewer logScrollViewer;
         private long bufferVersion;
         private long renderedVersion = -1;
+        private bool isAutoScrollPaused;
 
         public DebugLogWindow()
         {
@@ -85,11 +86,25 @@ namespace dvmconsole
 
         private void RefreshTimer_Tick(object sender, EventArgs e)
         {
+            if (isAutoScrollPaused)
+                return;
+
             if (renderedVersion == bufferVersion)
                 return;
 
-            bool shouldAutoScroll = !PauseAutoScrollCheckBox.IsChecked.GetValueOrDefault() && IsNearBottom();
+            bool shouldAutoScroll = IsNearBottom();
             RenderLatestSnapshot(shouldAutoScroll);
+        }
+
+        private void PauseAutoScrollCheckBox_Checked(object sender, RoutedEventArgs e)
+        {
+            isAutoScrollPaused = true;
+        }
+
+        private void PauseAutoScrollCheckBox_Unchecked(object sender, RoutedEventArgs e)
+        {
+            isAutoScrollPaused = false;
+            RenderLatestSnapshot(shouldAutoScroll: true);
         }
 
         private void AddLineToBuffer(string line)
