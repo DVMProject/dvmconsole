@@ -1212,6 +1212,8 @@ namespace dvmconsole
                 // is the channel selected?
                   if (channel.IsSelected)
                   {
+                      channel.ApplyCurrentVolume();
+
                       // if the channel is configured for encryption request the key from the FNE
                       if (cpgChannel.GetAlgoId() != 0 && cpgChannel.GetKeyId() != 0)
                       {
@@ -1258,8 +1260,12 @@ namespace dvmconsole
 
                         if (settingsManager.SelectedChannels.Contains(channel.ChannelName))
                         {
+                            if (settingsManager.ChannelVolumes.TryGetValue(channel.ChannelName, out double savedChannelVolume))
+                                channel.SetInitialVolume(savedChannelVolume);
+
                             channel.IsSelected = true;
                             selectedChannelsManager.AddSelectedChannel(channel);
+                            channel.ApplyCurrentVolume();
                         }
                     }
                 }

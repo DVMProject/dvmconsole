@@ -91,6 +91,10 @@ namespace dvmconsole
         /// </summary>
         public Dictionary<string, int> ChannelOutputDevices { get; set; } = new Dictionary<string, int>();
         /// <summary>
+        /// Saved per-channel volume levels.
+        /// </summary>
+        public Dictionary<string, double> ChannelVolumes { get; set; } = new Dictionary<string, double>();
+        /// <summary>
         /// Saved patch group memberships scoped by codeplug context key.
         /// </summary>
         public Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> PatchGroupMemberships { get; set; } = new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>();
@@ -232,6 +236,7 @@ namespace dvmconsole
                     AlertToneFilePaths = loadedSettings.AlertToneFilePaths ?? new List<string>();
                     AlertTonePositions = loadedSettings.AlertTonePositions ?? new Dictionary<string, ChannelPosition>();
                     ChannelOutputDevices = loadedSettings.ChannelOutputDevices ?? new Dictionary<string, int>();
+                    ChannelVolumes = loadedSettings.ChannelVolumes ?? new Dictionary<string, double>();
                     PatchGroupMemberships = loadedSettings.PatchGroupMemberships ?? new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>();
                     PatchGroupModes = loadedSettings.PatchGroupModes ?? new Dictionary<string, Dictionary<string, bool>>();
                     TogglePTTMode = loadedSettings.TogglePTTMode;
@@ -383,6 +388,15 @@ namespace dvmconsole
         public void UpdateChannelOutputDevice(string channelName, int deviceIndex)
         {
             ChannelOutputDevices[channelName] = deviceIndex;
+            SaveSettings();
+        }
+
+        /// <summary>
+        /// Saves a per-channel volume level.
+        /// </summary>
+        public void UpdateChannelVolume(string channelName, double volume)
+        {
+            ChannelVolumes[channelName] = volume;
             SaveSettings();
         }
 

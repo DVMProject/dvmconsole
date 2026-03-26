@@ -447,8 +447,26 @@ namespace dvmconsole.Controls
                     volume = value;
                     OnPropertyChanged(nameof(Volume));
                     audioManager.SetTalkgroupVolume(DstId, (float)value);
+                    SettingsManager.Instance?.UpdateChannelVolume(ChannelName, value);
                 }
             }
+        }
+
+        /// <summary>
+        /// Initializes the channel volume without immediately touching the audio stream.
+        /// </summary>
+        public void SetInitialVolume(double value)
+        {
+            volume = value;
+            OnPropertyChanged(nameof(Volume));
+        }
+
+        /// <summary>
+        /// Applies the current channel volume to the backing audio stream/provider.
+        /// </summary>
+        public void ApplyCurrentVolume()
+        {
+            audioManager.SetTalkgroupVolume(DstId, (float)volume);
         }
 
         /// <summary>
