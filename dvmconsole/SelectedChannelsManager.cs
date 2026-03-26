@@ -9,6 +9,7 @@
 *
 *   Copyright (C) 2024 Caleb, K4PHP
 *   Copyright (C) 2025 Steven Jennison, KD8RHO
+*   Copyright (C) 2026 C. Lovell, K7CBL
 *
 */
 
@@ -41,6 +42,10 @@ namespace dvmconsole
         /// Triggered when primary channel is changed
         /// </summary>
         public event Action PrimaryChannelChanged;
+        /// <summary>
+        /// Triggered when a channel selection changes.
+        /// </summary>
+        public event Action<ChannelBox, bool> ChannelSelectionChanged;
         /*
         ** Methods
         */
@@ -62,6 +67,7 @@ namespace dvmconsole
             if (selectedChannels.Add(channel))
             {
                 channel.IsSelected = true;
+                ChannelSelectionChanged?.Invoke(channel, true);
                 SelectedChannelsChanged?.Invoke();
             }
         }
@@ -80,6 +86,7 @@ namespace dvmconsole
                 }
                 channel.IsPrimary = false;
                 channel.IsSelected = false;
+                ChannelSelectionChanged?.Invoke(channel, false);
                 SelectedChannelsChanged?.Invoke();
             }
         }
@@ -90,7 +97,10 @@ namespace dvmconsole
         public void ClearSelections()
         {
             foreach (var channel in selectedChannels)
+            {
                 channel.IsSelected = false;
+                ChannelSelectionChanged?.Invoke(channel, false);
+            }
 
             selectedChannels.Clear();
             SelectedChannelsChanged?.Invoke();

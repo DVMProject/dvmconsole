@@ -178,6 +178,21 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// Clears any buffered audio for a talkgroup without removing its provider.
+        /// </summary>
+        public void ClearTalkgroupBuffer(string talkgroupId)
+        {
+            if (string.IsNullOrWhiteSpace(talkgroupId))
+                return;
+
+            lock (talkgroupProvidersSync)
+            {
+                if (talkgroupProviders.TryGetValue(talkgroupId, out var provider))
+                    provider.buffer.ClearBuffer();
+            }
+        }
+
+        /// <summary>
         /// Set stream output device
         /// </summary>
         /// <param name="talkgroupId"></param>

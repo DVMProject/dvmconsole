@@ -239,6 +239,7 @@ namespace dvmconsole
 
             selectedChannelsManager.SelectedChannelsChanged += SelectedChannelsChanged;
             selectedChannelsManager.PrimaryChannelChanged += PrimaryChannelChanged;
+            selectedChannelsManager.ChannelSelectionChanged += SelectedChannelsManager_ChannelSelectionChanged;
 
             LocationChanged += MainWindow_LocationChanged;
             SizeChanged += MainWindow_SizeChanged;
@@ -1314,6 +1315,31 @@ namespace dvmconsole
                 slotStatus.DMR_RxPILC = null;
                 slotStatus.RxTime = DateTime.Now;
             }
+        }
+
+        /// <summary>
+        /// Stops local monitoring state for a deselected channel immediately.
+        /// </summary>
+        private void StopChannelMonitoring(ChannelBox channel)
+        {
+            if (channel == null)
+                return;
+
+            Codeplug.Channel cpgChannel = Codeplug?.GetChannelByName(channel.ChannelName);
+            ClearReceiveState(channel, FindActiveReceiveStatus(channel, cpgChannel));
+            audioManager.ClearTalkgroupBuffer(channel.DstId);
+            UpdateTabAudioIndicatorForChannel(channel);
+        }
+
+        private void SelectedChannelsManager_ChannelSelectionChanged(ChannelBox channel, bool isSelected)
+        {
+            if (channel == null || isSelected)
+                return;
+
+            if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                return;
+
+            StopChannelMonitoring(channel);
         }
 
         /// <summary>
