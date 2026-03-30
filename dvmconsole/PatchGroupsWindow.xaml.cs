@@ -37,6 +37,7 @@ namespace dvmconsole
 
         public event Action<Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>> MembershipsCommitted;
         public event Action<Dictionary<string, bool>> GroupModesCommitted;
+        public event Action<Dictionary<string, bool>> GroupEnabledStatesCommitted;
         public event EventHandler<PatchGroupPttEventArgs> PatchPttStateChanged;
 
         public enum PatchTalkgroupState
@@ -75,6 +76,7 @@ namespace dvmconsole
             public Image EditIcon { get; set; }
             public TextBlock EditText { get; set; }
             public CheckBox OneWayToggle { get; set; }
+            public CheckBox PatchEnabledToggle { get; set; }
             public TextBlock MemberOrderHint { get; set; }
             public Border StatusBorder { get; set; }
             public TextBlock StatusText { get; set; }
@@ -83,6 +85,7 @@ namespace dvmconsole
             public bool IsEditing { get; set; }
             public bool IsPttActive { get; set; }
             public bool IsOneWay { get; set; }
+            public bool IsPatchEnabled { get; set; }
         }
 
         private static readonly BitmapImage TRANSMIT_OUT_PATCH_ICON = new BitmapImage(new Uri("pack://application:,,,/dvmconsole;component/Assets/transmit_out_patch.png"));
@@ -117,6 +120,7 @@ namespace dvmconsole
         private Dictionary<string, ChannelIdentity> validChannelsByKey = new Dictionary<string, ChannelIdentity>();
         private Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> lastPersistedMemberships = new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>();
         private Dictionary<string, bool> lastPersistedModes = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, bool> lastPersistedEnabledStates = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         private string membershipContextKey = string.Empty;
 
         private bool IsDarkTheme => settingsManager?.DarkMode == true;
@@ -205,8 +209,12 @@ namespace dvmconsole
 
             Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> persistedMemberships = settingsManager.GetPatchGroupMemberships(membershipContextKey);
             Dictionary<string, bool> persistedModes = settingsManager.GetPatchGroupModes(membershipContextKey);
+            Dictionary<string, bool> persistedEnabledStates = settingsManager.RetainPatchStateOnStartup
+                ? settingsManager.GetPatchGroupEnabledStates(membershipContextKey)
+                : new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
             lastPersistedMemberships = CloneMemberships(persistedMemberships);
             lastPersistedModes = new Dictionary<string, bool>(persistedModes ?? new Dictionary<string, bool>(), StringComparer.OrdinalIgnoreCase);
+            lastPersistedEnabledStates = new Dictionary<string, bool>(persistedEnabledStates ?? new Dictionary<string, bool>(), StringComparer.OrdinalIgnoreCase);
 
             foreach (Codeplug.Group patchGroup in patchGroups.Where(pg => !string.IsNullOrWhiteSpace(pg?.Name)))
             {
@@ -214,11 +222,13 @@ namespace dvmconsole
                 bool isOneWay = !isMultiSelect &&
                     persistedModes.TryGetValue(patchGroup.Name.Trim(), out bool persistedOneWay) &&
                     persistedOneWay;
+                bool isPatchEnabled = isMultiSelect || (persistedEnabledStates.TryGetValue(patchGroup.Name.Trim(), out bool persistedEnabled) && persistedEnabled);
                 PatchTabContext context = new PatchTabContext
                 {
                     GroupName = patchGroup.Name,
                     GroupType = isMultiSelect ? "multiselect" : "patch",
-                    IsOneWay = isOneWay
+                    IsOneWay = isOneWay,
+                    IsPatchEnabled = isPatchEnabled
                 };
 
                 Image pttIcon = new Image
@@ -346,6 +356,19 @@ namespace dvmconsole
                 oneWayToggle.Unchecked += OneWayToggle_Changed;
                 context.OneWayToggle = oneWayToggle;
 
+                CheckBox patchEnabledToggle = new CheckBox
+                {
+                    Content = "Patch Enabled",
+                    Margin = new Thickness(6, 0, 6, 4),
+                    IsChecked = context.IsPatchEnabled,
+                    Foreground = InfoTextBrush,
+                    Visibility = isMultiSelect ? Visibility.Collapsed : Visibility.Visible,
+                    Tag = context
+                };
+                patchEnabledToggle.Checked += PatchEnabledToggle_Changed;
+                patchEnabledToggle.Unchecked += PatchEnabledToggle_Changed;
+                context.PatchEnabledToggle = patchEnabledToggle;
+
                 TextBlock memberOrderHint = new TextBlock
                 {
                     Margin = new Thickness(26, 2, 6, 8),
@@ -358,6 +381,7 @@ namespace dvmconsole
                 context.MemberOrderHint = memberOrderHint;
 
                 StackPanel oneWayPanel = new StackPanel();
+                oneWayPanel.Children.Add(patchEnabledToggle);
                 oneWayPanel.Children.Add(oneWayToggle);
                 oneWayPanel.Children.Add(memberOrderHint);
 
@@ -415,7 +439,9 @@ namespace dvmconsole
             if (patchGroupTabs.Items.Count > 0)
                 patchGroupTabs.SelectedIndex = 0;
             PersistAllModes();
+            lastPersistedEnabledStates = BuildPatchEnabledMap();
             GroupModesCommitted?.Invoke(BuildGroupModesMap());
+            GroupEnabledStatesCommitted?.Invoke(BuildPatchEnabledMap());
         }
 
         /// <summary>
@@ -481,6 +507,8 @@ namespace dvmconsole
         {
             if (sender is not Button button || button.Tag is not PatchTabContext context)
                 return;
+            if (context.GroupType.Equals("patch", StringComparison.OrdinalIgnoreCase) && !context.IsPatchEnabled)
+                return;
 
             context.IsPttActive = !context.IsPttActive;
             UpdateContextVisualState(context);
@@ -524,6 +552,28 @@ namespace dvmconsole
             UpdateContextVisualState(context);
             PersistAllModes();
             GroupModesCommitted?.Invoke(BuildGroupModesMap());
+        }
+
+        /// <summary>
+        /// Handles patch enabled state changes for patch groups.
+        /// </summary>
+        private void PatchEnabledToggle_Changed(object sender, RoutedEventArgs e)
+        {
+            if (sender is not CheckBox checkBox || checkBox.Tag is not PatchTabContext context)
+                return;
+            if (!context.GroupType.Equals("patch", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            context.IsPatchEnabled = checkBox.IsChecked == true;
+            if (!context.IsPatchEnabled && context.IsPttActive)
+            {
+                context.IsPttActive = false;
+                RaisePatchPttStateChanged(context, false);
+            }
+
+            UpdateContextVisualState(context);
+            PersistAllEnabledStates();
+            GroupEnabledStatesCommitted?.Invoke(BuildPatchEnabledMap());
         }
 
         /// <summary>
@@ -759,6 +809,19 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// Persists enabled state for patch groups.
+        /// </summary>
+        private void PersistAllEnabledStates()
+        {
+            Dictionary<string, bool> states = BuildPatchEnabledMap();
+            if (ModeMapsEqual(lastPersistedEnabledStates, states))
+                return;
+
+            settingsManager.SavePatchGroupEnabledStates(membershipContextKey, states);
+            lastPersistedEnabledStates = new Dictionary<string, bool>(states, StringComparer.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
         /// Clones a memberships dictionary.
         /// </summary>
         /// <param name="memberships"></param>
@@ -862,6 +925,14 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// Returns enabled-state map for patch groups.
+        /// </summary>
+        public Dictionary<string, bool> GetPatchGroupEnabledStates()
+        {
+            return BuildPatchEnabledMap();
+        }
+
+        /// <summary>
         /// Builds normalized identity key.
         /// </summary>
         private static string BuildIdentityKey(string systemName, string tgid)
@@ -896,6 +967,19 @@ namespace dvmconsole
             return modes;
         }
 
+        private Dictionary<string, bool> BuildPatchEnabledMap()
+        {
+            Dictionary<string, bool> states = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            foreach (PatchTabContext context in tabContexts.Values)
+            {
+                if (!context.GroupType.Equals("patch", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                states[context.GroupName] = context.IsPatchEnabled;
+            }
+
+            return states;
+        }
+
         private void UpdateContextVisualState(PatchTabContext context)
         {
             if (context == null)
@@ -903,6 +987,7 @@ namespace dvmconsole
 
             bool isMultiSelect = context.GroupType.Equals("multiselect", StringComparison.OrdinalIgnoreCase);
             string groupKind = isMultiSelect ? "multi-select" : "patch";
+            bool patchAvailable = isMultiSelect || context.IsPatchEnabled;
 
             if (context.EditIcon != null)
                 context.EditIcon.Source = context.IsEditing ? GetEditActiveIcon(context) : GetEditInactiveIcon(context);
@@ -929,9 +1014,13 @@ namespace dvmconsole
             {
                 context.PttButton.Background = context.IsPttActive ? GetAccentBrush(context) : ButtonIdleBackground;
                 context.PttButton.Foreground = InfoTextBrush;
-                context.PttButton.ToolTip = context.IsPttActive
-                    ? $"Transmitting to every member in {context.GroupName}. Click again to stop."
-                    : $"Transmit to every member in {context.GroupName}. Use this when you want to talk to the whole {groupKind} at once.";
+                context.PttButton.IsEnabled = patchAvailable;
+                context.PttButton.Opacity = patchAvailable ? 1.0 : 0.55;
+                context.PttButton.ToolTip = !patchAvailable
+                    ? $"Enable {context.GroupName} before using Patch PTT."
+                    : context.IsPttActive
+                        ? $"Transmitting to every member in {context.GroupName}. Click again to stop."
+                        : $"Transmit to every member in {context.GroupName}. Use this when you want to talk to the whole {groupKind} at once.";
             }
 
             if (context.StatusBorder != null)
@@ -965,6 +1054,14 @@ namespace dvmconsole
                 context.OneWayToggle.ToolTip = context.IsOneWay
                     ? "Disable one-way patch mode."
                     : "Enable one-way patch mode.";
+            }
+
+            if (context.PatchEnabledToggle != null)
+            {
+                context.PatchEnabledToggle.Foreground = InfoTextBrush;
+                context.PatchEnabledToggle.ToolTip = context.IsPatchEnabled
+                    ? $"Disable {context.GroupName}. Members stay assigned, but the patch becomes inactive."
+                    : $"Enable {context.GroupName}. Members stay assigned and traffic can be forwarded again.";
             }
 
             if (context.TalkgroupListBox != null)

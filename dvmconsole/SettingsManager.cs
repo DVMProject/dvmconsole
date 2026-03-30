@@ -111,6 +111,10 @@ namespace dvmconsole
         /// Saved patch group one-way mode scoped by codeplug context key.
         /// </summary>
         public Dictionary<string, Dictionary<string, bool>> PatchGroupModes { get; set; } = new Dictionary<string, Dictionary<string, bool>>();
+        /// <summary>
+        /// Saved patch enabled state scoped by codeplug context key.
+        /// </summary>
+        public Dictionary<string, Dictionary<string, bool>> PatchGroupEnabledStates { get; set; } = new Dictionary<string, Dictionary<string, bool>>();
 
         /// <summary>
         /// Stored member identity for a patch talkgroup.
@@ -200,6 +204,10 @@ namespace dvmconsole
         /// </summary>
         public bool TalkPermitTone { get; set; } = false;
         /// <summary>
+        /// Flag indicating whether patch enabled state should be restored on startup.
+        /// </summary>
+        public bool RetainPatchStateOnStartup { get; set; } = false;
+        /// <summary>
         /// Flag indicating whether selected channels should be restored on startup.
         /// </summary>
         public bool RestoreSelectedChannelsOnStartup { get; set; } = false;
@@ -262,11 +270,13 @@ namespace dvmconsole
                     ChannelVolumes = loadedSettings.ChannelVolumes ?? new Dictionary<string, double>();
                     PatchGroupMemberships = loadedSettings.PatchGroupMemberships ?? new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>();
                     PatchGroupModes = loadedSettings.PatchGroupModes ?? new Dictionary<string, Dictionary<string, bool>>();
+                    PatchGroupEnabledStates = loadedSettings.PatchGroupEnabledStates ?? new Dictionary<string, Dictionary<string, bool>>();
                     TogglePTTMode = loadedSettings.TogglePTTMode;
                     LockWidgets = loadedSettings.LockWidgets;
                     SnapCallHistoryToWindow = loadedSettings.SnapCallHistoryToWindow;
                     KeepWindowOnTop = loadedSettings.KeepWindowOnTop;
                     TalkPermitTone = loadedSettings.TalkPermitTone;
+                    RetainPatchStateOnStartup = loadedSettings.RetainPatchStateOnStartup;
                     Maximized = loadedSettings.Maximized;
                     DarkMode = loadedSettings.DarkMode;
                     WindowWidth = loadedSettings.WindowWidth;
@@ -606,6 +616,46 @@ namespace dvmconsole
             }
 
             PatchGroupModes[key] = new Dictionary<string, bool>(normalized);
+            SaveSettings();
+        }
+
+        /// <summary>
+        /// Gets a copy of patch enabled state for a codeplug context.
+        /// </summary>
+        public Dictionary<string, bool> GetPatchGroupEnabledStates(string contextKey)
+        {
+            string key = NormalizePatchMembershipKey(contextKey);
+            if (!PatchGroupEnabledStates.TryGetValue(key, out Dictionary<string, bool> states))
+                return new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+
+            Dictionary<string, bool> copy = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, bool> kvp in states)
+            {
+                string groupName = kvp.Key?.Trim();
+                if (string.IsNullOrWhiteSpace(groupName))
+                    continue;
+                copy[groupName] = kvp.Value;
+            }
+
+            return copy;
+        }
+
+        /// <summary>
+        /// Saves patch enabled state for a codeplug context.
+        /// </summary>
+        public void SavePatchGroupEnabledStates(string contextKey, Dictionary<string, bool> states)
+        {
+            string key = NormalizePatchMembershipKey(contextKey);
+            Dictionary<string, bool> normalized = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, bool> kvp in states ?? new Dictionary<string, bool>())
+            {
+                string groupName = kvp.Key?.Trim();
+                if (string.IsNullOrWhiteSpace(groupName))
+                    continue;
+                normalized[groupName] = kvp.Value;
+            }
+
+            PatchGroupEnabledStates[key] = new Dictionary<string, bool>(normalized);
             SaveSettings();
         }
 

@@ -63,6 +63,7 @@ namespace dvmconsole.Controls
         private bool isSelected;
 
         private bool isMultiSelectMember = false;
+        private bool isPatchGroupActive = false;
         private string indicatorIconSource = "/dvmconsole;component/Assets/patch_edit_off.png";
         private Visibility indicatorIconVisibility = Visibility.Collapsed;
         private string indicatorIconToolTip = "Member of one or more patch groups";
@@ -370,6 +371,22 @@ namespace dvmconsole.Controls
         /// Flag indicating whether this resource belongs to at least one patch group.
         /// </summary>
         public bool IsPatchGroupMember { get; private set; }
+
+        /// <summary>
+        /// Flag indicating whether this resource belongs to at least one enabled patch group.
+        /// </summary>
+        public bool IsPatchGroupActive
+        {
+            get => isPatchGroupActive;
+            private set
+            {
+                if (isPatchGroupActive != value)
+                {
+                    isPatchGroupActive = value;
+                    OnPropertyChanged(nameof(IsPatchGroupActive));
+                }
+            }
+        }
 
         /// <summary>
         /// Flag indicating whether this resource belongs to the current multi-select group.
@@ -919,8 +936,12 @@ namespace dvmconsole.Controls
                 }
                 else if (IsPatchGroupMember)
                 {
-                    IndicatorIconSource = "/dvmconsole;component/Assets/patch_edit_off.png";
-                    IndicatorIconToolTip = "Member of one or more patch groups";
+                    IndicatorIconSource = IsPatchGroupActive
+                        ? "/dvmconsole;component/Assets/patch_edit_on.png"
+                        : "/dvmconsole;component/Assets/patch_edit_off.png";
+                    IndicatorIconToolTip = IsPatchGroupActive
+                        ? "Member of one or more enabled patch groups"
+                        : "Member of one or more patch groups";
                     IndicatorIconVisibility = Visibility.Visible;
                 }
                 else
@@ -934,9 +955,10 @@ namespace dvmconsole.Controls
         /// Sets the patch membership indicator state for this resource.
         /// </summary>
         /// <param name="isMember"></param>
-        public void SetPatchMembershipIndicator(bool isMember)
+        public void SetPatchMembershipIndicator(bool isMember, bool isActive = false)
         {
             IsPatchGroupMember = isMember;
+            IsPatchGroupActive = isMember && isActive;
             UpdateIndicatorIcon();
         }
 

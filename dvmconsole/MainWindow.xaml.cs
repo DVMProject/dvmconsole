@@ -147,6 +147,7 @@ namespace dvmconsole
         private readonly object patchPttSync = new object();
         private readonly Dictionary<string, PatchPttTargetSession> activePatchPttTargets = new Dictionary<string, PatchPttTargetSession>(StringComparer.OrdinalIgnoreCase);
         private Dictionary<string, bool> patchGroupModes = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, bool> patchGroupEnabledStates = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         private Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> currentPatchMemberships = new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>();
 
         private bool selectAll = false;
@@ -199,6 +200,7 @@ namespace dvmconsole
             patchGroupsWindow = new PatchGroupsWindow(settingsManager, ResolvePatchTalkgroupState);
             patchGroupsWindow.MembershipsCommitted += PatchGroupsWindow_MembershipsCommitted;
             patchGroupsWindow.GroupModesCommitted += PatchGroupsWindow_GroupModesCommitted;
+            patchGroupsWindow.GroupEnabledStatesCommitted += PatchGroupsWindow_GroupEnabledStatesCommitted;
             patchGroupsWindow.PatchPttStateChanged += PatchGroupsWindow_PatchPttStateChanged;
             patchManager = new PatchManager(
                 BeginPatchForwardOnUiThread,
@@ -825,10 +827,11 @@ namespace dvmconsole
                 patchGroupsWindow.SetMembershipContext(filePath);
                 patchGroupsWindow.SetPatchGroups(Codeplug.Groups, GetConfiguredChannels());
                 patchGroupModes = patchGroupsWindow.GetPatchGroupModes();
+                patchGroupEnabledStates = patchGroupsWindow.GetPatchGroupEnabledStates();
                 patchManager.SetSourceIdPassthrough(Codeplug.PatchSourceIdPassthrough);
                 Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships = patchGroupsWindow.GetCurrentMemberships();
                 currentPatchMemberships = ClonePatchMemberships(memberships);
-                patchManager.ApplyMemberships(FilterPatchMemberships(memberships), patchGroupModes);
+                patchManager.ApplyMemberships(FilterPatchMemberships(memberships, patchGroupEnabledStates), patchGroupModes);
 
                 // compile list of errors and throw up a messagebox of doom
                 if (errors.Count > 0)
@@ -844,7 +847,7 @@ namespace dvmconsole
 
                 // generate widgets and enable controls
                 GenerateChannelWidgets();
-                UpdatePatchMemberIndicators(FilterPatchMemberships(memberships));
+                UpdatePatchMemberIndicators(FilterPatchMemberships(memberships), patchGroupEnabledStates);
                 UpdateMultiSelectIndicators(FilterMultiSelectMemberships(memberships));
                 patchGroupsWindow.RefreshMemberStatusIcons();
                 EnableControls();
@@ -855,9 +858,10 @@ namespace dvmconsole
                 Codeplug = null;
                 patchGroupsWindow.SetPatchGroups(null, null);
                 patchGroupModes = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                patchGroupEnabledStates = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
                 currentPatchMemberships = new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>();
                 patchManager.ApplyMemberships(new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>(), patchGroupModes);
-                UpdatePatchMemberIndicators(new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>());
+                UpdatePatchMemberIndicators(new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>(), new Dictionary<string, bool>());
                 UpdateMultiSelectIndicators(new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>());
                 if (patchGroupsWindow.Visibility == Visibility.Visible)
                     patchGroupsWindow.Hide();
@@ -1134,7 +1138,7 @@ namespace dvmconsole
             if (defaultTab != null)
                 elementToTabMap[playbackChannelBox] = defaultTab;
 
-            UpdatePatchMemberIndicators(FilterPatchMemberships(currentPatchMemberships));
+            UpdatePatchMemberIndicators(FilterPatchMemberships(currentPatchMemberships), patchGroupEnabledStates);
             UpdateMultiSelectIndicators(FilterMultiSelectMemberships(currentPatchMemberships));
 
             RestoreSelectedChannels();
@@ -2267,6 +2271,7 @@ namespace dvmconsole
             menuSnapCallHistory.IsChecked = settingsManager.SnapCallHistoryToWindow;
             menuTogglePTTMode.IsChecked = settingsManager.TogglePTTMode;
             menuTalkPermitTone.IsChecked = settingsManager.TalkPermitTone;
+            menuRetainPatchStateOnStartup.IsChecked = settingsManager.RetainPatchStateOnStartup;
             menuRestoreSelectedChannels.IsChecked = settingsManager.RestoreSelectedChannelsOnStartup;
             menuKeepWindowOnTop.IsChecked = settingsManager.KeepWindowOnTop;
 
@@ -3527,11 +3532,11 @@ namespace dvmconsole
         private void PatchGroupsWindow_MembershipsCommitted(Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships)
         {
             currentPatchMemberships = ClonePatchMemberships(memberships);
-            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> patchMemberships = FilterPatchMemberships(memberships);
+            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> patchMemberships = FilterPatchMemberships(memberships, patchGroupEnabledStates);
             Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> multiSelectMemberships = FilterMultiSelectMemberships(memberships);
 
             patchManager.ApplyMemberships(patchMemberships, patchGroupModes);
-            UpdatePatchMemberIndicators(patchMemberships);
+            UpdatePatchMemberIndicators(FilterPatchMemberships(memberships), patchGroupEnabledStates);
             UpdateMultiSelectIndicators(multiSelectMemberships);
         }
 
@@ -3561,7 +3566,17 @@ namespace dvmconsole
         private void PatchGroupsWindow_GroupModesCommitted(Dictionary<string, bool> modes)
         {
             patchGroupModes = new Dictionary<string, bool>(modes ?? new Dictionary<string, bool>(), StringComparer.OrdinalIgnoreCase);
-            patchManager.ApplyMemberships(FilterPatchMemberships(currentPatchMemberships), patchGroupModes);
+            patchManager.ApplyMemberships(FilterPatchMemberships(currentPatchMemberships, patchGroupEnabledStates), patchGroupModes);
+        }
+
+        /// <summary>
+        /// Applies patch enabled-state changes from the Groups window.
+        /// </summary>
+        private void PatchGroupsWindow_GroupEnabledStatesCommitted(Dictionary<string, bool> states)
+        {
+            patchGroupEnabledStates = new Dictionary<string, bool>(states ?? new Dictionary<string, bool>(), StringComparer.OrdinalIgnoreCase);
+            patchManager.ApplyMemberships(FilterPatchMemberships(currentPatchMemberships, patchGroupEnabledStates), patchGroupModes);
+            UpdatePatchMemberIndicators(FilterPatchMemberships(currentPatchMemberships), patchGroupEnabledStates);
         }
 
         /// <summary>
@@ -3570,6 +3585,16 @@ namespace dvmconsole
         /// <param name="memberships"></param>
         /// <returns></returns>
         private Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> FilterPatchMemberships(Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships)
+        {
+            return FilterPatchMemberships(memberships, null);
+        }
+
+        /// <summary>
+        /// Filters memberships down to enabled patch-type groups only.
+        /// </summary>
+        private Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> FilterPatchMemberships(
+            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships,
+            Dictionary<string, bool> enabledStates)
         {
             HashSet<string> patchGroupNames = new HashSet<string>(
                 (Codeplug?.Groups ?? new List<Codeplug.Group>())
@@ -3581,6 +3606,8 @@ namespace dvmconsole
             foreach (KeyValuePair<string, List<SettingsManager.PatchTalkgroupMember>> kvp in memberships ?? new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>())
             {
                 if (!patchGroupNames.Contains(kvp.Key))
+                    continue;
+                if (enabledStates != null && (!enabledStates.TryGetValue(kvp.Key, out bool isEnabled) || !isEnabled))
                     continue;
                 filtered[kvp.Key] = kvp.Value ?? new List<SettingsManager.PatchTalkgroupMember>();
             }
@@ -3614,14 +3641,26 @@ namespace dvmconsole
         /// Updates channel resource badges indicating patch group membership.
         /// </summary>
         /// <param name="memberships"></param>
-        private void UpdatePatchMemberIndicators(Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships)
+        private void UpdatePatchMemberIndicators(
+            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships,
+            Dictionary<string, bool> enabledStates = null)
         {
             HashSet<string> patchMembers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (SettingsManager.PatchTalkgroupMember member in (memberships ?? new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>())
-                .SelectMany(kvp => kvp.Value ?? new List<SettingsManager.PatchTalkgroupMember>())
-                .Where(m => !string.IsNullOrWhiteSpace(m?.SystemName) && !string.IsNullOrWhiteSpace(m?.Tgid)))
+            HashSet<string> activePatchMembers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            enabledStates ??= new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (KeyValuePair<string, List<SettingsManager.PatchTalkgroupMember>> kvp in memberships ?? new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>())
             {
-                patchMembers.Add(BuildPatchTargetKey(member.SystemName, member.Tgid));
+                bool isEnabled = enabledStates.TryGetValue(kvp.Key, out bool enabled) && enabled;
+                foreach (SettingsManager.PatchTalkgroupMember member in (kvp.Value ?? new List<SettingsManager.PatchTalkgroupMember>())
+                    .Where(m => !string.IsNullOrWhiteSpace(m?.SystemName) && !string.IsNullOrWhiteSpace(m?.Tgid)))
+                {
+                    string memberKey = BuildPatchTargetKey(member.SystemName, member.Tgid);
+                    patchMembers.Add(memberKey);
+                    if (isEnabled)
+                        activePatchMembers.Add(memberKey);
+                }
             }
 
             foreach (Canvas canvas in GetAllCanvases())
@@ -3630,12 +3669,12 @@ namespace dvmconsole
                 {
                     if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
                     {
-                        channel.SetPatchMembershipIndicator(false);
+                        channel.SetPatchMembershipIndicator(false, false);
                         continue;
                     }
 
                     string channelKey = BuildPatchTargetKey(NormalizeChannelSystemName(channel.SystemName), channel.DstId);
-                    channel.SetPatchMembershipIndicator(patchMembers.Contains(channelKey));
+                    channel.SetPatchMembershipIndicator(patchMembers.Contains(channelKey), activePatchMembers.Contains(channelKey));
                 }
             }
         }
@@ -4315,6 +4354,14 @@ namespace dvmconsole
                 return;
 
             settingsManager.RestoreSelectedChannelsOnStartup = menuRestoreSelectedChannels.IsChecked;
+            settingsManager.SaveSettings();
+        }
+        private void ToggleRetainPatchStateOnStartup_Click(object sender, RoutedEventArgs e)
+        {
+            if (!windowLoaded)
+                return;
+
+            settingsManager.RetainPatchStateOnStartup = menuRetainPatchStateOnStartup.IsChecked;
             settingsManager.SaveSettings();
         }
         /// <summary>
