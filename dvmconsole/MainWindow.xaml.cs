@@ -2009,6 +2009,8 @@ namespace dvmconsole
             CancellationToken ct = maintainenceCancelToken.Token;
             while (!isShuttingDown)
             {
+                patchManager.CleanupStaleSources();
+
                 foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
                 {
                     if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)

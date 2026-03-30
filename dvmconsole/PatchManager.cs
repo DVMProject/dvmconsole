@@ -386,6 +386,33 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// Cleans up patch sources that appear stale because no call end was observed.
+        /// </summary>
+        public int CleanupStaleSources()
+        {
+            List<StopWorkItem> stops = new List<StopWorkItem>();
+            int cleanedSources = 0;
+
+            lock (sync)
+            {
+                DateTime now = DateTime.UtcNow;
+                foreach (GroupRuntime group in groups.Values.Where(g => g.Source != null && IsSourceStale(g.Source, now)).ToList())
+                {
+                    if (group.Source != null)
+                    {
+                        Log.WriteWarning($"Patch group '{group.GroupName}' source stream {group.Source.StreamId} timed out without a call end. Cleaning up patch target state.");
+                        CollectAndClearStops(group, stops);
+                        group.Source = null;
+                        cleanedSources++;
+                    }
+                }
+            }
+
+            ExecuteStops(stops);
+            return cleanedSources;
+        }
+
+        /// <summary>
         /// Executes deferred start operations and reconciles state safely.
         /// </summary>
         /// <param name="starts"></param>
