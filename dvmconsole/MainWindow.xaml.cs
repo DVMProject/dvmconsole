@@ -304,6 +304,7 @@ namespace dvmconsole
             tabCanvases[firstTab] = channelsCanvas;
             resourceTabs.Items.Add(firstTab);
             resourceTabs.SelectedItem = firstTab;
+            UpdateResourceTabWidths();
         }
         
         /// <summary>
@@ -387,10 +388,13 @@ namespace dvmconsole
                 tabCanvases[firstTab] = channelsCanvas;
                 resourceTabs.Items.Add(firstTab);
                 resourceTabs.SelectedItem = firstTab;
+                UpdateResourceTabWidths();
                 
                 // Apply current background to the newly created tab
                 ApplyCurrentBackgroundToAllTabs();
             }
+
+            UpdateResourceTabWidths();
         }
 
         /// <summary>
@@ -510,6 +514,7 @@ namespace dvmconsole
             tab.DataContext = tab;
 
             resourceTabs.Items.Add(tab);
+            UpdateResourceTabWidths();
             return tab;
         }
         
@@ -1738,6 +1743,36 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// Sizes resource tabs to the current window width without bolting on overflow chrome.
+        /// </summary>
+        private void UpdateResourceTabWidths()
+        {
+            if (resourceTabs == null)
+                return;
+
+            List<TabItem> tabs = resourceTabs.Items.OfType<TabItem>().ToList();
+            if (tabs.Count == 0)
+                return;
+
+            double availableWidth = resourceTabs.ActualWidth;
+            if (availableWidth < 200)
+                availableWidth = ActualWidth - 40;
+
+            if (availableWidth < 200)
+                return;
+
+            double computedWidth = Math.Floor((availableWidth - 8) / tabs.Count);
+            computedWidth = Math.Max(72, Math.Min(220, computedWidth));
+
+            foreach (TabItem tab in tabs)
+            {
+                tab.Width = computedWidth;
+                tab.MinWidth = 72;
+                tab.MaxWidth = 220;
+            }
+        }
+
+        /// <summary>
         /// Updates the selected tab background color based on dark mode setting
         /// </summary>
         private void UpdateTabSelectedBackground()
@@ -2211,6 +2246,8 @@ namespace dvmconsole
 
             settingsManager.WindowWidth = ActualWidth;
             settingsManager.WindowHeight = ActualHeight;
+
+            UpdateResourceTabWidths();
         }
 
         /// <summary>

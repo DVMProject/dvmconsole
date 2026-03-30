@@ -8,9 +8,42 @@
         Style="{StaticResource MaterialDesignWindow}" Background="{DynamicResource MaterialDesignPaper}" FontFamily="{DynamicResource MaterialDesignFont}"
         mc:Ignorable="d" Icon="/dvmconsole;component/Assets/patch_edit_off.png"
         Title="Groups" Height="450" Width="551" WindowStartupLocation="CenterOwner">
+    <Window.Resources>
+        <ControlTemplate x:Key="CompactWrappedPatchGroupTabsTemplate" TargetType="{x:Type TabControl}">
+            <Grid KeyboardNavigation.TabNavigation="Local"
+                  SnapsToDevicePixels="True">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <ScrollViewer Grid.Row="0"
+                              MaxHeight="132"
+                              HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto"
+                              CanContentScroll="False"
+                              Focusable="False">
+                    <WrapPanel IsItemsHost="True"
+                               Margin="0,0,0,6"
+                               Orientation="Horizontal" />
+                </ScrollViewer>
+
+                <Border Grid.Row="1"
+                        BorderBrush="{TemplateBinding BorderBrush}"
+                        BorderThickness="{TemplateBinding BorderThickness}"
+                        Background="{TemplateBinding Background}"
+                        SnapsToDevicePixels="True">
+                    <ContentPresenter x:Name="PART_SelectedContentHost"
+                                      Margin="{TemplateBinding Padding}"
+                                      ContentSource="SelectedContent" />
+                </Border>
+            </Grid>
+        </ControlTemplate>
+    </Window.Resources>
     <Grid Margin="10">
         <TabControl x:Name="patchGroupTabs"
                     materialDesign:ColorZoneAssist.Mode="PrimaryDark"
-                    Style="{StaticResource MaterialDesignFilledTabControl}" />
+                    Style="{StaticResource MaterialDesignFilledTabControl}"
+                    Template="{StaticResource CompactWrappedPatchGroupTabsTemplate}" />
     </Grid>
 </Window>

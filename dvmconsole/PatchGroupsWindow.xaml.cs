@@ -338,6 +338,7 @@ namespace dvmconsole
                     Content = "Enable One-Way Patch",
                     Margin = new Thickness(6, 0, 6, 2),
                     IsChecked = context.IsOneWay,
+                    Foreground = InfoTextBrush,
                     Visibility = isMultiSelect ? Visibility.Collapsed : Visibility.Visible,
                     Tag = context
                 };
@@ -395,13 +396,15 @@ namespace dvmconsole
                 TabItem tab = new TabItem
                 {
                     Header = context.GroupName,
-                    Content = contentGrid
+                    Content = contentGrid,
+                    MinWidth = 88,
+                    MaxWidth = 124,
+                    Height = 40,
+                    Margin = new Thickness(0, 0, 4, 4),
+                    Foreground = Brushes.White
                 };
-                if (isMultiSelect)
-                {
-                    ColorZoneAssist.SetMode(tab, ColorZoneMode.Custom);
-                    ColorZoneAssist.SetBackground(tab, new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2E7D32")));
-                }
+                ColorZoneAssist.SetMode(tab, ColorZoneMode.Custom);
+                ColorZoneAssist.SetBackground(tab, (SolidColorBrush)GetAccentBrush(context));
 
                 patchGroupTabs.Items.Add(tab);
                 tabContexts[context.GroupName] = context;
@@ -958,6 +961,7 @@ namespace dvmconsole
 
             if (context.OneWayToggle != null)
             {
+                context.OneWayToggle.Foreground = InfoTextBrush;
                 context.OneWayToggle.ToolTip = context.IsOneWay
                     ? "Disable one-way patch mode."
                     : "Enable one-way patch mode.";
