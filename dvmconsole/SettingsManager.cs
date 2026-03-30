@@ -16,6 +16,7 @@
 
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 
 using System.Windows.Forms;
@@ -85,6 +86,14 @@ namespace dvmconsole
         /// 
         /// </summary>
         public Dictionary<string, ChannelPosition> AlertTonePositions { get; set; } = new Dictionary<string, ChannelPosition>();
+        /// <summary>
+        /// Saved tab assignment for alert tone widgets.
+        /// </summary>
+        public Dictionary<string, string> AlertToneTabs { get; set; } = new Dictionary<string, string>();
+        /// <summary>
+        /// Saved alert tone configurations using a stable ID.
+        /// </summary>
+        public List<AlertToneConfig> AlertTones { get; set; } = new List<AlertToneConfig>();
 
         /// <summary>
         /// 
@@ -110,6 +119,18 @@ namespace dvmconsole
         {
             public string SystemName { get; set; } = string.Empty;
             public string Tgid { get; set; } = string.Empty;
+        }
+
+        /// <summary>
+        /// Persisted configuration for a custom alert tone widget.
+        /// </summary>
+        public class AlertToneConfig
+        {
+            public string Id { get; set; } = Guid.NewGuid().ToString("N");
+            public string DisplayName { get; set; } = string.Empty;
+            public string FilePath { get; set; } = string.Empty;
+            public string TabName { get; set; } = string.Empty;
+            public ChannelPosition Position { get; set; } = new ChannelPosition { X = 20, Y = 20 };
         }
 
         /// <summary>
@@ -235,6 +256,8 @@ namespace dvmconsole
                     SystemStatusPositions = loadedSettings.SystemStatusPositions ?? new Dictionary<string, ChannelPosition>();
                     AlertToneFilePaths = loadedSettings.AlertToneFilePaths ?? new List<string>();
                     AlertTonePositions = loadedSettings.AlertTonePositions ?? new Dictionary<string, ChannelPosition>();
+                    AlertToneTabs = loadedSettings.AlertToneTabs ?? new Dictionary<string, string>();
+                    AlertTones = loadedSettings.AlertTones ?? new List<AlertToneConfig>();
                     ChannelOutputDevices = loadedSettings.ChannelOutputDevices ?? new Dictionary<string, int>();
                     ChannelVolumes = loadedSettings.ChannelVolumes ?? new Dictionary<string, double>();
                     PatchGroupMemberships = loadedSettings.PatchGroupMemberships ?? new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>();
@@ -270,6 +293,11 @@ namespace dvmconsole
                     GlobalPTTShortcut = loadedSettings.GlobalPTTShortcut;
                     RestoreSelectedChannelsOnStartup = loadedSettings.RestoreSelectedChannelsOnStartup;
                     SelectedChannels = loadedSettings.SelectedChannels ?? new List<string>();
+
+                    if (AlertTones == null || AlertTones.Count == 0)
+                        AlertTones = MigrateLegacyAlertTones();
+
+                    SyncLegacyAlertToneState();
 
                     if (SaveTraceLog)
                         Log.SetupTextWriter(Environment.CurrentDirectory, "dvmconsole.log");
@@ -354,6 +382,109 @@ namespace dvmconsole
         {
             AlertTonePositions[alertFileName] = new ChannelPosition { X = x, Y = y };
             SaveSettings();
+        }
+
+        /// <summary>
+        /// Returns a normalized copy of persisted alert tone configs.
+        /// </summary>
+        public List<AlertToneConfig> GetAlertToneConfigs()
+        {
+            if (AlertTones == null || AlertTones.Count == 0)
+                AlertTones = MigrateLegacyAlertTones();
+
+            return AlertTones
+                .Where(t => !string.IsNullOrWhiteSpace(t?.FilePath))
+                .Select(t => new AlertToneConfig
+                {
+                    Id = string.IsNullOrWhiteSpace(t.Id) ? Guid.NewGuid().ToString("N") : t.Id,
+                    DisplayName = string.IsNullOrWhiteSpace(t.DisplayName) ? Path.GetFileNameWithoutExtension(t.FilePath) : t.DisplayName,
+                    FilePath = t.FilePath,
+                    TabName = t.TabName ?? string.Empty,
+                    Position = t.Position ?? new ChannelPosition { X = 20, Y = 20 }
+                })
+                .ToList();
+        }
+
+        /// <summary>
+        /// Saves the current alert tone configurations and keeps legacy fields in sync.
+        /// </summary>
+        public void SaveAlertToneConfigs(IEnumerable<AlertToneConfig> configs)
+        {
+            AlertTones = (configs ?? Enumerable.Empty<AlertToneConfig>())
+                .Where(t => !string.IsNullOrWhiteSpace(t?.FilePath))
+                .Select(t => new AlertToneConfig
+                {
+                    Id = string.IsNullOrWhiteSpace(t.Id) ? Guid.NewGuid().ToString("N") : t.Id,
+                    DisplayName = string.IsNullOrWhiteSpace(t.DisplayName) ? Path.GetFileNameWithoutExtension(t.FilePath) : t.DisplayName.Trim(),
+                    FilePath = t.FilePath.Trim(),
+                    TabName = t.TabName?.Trim() ?? string.Empty,
+                    Position = t.Position ?? new ChannelPosition { X = 20, Y = 20 }
+                })
+                .ToList();
+
+            SyncLegacyAlertToneState();
+            SaveSettings();
+        }
+
+        /// <summary>
+        /// Updates an alert tone position by stable config ID.
+        /// </summary>
+        public void UpdateAlertTonePositionById(string alertToneId, double x, double y)
+        {
+            if (string.IsNullOrWhiteSpace(alertToneId))
+                return;
+
+            AlertToneConfig tone = GetAlertToneConfigs()
+                .FirstOrDefault(t => string.Equals(t.Id, alertToneId, StringComparison.OrdinalIgnoreCase));
+            if (tone == null)
+                return;
+
+            tone.Position = new ChannelPosition { X = x, Y = y };
+            SaveAlertToneConfigs(GetAlertToneConfigs()
+                .Select(t => string.Equals(t.Id, tone.Id, StringComparison.OrdinalIgnoreCase) ? tone : t));
+        }
+
+        private List<AlertToneConfig> MigrateLegacyAlertTones()
+        {
+            return (AlertToneFilePaths ?? new List<string>())
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(path => new AlertToneConfig
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    DisplayName = Path.GetFileNameWithoutExtension(path),
+                    FilePath = path,
+                    TabName = AlertToneTabs.TryGetValue(path, out string tabName) ? tabName : string.Empty,
+                    Position = AlertTonePositions.TryGetValue(path, out ChannelPosition position)
+                        ? position
+                        : new ChannelPosition { X = 20, Y = 20 }
+                })
+                .ToList();
+        }
+
+        private void SyncLegacyAlertToneState()
+        {
+            AlertToneFilePaths = AlertTones
+                .Where(t => !string.IsNullOrWhiteSpace(t?.FilePath))
+                .Select(t => t.FilePath)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            AlertTonePositions = AlertTones
+                .Where(t => !string.IsNullOrWhiteSpace(t?.FilePath))
+                .GroupBy(t => t.FilePath, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.Last().Position ?? new ChannelPosition { X = 20, Y = 20 },
+                    StringComparer.OrdinalIgnoreCase);
+
+            AlertToneTabs = AlertTones
+                .Where(t => !string.IsNullOrWhiteSpace(t?.FilePath))
+                .GroupBy(t => t.FilePath, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.Last().TabName ?? string.Empty,
+                    StringComparer.OrdinalIgnoreCase);
         }
 
         /// <summary>

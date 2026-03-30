@@ -1095,42 +1095,7 @@ namespace dvmconsole
                 }
             }
 
-            // are we showing user configured alert tones?
-            if (settingsManager.ShowAlertTones && Codeplug != null)
-            {
-                // Add alert tones to the default/first tab
-                Canvas alertCanvas = defaultTab != null && tabCanvases.ContainsKey(defaultTab) 
-                    ? tabCanvases[defaultTab] 
-                    : channelsCanvas;
-                    
-                // iterate through the alert tones and begin building alert tone widges
-                foreach (var alertPath in settingsManager.AlertToneFilePaths)
-                {
-                    AlertTone alertTone = new AlertTone(alertPath);
-
-                    alertTone.OnAlertTone += SendAlertTone;
-
-                    // widget placement
-                    alertTone.MouseRightButtonDown += AlertTone_MouseRightButtonDown;
-                    alertTone.MouseRightButtonUp += AlertTone_MouseRightButtonUp;
-                    alertTone.MouseMove += AlertTone_MouseMove;
-
-                    if (settingsManager.AlertTonePositions.TryGetValue(alertPath, out var position))
-                    {
-                        Canvas.SetLeft(alertTone, position.X);
-                        Canvas.SetTop(alertTone, position.Y);
-                    }
-                    else
-                    {
-                        Canvas.SetLeft(alertTone, 20);
-                        Canvas.SetTop(alertTone, 20);
-                    }
-
-                    alertCanvas.Children.Add(alertTone);
-                    if (defaultTab != null)
-                        elementToTabMap[alertTone] = defaultTab;
-                }
-            }
+            LoadAlertToneWidgets(defaultTab);
 
             // initialize the playback channel - add to default tab
             Canvas playbackCanvas = defaultTab != null && tabCanvases.ContainsKey(defaultTab) 
@@ -1169,6 +1134,113 @@ namespace dvmconsole
 
             RestoreSelectedChannels();
             Cursor = Cursors.Arrow;
+        }
+
+        private string GetTabDisplayName(TabItem tab)
+        {
+            if (tab == null)
+                return "Tab 1";
+
+            if (tab.Header is string name && !string.IsNullOrWhiteSpace(name))
+                return name;
+
+            if (tab.Header is StackPanel panel)
+            {
+                TextBlock textBlock = panel.Children.OfType<TextBlock>().FirstOrDefault();
+                if (textBlock != null && !string.IsNullOrWhiteSpace(textBlock.Text))
+                    return textBlock.Text;
+            }
+
+            return "Tab 1";
+        }
+
+        private List<string> GetAlertToneTabNames()
+        {
+            List<string> tabNames = resourceTabs.Items
+                .OfType<TabItem>()
+                .Select(GetTabDisplayName)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (tabNames.Count == 0)
+                tabNames.Add("Tab 1");
+
+            return tabNames;
+        }
+
+        private Dictionary<string, TabItem> GetTabLookup()
+        {
+            return resourceTabs.Items
+                .OfType<TabItem>()
+                .GroupBy(GetTabDisplayName, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        }
+
+        private void LoadAlertToneWidgets(TabItem defaultTab = null)
+        {
+            if (!settingsManager.ShowAlertTones || Codeplug == null)
+                return;
+
+            Dictionary<string, TabItem> tabLookup = GetTabLookup();
+            TabItem fallbackTab = defaultTab ?? resourceTabs.Items.OfType<TabItem>().FirstOrDefault();
+
+            foreach (SettingsManager.AlertToneConfig alertToneConfig in settingsManager.GetAlertToneConfigs())
+            {
+                if (string.IsNullOrWhiteSpace(alertToneConfig?.FilePath))
+                    continue;
+
+                AlertTone alertTone = new AlertTone(alertToneConfig.Id, alertToneConfig.FilePath, alertToneConfig.DisplayName);
+                alertTone.OnAlertTone += SendAlertTone;
+                alertTone.MouseRightButtonDown += AlertTone_MouseRightButtonDown;
+                alertTone.MouseRightButtonUp += AlertTone_MouseRightButtonUp;
+                alertTone.MouseMove += AlertTone_MouseMove;
+
+                if (alertToneConfig.Position != null)
+                {
+                    Canvas.SetLeft(alertTone, alertToneConfig.Position.X);
+                    Canvas.SetTop(alertTone, alertToneConfig.Position.Y);
+                }
+                else
+                {
+                    Canvas.SetLeft(alertTone, 20);
+                    Canvas.SetTop(alertTone, 20);
+                }
+
+                TabItem targetTab = fallbackTab;
+                if (!string.IsNullOrWhiteSpace(alertToneConfig.TabName) &&
+                    tabLookup.TryGetValue(alertToneConfig.TabName, out TabItem assignedTab))
+                {
+                    targetTab = assignedTab;
+                }
+
+                Canvas targetCanvas = targetTab != null && tabCanvases.ContainsKey(targetTab)
+                    ? tabCanvases[targetTab]
+                    : channelsCanvas;
+
+                targetCanvas.Children.Add(alertTone);
+                if (targetTab != null)
+                    elementToTabMap[alertTone] = targetTab;
+            }
+        }
+
+        private void ClearAlertToneWidgets()
+        {
+            foreach (Canvas canvas in GetAllCanvases())
+            {
+                List<AlertTone> tones = canvas.Children.OfType<AlertTone>().ToList();
+                foreach (AlertTone tone in tones)
+                {
+                    canvas.Children.Remove(tone);
+                    elementToTabMap.Remove(tone);
+                }
+            }
+        }
+
+        private void RefreshAlertToneWidgets()
+        {
+            ClearAlertToneWidgets();
+            LoadAlertToneWidgets(resourceTabs.Items.OfType<TabItem>().FirstOrDefault());
         }
 
         /// <summary>
@@ -2602,49 +2674,52 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void AddAlertTone_Click(object sender, RoutedEventArgs e)
+        private void ManageAlertTones_Click(object sender, RoutedEventArgs e)
         {
-            OpenFileDialog openFileDialog = new OpenFileDialog
+            List<AlertToneManagerWindow.AlertToneManagerItem> alertTones =
+                settingsManager.GetAlertToneConfigs()
+                .Select(config => new AlertToneManagerWindow.AlertToneManagerItem
+                {
+                    Id = config.Id,
+                    DisplayName = config.DisplayName,
+                    FilePath = config.FilePath,
+                    TabName = string.IsNullOrWhiteSpace(config.TabName) ? GetAlertToneTabNames().First() : config.TabName
+                })
+                .ToList();
+
+            AlertToneManagerWindow managerWindow = new AlertToneManagerWindow(alertTones, GetAlertToneTabNames(), items =>
             {
-                Filter = "WAV Files (*.wav)|*.wav|All Files (*.*)|*.*",
-                Title = "Select Alert Tone"
+                Dictionary<string, SettingsManager.AlertToneConfig> existingConfigs =
+                    settingsManager.GetAlertToneConfigs()
+                    .ToDictionary(config => config.Id, StringComparer.OrdinalIgnoreCase);
+
+                List<SettingsManager.AlertToneConfig> updatedConfigs = items
+                    .Where(item => !string.IsNullOrWhiteSpace(item.FilePath))
+                    .Select(item =>
+                    {
+                        ChannelPosition position = existingConfigs.TryGetValue(item.Id, out SettingsManager.AlertToneConfig existing)
+                            ? existing.Position
+                            : new ChannelPosition { X = 20, Y = 20 };
+
+                        return new SettingsManager.AlertToneConfig
+                        {
+                            Id = item.Id,
+                            DisplayName = item.DisplayName,
+                            FilePath = item.FilePath,
+                            TabName = item.TabName,
+                            Position = position
+                        };
+                    })
+                    .ToList();
+
+                settingsManager.SaveAlertToneConfigs(updatedConfigs);
+                RefreshAlertToneWidgets();
+            })
+            {
+                Owner = this
             };
 
-            if (openFileDialog.ShowDialog() == true)
-            {
-                string alertFilePath = openFileDialog.FileName;
-                AlertTone alertTone = new AlertTone(alertFilePath);
-
-                alertTone.OnAlertTone += SendAlertTone;
-
-                // widget placement
-                alertTone.MouseRightButtonDown += AlertTone_MouseRightButtonDown;
-                alertTone.MouseRightButtonUp += AlertTone_MouseRightButtonUp;
-                alertTone.MouseMove += AlertTone_MouseMove;
-
-                // Get the current active tab's canvas
-                TabItem currentTab = resourceTabs.SelectedItem as TabItem;
-                Canvas targetCanvas = currentTab != null && tabCanvases.ContainsKey(currentTab) 
-                    ? tabCanvases[currentTab] 
-                    : channelsCanvas;
-
-                if (settingsManager.AlertTonePositions.TryGetValue(alertFilePath, out var position))
-                {
-                    Canvas.SetLeft(alertTone, position.X);
-                    Canvas.SetTop(alertTone, position.Y);
-                }
-                else
-                {
-                    Canvas.SetLeft(alertTone, 20);
-                    Canvas.SetTop(alertTone, 20);
-                }
-
-                targetCanvas.Children.Add(alertTone);
-                if (currentTab != null)
-                    elementToTabMap[alertTone] = currentTab;
-                    
-                settingsManager.UpdateAlertTonePaths(alertFilePath);
-            }
+            managerWindow.ShowDialog();
         }
 
         /// <summary>
@@ -2813,7 +2888,7 @@ namespace dvmconsole
                 }
                 else if (element is AlertTone alertTone)
                 {
-                    settingsManager.UpdateAlertTonePosition(alertTone.AlertFilePath, x, y);
+                    settingsManager.UpdateAlertTonePositionById(alertTone.AlertToneId, x, y);
                 }
 
                 x += cardWidth + spacingX;
@@ -3942,7 +4017,7 @@ namespace dvmconsole
             {
                 double x = Canvas.GetLeft(alertTone);
                 double y = Canvas.GetTop(alertTone);
-                settingsManager.UpdateAlertTonePosition(alertTone.AlertFilePath, x, y);
+                settingsManager.UpdateAlertTonePositionById(alertTone.AlertToneId, x, y);
 
                 ChannelBox_MouseRightButtonUp(sender, e);
             }

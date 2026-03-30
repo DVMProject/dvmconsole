@@ -45,7 +45,7 @@
                 <MenuItem Header="_Select Widgets to Display" Click="SelectWidgets_Click" />
                 <Separator />
                 <MenuItem Header="Alerts">
-                    <MenuItem Header="Add Alert Tone" Click="AddAlertTone_Click" />
+                    <MenuItem Header="Manage Alert Tones" Click="ManageAlertTones_Click" />
                 </MenuItem>
                 <Separator />
                 <MenuItem Header="Keyboard Shortcuts">

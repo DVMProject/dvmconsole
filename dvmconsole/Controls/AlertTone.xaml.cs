@@ -8,6 +8,8 @@
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
 *   Copyright (C) 2025 Caleb, K4PHP
+*   Copyright (C) 2026 C. Lovell, K7CBL
+*   
 *
 */
 
@@ -42,6 +44,11 @@ namespace dvmconsole.Controls
         /// <summary>
         /// 
         /// </summary>
+        public string AlertToneId { get; set; }
+
+        /// <summary>
+        /// 
+        /// </summary>
         public string AlertFilePath { get; set; }
 
         /*
@@ -57,12 +64,17 @@ namespace dvmconsole.Controls
         /// <summary>
         /// Initializes a new instance of the <see cref="AlertTone"/> class.
         /// </summary>
+        /// <param name="alertToneId"></param>
         /// <param name="alertFilePath"></param>
-        public AlertTone(string alertFilePath)
+        /// <param name="displayName"></param>
+        public AlertTone(string alertToneId, string alertFilePath, string displayName = null)
         {
             InitializeComponent();
+            AlertToneId = alertToneId;
             AlertFilePath = alertFilePath;
-            AlertFileName = System.IO.Path.GetFileNameWithoutExtension(alertFilePath);
+            AlertFileName = string.IsNullOrWhiteSpace(displayName)
+                ? System.IO.Path.GetFileNameWithoutExtension(alertFilePath)
+                : displayName;
         }
 
         /// <summary>
