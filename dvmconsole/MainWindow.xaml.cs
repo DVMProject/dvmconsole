@@ -118,7 +118,7 @@ namespace dvmconsole
         private Dictionary<TabItem, ScrollViewer> tabScrollViewers = new Dictionary<TabItem, ScrollViewer>();
         private Dictionary<TabItem, Canvas> tabCanvases = new Dictionary<TabItem, Canvas>();
         private Dictionary<UIElement, TabItem> elementToTabMap = new Dictionary<UIElement, TabItem>();
-        private Dictionary<TabItem, StackPanel> tabHeaders = new Dictionary<TabItem, StackPanel>();
+        private Dictionary<TabItem, Grid> tabHeaders = new Dictionary<TabItem, Grid>();
         private Dictionary<TabItem, string> tabTextColors = new Dictionary<TabItem, string>();
         private bool noSaveSettingsOnClose = false;
         private SettingsManager settingsManager = new SettingsManager();
@@ -260,17 +260,20 @@ namespace dvmconsole
             TabItem firstTab = new TabItem();
             
             // Create a custom header with text and optional audio icon
-            StackPanel headerPanel = new StackPanel
+            Grid headerPanel = new Grid
             {
-                Orientation = System.Windows.Controls.Orientation.Horizontal,
                 Margin = new Thickness(0, 0, 4, 0)
             };
+            headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             
             TextBlock headerText = new TextBlock
             {
                 Text = "Tab 1",
-                VerticalAlignment = VerticalAlignment.Center
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis
             };
+            Grid.SetColumn(headerText, 0);
             headerPanel.Children.Add(headerText);
             
             // Audio icon (initially hidden)
@@ -284,6 +287,7 @@ namespace dvmconsole
                 Visibility = Visibility.Collapsed,
                 Name = "AudioIcon"
             };
+            Grid.SetColumn(audioIcon, 1);
             headerPanel.Children.Add(audioIcon);
             
             firstTab.Header = headerPanel;
@@ -345,18 +349,21 @@ namespace dvmconsole
                     firstTab.Style = tabStyle;
                 
             // Create a custom header with text and optional audio icon
-            StackPanel headerPanel = new StackPanel
+            Grid headerPanel = new Grid
             {
-                Orientation = System.Windows.Controls.Orientation.Horizontal,
-                    Margin = new Thickness(0, 0, 4, 0)
-                };
+                Margin = new Thickness(0, 0, 4, 0)
+            };
+            headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 
                 TextBlock headerText = new TextBlock
                 {
                     Text = "Tab 1",
                     VerticalAlignment = VerticalAlignment.Center,
-                    Foreground = settingsManager.DarkMode ? Brushes.White : Brushes.Black
+                    Foreground = settingsManager.DarkMode ? Brushes.White : Brushes.Black,
+                    TextTrimming = TextTrimming.CharacterEllipsis
                 };
+                Grid.SetColumn(headerText, 0);
                 headerPanel.Children.Add(headerText);
                 
                 // Audio icon (initially hidden)
@@ -370,6 +377,7 @@ namespace dvmconsole
                     Visibility = Visibility.Collapsed,
                     Name = "AudioIcon"
                 };
+                Grid.SetColumn(audioIcon, 1);
                 headerPanel.Children.Add(audioIcon);
                 
                 firstTab.Header = headerPanel;
@@ -422,11 +430,12 @@ namespace dvmconsole
             }
 
             // Create a custom header with text and optional audio icon
-            StackPanel headerPanel = new StackPanel
+            Grid headerPanel = new Grid
             {
-                Orientation = System.Windows.Controls.Orientation.Horizontal,
                 Margin = new Thickness(0, 0, 4, 0)
             };
+            headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             Brush headerForeground;
 
@@ -450,8 +459,10 @@ namespace dvmconsole
             {
                 Text = tabName,
                 VerticalAlignment = VerticalAlignment.Center,
-                Foreground = headerForeground
+                Foreground = headerForeground,
+                TextTrimming = TextTrimming.CharacterEllipsis
             };
+            Grid.SetColumn(headerText, 0);
             headerPanel.Children.Add(headerText);
 
             // Audio icon (initially hidden)
@@ -465,6 +476,7 @@ namespace dvmconsole
                 Visibility = Visibility.Collapsed,
                 Name = "AudioIcon"
             };
+            Grid.SetColumn(audioIcon, 1);
             headerPanel.Children.Add(audioIcon);
             
             tab.Header = headerPanel;
@@ -547,7 +559,7 @@ namespace dvmconsole
                 }
             }
             
-            StackPanel headerPanel = tabHeaders[tab];
+            Grid headerPanel = tabHeaders[tab];
             
             // Find the audio icon
             Image audioIcon = null;
@@ -903,14 +915,14 @@ namespace dvmconsole
             {
                 string tabName = null;
                 
-                // Check if header is a string (legacy) or a StackPanel (new custom header)
+                // Check if header is a string (legacy) or a custom panel header
                 if (tab.Header is string name)
                 {
                     tabName = name;
                 }
-                else if (tab.Header is StackPanel headerPanel)
+                else if (tab.Header is System.Windows.Controls.Panel headerPanel)
                 {
-                    // Extract text from the first TextBlock in the StackPanel
+                    // Extract text from the first TextBlock in the header panel
                     foreach (UIElement child in headerPanel.Children)
                     {
                         if (child is TextBlock textBlock)
@@ -1714,7 +1726,7 @@ namespace dvmconsole
             foreach (var kvp in tabHeaders)
             {
                 TabItem tab = kvp.Key;
-                StackPanel headerPanel = kvp.Value;
+                Grid headerPanel = kvp.Value;
 
                 Brush textColor = settingsManager.DarkMode ? Brushes.White : Brushes.Black;
 
