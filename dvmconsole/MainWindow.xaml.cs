@@ -1580,6 +1580,7 @@ namespace dvmconsole
                                     pcmData = paddedData;
                                 }
 
+                                ApplyRxPlaybackMuteForTransmitStart();
                                 audioManager.PlayOneShot(cpgChannel.Tgid, pcmData);
 
                                 DateTime startTime = DateTime.UtcNow;
@@ -1788,6 +1789,38 @@ namespace dvmconsole
                 tab.MinWidth = 72;
                 tab.MaxWidth = 220;
             }
+        }
+
+        private void ApplyRxPlaybackMuteForTransmitStart()
+        {
+            if (settingsManager.MuteRxAudioWhileTransmitting)
+                audioManager.ClearAllTalkgroupBuffers();
+        }
+
+        private bool ShouldMuteRxPlayback()
+        {
+            if (!settingsManager.MuteRxAudioWhileTransmitting)
+                return false;
+
+            if (globalPttState)
+                return true;
+
+            lock (patchPttSync)
+            {
+                if (activePatchPttTargets.Count > 0)
+                    return true;
+            }
+
+            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
+            {
+                if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                    continue;
+
+                if (channel.PttState || channel.TxStreamId != 0 || channel.PatchForwardingTxState)
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -2319,6 +2352,7 @@ namespace dvmconsole
             menuSnapCallHistory.IsChecked = settingsManager.SnapCallHistoryToWindow;
             menuTogglePTTMode.IsChecked = settingsManager.TogglePTTMode;
             menuTalkPermitTone.IsChecked = settingsManager.TalkPermitTone;
+            menuMuteRxAudioWhileTransmitting.IsChecked = settingsManager.MuteRxAudioWhileTransmitting;
             menuRetainPatchStateOnStartup.IsChecked = settingsManager.RetainPatchStateOnStartup;
             menuRestoreSelectedChannels.IsChecked = settingsManager.RestoreSelectedChannelsOnStartup;
             menuKeepWindowOnTop.IsChecked = settingsManager.KeepWindowOnTop;
@@ -2640,6 +2674,7 @@ namespace dvmconsole
                         int chunkSize = PCM_SAMPLES_LENGTH;
                         int totalChunks = (combinedAudio.Length + chunkSize - 1) / chunkSize;
 
+                        ApplyRxPlaybackMuteForTransmitStart();
                         audioManager.PlayOneShot(cpgChannel.Tgid, combinedAudio);
 
                         await Task.Run(() =>
@@ -3112,6 +3147,8 @@ namespace dvmconsole
                 }))
                     return;
 
+                ApplyRxPlaybackMuteForTransmitStart();
+
                 if (e.TxStreamId != 0)
                     Log.WriteWarning($"{e.ChannelName} CHANNEL still had a TxStreamId? This shouldn't happen.");
 
@@ -3191,6 +3228,8 @@ namespace dvmconsole
                     current.VolumeMeterLevel = 0;
                 }))
                     return;
+
+                ApplyRxPlaybackMuteForTransmitStart();
 
                 uint srcId = uint.Parse(system.Rid);
                 uint dstId = uint.Parse(cpgChannel.Tgid);
@@ -3791,6 +3830,7 @@ namespace dvmconsole
         private void StartPatchPttGroup(string groupName, List<SettingsManager.PatchTalkgroupMember> members)
         {
             StopPatchPttGroup(groupName);
+            bool clearedRxPlaybackForTransmit = false;
 
             foreach (SettingsManager.PatchTalkgroupMember member in members.Where(m => !string.IsNullOrWhiteSpace(m?.SystemName) && !string.IsNullOrWhiteSpace(m?.Tgid)))
             {
@@ -3808,6 +3848,12 @@ namespace dvmconsole
                 {
                     Log.WriteWarning($"({system.Name}) {cpgChannel.GetChannelMode().ToString().ToUpperInvariant()} Traffic *CALL START     * TGID {tgid} skipped for Patch PTT; channel already has active stream {channelBox.TxStreamId}.");
                     continue;
+                }
+
+                if (!clearedRxPlaybackForTransmit)
+                {
+                    ApplyRxPlaybackMuteForTransmitStart();
+                    clearedRxPlaybackForTransmit = true;
                 }
 
                 FneUtils.Memset(channelBox.mi, 0x00, P25Defines.P25_MI_LENGTH);
@@ -4188,6 +4234,9 @@ namespace dvmconsole
                 return;
             }
 
+            if (globalPttState)
+                ApplyRxPlaybackMuteForTransmitStart();
+
             ChannelBox primaryChannel = selectedChannelsManager.PrimaryChannel;
 
             if (primaryChannel != null)
@@ -4415,6 +4464,17 @@ namespace dvmconsole
 
             settingsManager.TalkPermitTone = menuTalkPermitTone.IsChecked;
             settingsManager.SaveSettings();
+        }
+        private void ToggleMuteRxAudioWhileTransmitting_Click(object sender, RoutedEventArgs e)
+        {
+            if (!windowLoaded)
+                return;
+
+            settingsManager.MuteRxAudioWhileTransmitting = menuMuteRxAudioWhileTransmitting.IsChecked;
+            settingsManager.SaveSettings();
+
+            if (ShouldMuteRxPlayback())
+                audioManager.ClearAllTalkgroupBuffers();
         }
         private void ToggleRestoreSelectedChannels_Click(object sender, RoutedEventArgs e)
         {

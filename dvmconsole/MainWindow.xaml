@@ -37,6 +37,7 @@
             <MenuItem Header="_Settings">
                 <MenuItem Header="_Toggle Push To Talk Mode" IsCheckable="True" Checked="TogglePTTMode_Click" Unchecked="TogglePTTMode_Click" x:Name="menuTogglePTTMode" />
                 <MenuItem Header="_Talk Permit Tone" IsCheckable="True" Checked="ToggleTalkPermitTone_Click" Unchecked="ToggleTalkPermitTone_Click" x:Name="menuTalkPermitTone" />
+                <MenuItem Header="_Mute RX Audio While Transmitting" IsCheckable="True" Checked="ToggleMuteRxAudioWhileTransmitting_Click" Unchecked="ToggleMuteRxAudioWhileTransmitting_Click" x:Name="menuMuteRxAudioWhileTransmitting" />
                 <MenuItem Header="_Retain Patch State on Startup" IsCheckable="True" Checked="ToggleRetainPatchStateOnStartup_Click" Unchecked="ToggleRetainPatchStateOnStartup_Click" x:Name="menuRetainPatchStateOnStartup" />
                 <MenuItem Header="_Restore Selected Channels On Startup" IsCheckable="True" Checked="ToggleRestoreSelectedChannels_Click" Unchecked="ToggleRestoreSelectedChannels_Click" x:Name="menuRestoreSelectedChannels" />
                 <Separator />

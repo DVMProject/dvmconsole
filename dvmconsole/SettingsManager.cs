@@ -115,6 +115,10 @@ namespace dvmconsole
         /// </summary>
         public bool AudioInputAgcEnabled { get; set; } = false;
         /// <summary>
+        /// Suppresses local RX speaker playback while the console is transmitting.
+        /// </summary>
+        public bool MuteRxAudioWhileTransmitting { get; set; } = false;
+        /// <summary>
         /// Saved per-channel volume levels.
         /// </summary>
         public Dictionary<string, double> ChannelVolumes { get; set; } = new Dictionary<string, double>();
@@ -285,6 +289,7 @@ namespace dvmconsole
                     AudioInputDevice = NormalizeAudioDeviceIndex(loadedSettings.AudioInputDevice);
                     MasterOutputDevice = NormalizeAudioDeviceIndex(loadedSettings.MasterOutputDevice);
                     AudioInputAgcEnabled = loadedSettings.AudioInputAgcEnabled;
+                    MuteRxAudioWhileTransmitting = loadedSettings.MuteRxAudioWhileTransmitting;
                     MigrateLegacyAudioSettings();
                     ChannelVolumes = loadedSettings.ChannelVolumes ?? new Dictionary<string, double>();
                     PatchGroupMemberships = loadedSettings.PatchGroupMemberships ?? new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>();

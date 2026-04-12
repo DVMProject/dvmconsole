@@ -219,7 +219,8 @@ namespace dvmconsole
                         }
 
                         //Log.WriteLine($"PCM BYTE BUFFER {FneUtils.HexDump(pcm)}");
-                        audioManager.AddTalkgroupStream(e.DstId.ToString(), pcm);
+                        if (!ShouldMuteRxPlayback())
+                            audioManager.AddTalkgroupStream(e.DstId.ToString(), pcm);
                         patchManager.HandleAudio(sourceSystemName, e.DstId.ToString(), e.StreamId, e.SrcId, pcm);
                     }
                 }

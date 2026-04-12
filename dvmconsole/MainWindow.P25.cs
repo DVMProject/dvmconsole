@@ -364,7 +364,8 @@ namespace dvmconsole
                             pcmIdx += 2;
                         }
 
-                        audioManager.AddTalkgroupStream(e.DstId.ToString(), pcmData);
+                        if (!ShouldMuteRxPlayback())
+                            audioManager.AddTalkgroupStream(e.DstId.ToString(), pcmData);
                         patchManager.HandleAudio(sourceSystemName, e.DstId.ToString(), e.StreamId, e.SrcId, pcmData);
                     }
                 }

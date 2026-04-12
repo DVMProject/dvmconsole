@@ -194,6 +194,18 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// Clears queued local playback audio without tearing down output devices.
+        /// </summary>
+        public void ClearAllTalkgroupBuffers()
+        {
+            lock (talkgroupProvidersSync)
+            {
+                foreach (var provider in talkgroupProviders.Values)
+                    provider.buffer.ClearBuffer();
+            }
+        }
+
+        /// <summary>
         /// Set stream output device
         /// </summary>
         /// <param name="talkgroupId"></param>
