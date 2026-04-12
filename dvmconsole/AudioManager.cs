@@ -8,6 +8,7 @@
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
 *   Copyright (C) 2025 Caleb, K4PHP
+*   Copyright (C) 2026 C. Lovell, K7CBL
 *
 */
 
@@ -88,7 +89,7 @@ namespace dvmconsole
             if (audioData == null || audioData.Length == 0)
                 return;
 
-            int deviceIndex = settingsManager.ChannelOutputDevices.ContainsKey(talkgroupId) ? settingsManager.ChannelOutputDevices[talkgroupId] : 0;
+            int deviceIndex = ResolveTalkgroupOutputDevice(talkgroupId);
 
             Task.Run(() =>
             {
@@ -138,7 +139,7 @@ namespace dvmconsole
         /// <param name="talkgroupId"></param>
         private void AddTalkgroupStream(string talkgroupId)
         {
-            int deviceIndex = settingsManager.ChannelOutputDevices.ContainsKey(talkgroupId) ? settingsManager.ChannelOutputDevices[talkgroupId] : 0;
+            int deviceIndex = ResolveTalkgroupOutputDevice(talkgroupId);
 
             var waveOut = new WaveOutEvent { DeviceNumber = deviceIndex };
             var bufferProvider = new BufferedWaveProvider(new WaveFormat(8000, 16, 1))
@@ -201,15 +202,67 @@ namespace dvmconsole
         {
             lock (talkgroupProvidersSync)
             {
-                if (talkgroupProviders.ContainsKey(talkgroupId))
-                {
-                    talkgroupProviders[talkgroupId].waveOut.Stop();
-                    talkgroupProviders.Remove(talkgroupId);
-                }
+                RemoveTalkgroupProvider(talkgroupId);
 
                 settingsManager.UpdateChannelOutputDevice(talkgroupId, deviceIndex);
                 AddTalkgroupStream(talkgroupId);
             }
+        }
+
+        public void ClearTalkgroupOutputDevice(string talkgroupId)
+        {
+            lock (talkgroupProvidersSync)
+            {
+                bool wasActive = talkgroupProviders.ContainsKey(talkgroupId);
+                RemoveTalkgroupProvider(talkgroupId);
+                settingsManager.RemoveChannelOutputDevice(talkgroupId);
+                if (wasActive)
+                    AddTalkgroupStream(talkgroupId);
+            }
+        }
+
+        public void SetMasterOutputDevice(int deviceIndex)
+        {
+            lock (talkgroupProvidersSync)
+            {
+                settingsManager.UpdateMasterOutputDevice(deviceIndex);
+                ReloadOutputDevices();
+            }
+        }
+
+        public void ReloadOutputDevices()
+        {
+            lock (talkgroupProvidersSync)
+            {
+                List<string> activeTalkgroups = talkgroupProviders.Keys.ToList();
+                foreach (string talkgroupId in activeTalkgroups)
+                    RemoveTalkgroupProvider(talkgroupId);
+
+                foreach (string talkgroupId in activeTalkgroups)
+                    AddTalkgroupStream(talkgroupId);
+            }
+        }
+
+        private int ResolveTalkgroupOutputDevice(string talkgroupId)
+        {
+            int deviceIndex;
+            if (!string.IsNullOrWhiteSpace(talkgroupId) &&
+                settingsManager.ChannelOutputDevices.TryGetValue(talkgroupId, out int overrideDevice))
+                deviceIndex = SettingsManager.NormalizeAudioDeviceIndex(overrideDevice);
+            else
+                deviceIndex = SettingsManager.NormalizeAudioDeviceIndex(settingsManager.MasterOutputDevice);
+
+            return deviceIndex >= WaveOut.DeviceCount ? SettingsManager.WINDOWS_DEFAULT_AUDIO_DEVICE : deviceIndex;
+        }
+
+        private void RemoveTalkgroupProvider(string talkgroupId)
+        {
+            if (!talkgroupProviders.TryGetValue(talkgroupId, out var provider))
+                return;
+
+            provider.waveOut.Stop();
+            provider.waveOut.Dispose();
+            talkgroupProviders.Remove(talkgroupId);
         }
 
         /// <summary>

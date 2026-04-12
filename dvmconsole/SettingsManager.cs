@@ -31,6 +31,9 @@ namespace dvmconsole
     /// </summary>
     public class SettingsManager
     {
+        public const int WINDOWS_DEFAULT_AUDIO_DEVICE = -1;
+        public const string LEGACY_GLOBAL_INPUT_DEVICE_KEY = "GLOBAL_INPUT";
+
         public static readonly string UserAppData = Environment.GetFolderPath(
             Environment.SpecialFolder.ApplicationData);
 
@@ -99,6 +102,18 @@ namespace dvmconsole
         /// 
         /// </summary>
         public Dictionary<string, int> ChannelOutputDevices { get; set; } = new Dictionary<string, int>();
+        /// <summary>
+        /// Global input device override. -1 follows the current Windows default device.
+        /// </summary>
+        public int AudioInputDevice { get; set; } = WINDOWS_DEFAULT_AUDIO_DEVICE;
+        /// <summary>
+        /// Master output device used by resources without a per-TG override. -1 follows Windows default.
+        /// </summary>
+        public int MasterOutputDevice { get; set; } = WINDOWS_DEFAULT_AUDIO_DEVICE;
+        /// <summary>
+        /// Enables simple console microphone automatic gain control.
+        /// </summary>
+        public bool AudioInputAgcEnabled { get; set; } = false;
         /// <summary>
         /// Saved per-channel volume levels.
         /// </summary>
@@ -267,6 +282,10 @@ namespace dvmconsole
                     AlertToneTabs = loadedSettings.AlertToneTabs ?? new Dictionary<string, string>();
                     AlertTones = loadedSettings.AlertTones ?? new List<AlertToneConfig>();
                     ChannelOutputDevices = loadedSettings.ChannelOutputDevices ?? new Dictionary<string, int>();
+                    AudioInputDevice = NormalizeAudioDeviceIndex(loadedSettings.AudioInputDevice);
+                    MasterOutputDevice = NormalizeAudioDeviceIndex(loadedSettings.MasterOutputDevice);
+                    AudioInputAgcEnabled = loadedSettings.AudioInputAgcEnabled;
+                    MigrateLegacyAudioSettings();
                     ChannelVolumes = loadedSettings.ChannelVolumes ?? new Dictionary<string, double>();
                     PatchGroupMemberships = loadedSettings.PatchGroupMemberships ?? new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>();
                     PatchGroupModes = loadedSettings.PatchGroupModes ?? new Dictionary<string, Dictionary<string, bool>>();
@@ -528,8 +547,49 @@ namespace dvmconsole
         /// <param name="deviceIndex"></param>
         public void UpdateChannelOutputDevice(string channelName, int deviceIndex)
         {
-            ChannelOutputDevices[channelName] = deviceIndex;
+            if (string.IsNullOrWhiteSpace(channelName))
+                return;
+
+            ChannelOutputDevices[channelName] = NormalizeAudioDeviceIndex(deviceIndex);
             SaveSettings();
+        }
+
+        public void RemoveChannelOutputDevice(string channelName)
+        {
+            if (string.IsNullOrWhiteSpace(channelName))
+                return;
+
+            if (ChannelOutputDevices.Remove(channelName))
+                SaveSettings();
+        }
+
+        public void UpdateAudioInputDevice(int deviceIndex)
+        {
+            AudioInputDevice = NormalizeAudioDeviceIndex(deviceIndex);
+            SaveSettings();
+        }
+
+        public void UpdateMasterOutputDevice(int deviceIndex)
+        {
+            MasterOutputDevice = NormalizeAudioDeviceIndex(deviceIndex);
+            SaveSettings();
+        }
+
+        public static int NormalizeAudioDeviceIndex(int deviceIndex)
+        {
+            return deviceIndex < WINDOWS_DEFAULT_AUDIO_DEVICE ? WINDOWS_DEFAULT_AUDIO_DEVICE : deviceIndex;
+        }
+
+        private void MigrateLegacyAudioSettings()
+        {
+            if (ChannelOutputDevices == null)
+                ChannelOutputDevices = new Dictionary<string, int>();
+
+            if (ChannelOutputDevices.TryGetValue(LEGACY_GLOBAL_INPUT_DEVICE_KEY, out int legacyInputDevice))
+            {
+                AudioInputDevice = NormalizeAudioDeviceIndex(legacyInputDevice);
+                ChannelOutputDevices.Remove(LEGACY_GLOBAL_INPUT_DEVICE_KEY);
+            }
         }
 
         /// <summary>
@@ -539,6 +599,45 @@ namespace dvmconsole
         {
             ChannelVolumes[channelName] = volume;
             SaveSettings();
+        }
+
+        public void PruneResourceSettings(IEnumerable<string> validChannelNames, IEnumerable<string> validTalkgroupIds, IEnumerable<string> validSystemNames)
+        {
+            HashSet<string> channelNames = new HashSet<string>(
+                validChannelNames?.Where(v => !string.IsNullOrWhiteSpace(v)) ?? Enumerable.Empty<string>(),
+                StringComparer.OrdinalIgnoreCase);
+            HashSet<string> talkgroupIds = new HashSet<string>(
+                validTalkgroupIds?.Where(v => !string.IsNullOrWhiteSpace(v)) ?? Enumerable.Empty<string>(),
+                StringComparer.OrdinalIgnoreCase);
+            HashSet<string> systemNames = new HashSet<string>(
+                validSystemNames?.Where(v => !string.IsNullOrWhiteSpace(v)) ?? Enumerable.Empty<string>(),
+                StringComparer.OrdinalIgnoreCase);
+
+            channelNames.Add(MainWindow.PLAYBACKCHNAME);
+            talkgroupIds.Add(MainWindow.PLAYBACKTG);
+
+            bool changed = false;
+            changed |= PruneDictionary(ChannelPositions, channelNames);
+            changed |= PruneDictionary(ChannelVolumes, channelNames);
+            changed |= PruneDictionary(ChannelOutputDevices, talkgroupIds);
+            changed |= PruneDictionary(SystemStatusPositions, systemNames);
+
+            if (changed)
+                SaveSettings();
+        }
+
+        private static bool PruneDictionary<TValue>(Dictionary<string, TValue> dictionary, HashSet<string> validKeys)
+        {
+            if (dictionary == null || validKeys == null)
+                return false;
+
+            List<string> staleKeys = dictionary.Keys
+                .Where(key => !validKeys.Contains(key))
+                .ToList();
+            foreach (string key in staleKeys)
+                dictionary.Remove(key);
+
+            return staleKeys.Count > 0;
         }
 
         /// <summary>

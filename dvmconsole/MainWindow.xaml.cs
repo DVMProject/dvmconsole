@@ -217,6 +217,7 @@ namespace dvmconsole
             channelHoldTimer.Enabled = true;
 
             waveIn = new WaveInEvent { WaveFormat = new WaveFormat(8000, 16, 1) };
+            ApplyConfiguredInputDeviceToWaveIn();
             waveIn.DataAvailable += WaveIn_DataAvailable;
             waveIn.RecordingStopped += WaveIn_RecordingStopped;
 
@@ -826,6 +827,7 @@ namespace dvmconsole
 
                 patchGroupsWindow.SetMembershipContext(filePath);
                 patchGroupsWindow.SetPatchGroups(Codeplug.Groups, GetConfiguredChannels());
+                PruneSettingsForLoadedCodeplug();
                 patchGroupModes = patchGroupsWindow.GetPatchGroupModes();
                 patchGroupEnabledStates = patchGroupsWindow.GetPatchGroupEnabledStates();
                 patchManager.SetSourceIdPassthrough(Codeplug.PatchSourceIdPassthrough);
@@ -2079,6 +2081,39 @@ namespace dvmconsole
             /* stub */
         }
 
+        private void ApplyConfiguredInputDevice()
+        {
+            try
+            {
+                waveIn.StopRecording();
+            }
+            catch
+            {
+                // The input may already be stopped while settings are being applied.
+            }
+
+            ApplyConfiguredInputDeviceToWaveIn();
+
+            try
+            {
+                waveIn.StartRecording();
+            }
+            catch (MmException ex)
+            {
+                MessageBox.Show($"Error initializing audio input device, {ex.Message}. This *will* cause console inconsistency, and inability to transmit audio.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                Log.StackTrace(ex, false);
+            }
+        }
+
+        private void ApplyConfiguredInputDeviceToWaveIn()
+        {
+            int deviceNumber = SettingsManager.NormalizeAudioDeviceIndex(settingsManager.AudioInputDevice);
+            if (deviceNumber >= WaveIn.DeviceCount)
+                deviceNumber = SettingsManager.WINDOWS_DEFAULT_AUDIO_DEVICE;
+
+            waveIn.DeviceNumber = deviceNumber;
+        }
+
         /// <summary>
         /// 
         /// </summary>
@@ -2093,6 +2128,7 @@ namespace dvmconsole
 
             byte[] micBuffer = new byte[e.BytesRecorded];
             Buffer.BlockCopy(e.Buffer, 0, micBuffer, 0, e.BytesRecorded);
+            ApplyInputAgc(micBuffer);
   
               foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
               {
@@ -2670,9 +2706,9 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void AudioSettings_Click(object sender, RoutedEventArgs e)
         {
-            List<Codeplug.Channel> channels = Codeplug?.Zones.SelectMany(z => z.Channels).ToList() ?? new List<Codeplug.Channel>();
+            List<Codeplug.Zone> zones = Codeplug?.Zones ?? new List<Codeplug.Zone>();
 
-            AudioSettingsWindow audioSettingsWindow = new AudioSettingsWindow(settingsManager, audioManager, channels);
+            AudioSettingsWindow audioSettingsWindow = new AudioSettingsWindow(settingsManager, audioManager, zones, ApplyConfiguredInputDevice);
             audioSettingsWindow.ShowDialog();
         }
 
@@ -3463,6 +3499,16 @@ namespace dvmconsole
                 return Enumerable.Empty<Codeplug.Channel>();
 
             return Codeplug.Zones.SelectMany(z => z.Channels ?? new List<Codeplug.Channel>());
+        }
+
+        private void PruneSettingsForLoadedCodeplug()
+        {
+            IEnumerable<Codeplug.Channel> channels = GetConfiguredChannels().ToList();
+            IEnumerable<string> validChannelNames = channels.Select(c => c.Name);
+            IEnumerable<string> validTalkgroupIds = channels.Select(c => c.Tgid);
+            IEnumerable<string> validSystemNames = Codeplug?.Systems?.Select(s => s.Name) ?? Enumerable.Empty<string>();
+
+            settingsManager.PruneResourceSettings(validChannelNames, validTalkgroupIds, validSystemNames);
         }
 
         /// <summary>
