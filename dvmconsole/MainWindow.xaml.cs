@@ -4415,7 +4415,7 @@ namespace dvmconsole
             patchGroupsWindow.Owner = this;
             patchGroupsWindow.RefreshTheme();
             if (patchGroupsWindow.Visibility == Visibility.Visible)
-                patchGroupsWindow.Hide();
+                patchGroupsWindow.Close();
             else
             {
                 patchGroupsWindow.RefreshMemberStatusIcons();

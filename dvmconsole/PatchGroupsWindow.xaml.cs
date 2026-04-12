@@ -171,6 +171,7 @@ namespace dvmconsole
         /// <param name="e"></param>
         protected override void OnClosing(CancelEventArgs e)
         {
+            DeactivateAllContexts(commitChanges: true);
             e.Cancel = true;
             Hide();
         }
@@ -475,8 +476,7 @@ namespace dvmconsole
             if (!ReferenceEquals(e.OriginalSource, patchGroupTabs))
                 return;
 
-            foreach (PatchTabContext context in tabContexts.Values)
-                DeactivateContext(context, commitChanges: true);
+            DeactivateAllContexts(commitChanges: true);
         }
 
         /// <summary>
@@ -497,6 +497,17 @@ namespace dvmconsole
             RebuildTalkgroupList(context);
             if (commitChanges)
                 PersistAllMemberships();
+        }
+
+        /// <summary>
+        /// Resets all patch/group edit and PTT control states.
+        /// </summary>
+        /// <param name="commitChanges"></param>
+        private void DeactivateAllContexts(bool commitChanges)
+        {
+            foreach (PatchTabContext context in tabContexts.Values)
+                DeactivateContext(context, commitChanges);
+            UpdateAllContextVisualStates();
         }
 
         /// <summary>
