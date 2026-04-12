@@ -3713,6 +3713,12 @@ namespace dvmconsole
             if (e == null)
                 return;
 
+            if (e.IsActive && !CanStartPttOutsidePatchEditMode())
+            {
+                patchGroupsWindow.RefreshMemberStatusIcons();
+                return;
+            }
+
             if (e.IsActive)
                 StartPatchPttGroup(e.GroupName, e.Members ?? new List<SettingsManager.PatchTalkgroupMember>());
             else
@@ -4119,6 +4125,13 @@ namespace dvmconsole
         {
             if (globalPttState)
                 await Task.Delay(500);
+
+            if (globalPttState && !CanStartPttOutsidePatchEditMode())
+            {
+                globalPttState = false;
+                Dispatcher.Invoke(() => btnGlobalPtt.Background = btnGlobalPttDefaultBg);
+                return;
+            }
 
             ChannelBox primaryChannel = selectedChannelsManager.PrimaryChannel;
 

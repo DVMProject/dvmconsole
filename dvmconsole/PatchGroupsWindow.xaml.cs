@@ -48,6 +48,7 @@ namespace dvmconsole
         }
 
         public const string CHANNEL_DRAG_FORMAT = "dvmconsole/channel-drag";
+        private const string PATCH_EDIT_PTT_BLOCKED_MESSAGE = "PTT is disabled while patch editing is active.";
 
         public sealed class ChannelDragData
         {
@@ -509,6 +510,11 @@ namespace dvmconsole
                 return;
             if (context.GroupType.Equals("patch", StringComparison.OrdinalIgnoreCase) && !context.IsPatchEnabled)
                 return;
+            if (!context.IsPttActive && IsAnyGroupEditing)
+            {
+                MessageBox.Show(PATCH_EDIT_PTT_BLOCKED_MESSAGE, "Patch Editing Active", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
 
             context.IsPttActive = !context.IsPttActive;
             UpdateContextVisualState(context);
@@ -529,8 +535,14 @@ namespace dvmconsole
             foreach (PatchTabContext otherContext in tabContexts.Values.Where(c => c != context))
                 DeactivateContext(otherContext, commitChanges: true);
 
+            if (isActive && context.IsPttActive)
+            {
+                context.IsPttActive = false;
+                RaisePatchPttStateChanged(context, false);
+            }
+
             context.IsEditing = isActive;
-            UpdateContextVisualState(context);
+            UpdateAllContextVisualStates();
             RebuildTalkgroupList(context);
             if (!isActive)
                 PersistAllMemberships();
@@ -1014,10 +1026,13 @@ namespace dvmconsole
             {
                 context.PttButton.Background = context.IsPttActive ? GetAccentBrush(context) : ButtonIdleBackground;
                 context.PttButton.Foreground = InfoTextBrush;
-                context.PttButton.IsEnabled = patchAvailable;
-                context.PttButton.Opacity = patchAvailable ? 1.0 : 0.55;
+                bool pttAvailable = patchAvailable && (!IsAnyGroupEditing || context.IsPttActive);
+                context.PttButton.IsEnabled = pttAvailable;
+                context.PttButton.Opacity = pttAvailable ? 1.0 : 0.55;
                 context.PttButton.ToolTip = !patchAvailable
                     ? $"Enable {context.GroupName} before using Patch PTT."
+                    : IsAnyGroupEditing && !context.IsPttActive
+                        ? "PTT is disabled while patch editing is active. Click Stop Editing before transmitting."
                     : context.IsPttActive
                         ? $"Transmitting to every member in {context.GroupName}. Click again to stop."
                         : $"Transmit to every member in {context.GroupName}. Use this when you want to talk to the whole {groupKind} at once.";
@@ -1072,6 +1087,12 @@ namespace dvmconsole
                     ? "Editing is active. Drag channels here from the main console."
                     : "Group members appear here.";
             }
+        }
+
+        private void UpdateAllContextVisualStates()
+        {
+            foreach (PatchTabContext context in tabContexts.Values)
+                UpdateContextVisualState(context);
         }
 
         private static Brush GetAccentBrush(PatchTabContext context)
