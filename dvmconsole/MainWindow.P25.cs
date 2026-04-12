@@ -76,25 +76,7 @@ namespace dvmconsole
                 smpIdx++;
             }
 
-            channel.VolumeMeterLevel = 0;
-
-            float max = 0;
-            for (int index = 0; index < samples.Length; index++)
-            {
-                short sample = samples[index];
-
-                // to floating point
-                float sample32 = sample / 32768f;
-
-                if (sample32 < 0)
-                    sample32 = -sample32;
-
-                // is this the max value?
-                if (sample32 > max)
-                    max = sample32;
-            }
-
-            channel.VolumeMeterLevel = max;
+            UpdateVolumeMeterFromSamples(channel, samples, VolumeMeterSource.ConsoleTx);
 
             // Convert to floats
             float[] fSamples = AudioConverter.PcmToFloat(samples);
@@ -371,25 +353,7 @@ namespace dvmconsole
                     {
                         Log.WriteLine($"P25D: Traffic *VOICE FRAME    * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} VC{n} [STREAM ID {e.StreamId}]");
 
-                        channel.VolumeMeterLevel = 0;
-
-                        float max = 0;
-                        for (int index = 0; index < samples.Length; index++)
-                        {
-                            short sample = samples[index];
-
-                            // to floating point
-                            float sample32 = sample / 32768f;
-
-                            if (sample32 < 0)
-                                sample32 = -sample32;
-
-                            // is this the max value?
-                            if (sample32 > max)
-                                max = sample32;
-                        }
-
-                        channel.VolumeMeterLevel = max;
+                        UpdateVolumeMeterFromSamples(channel, samples, VolumeMeterSource.RadioRx);
 
                         int pcmIdx = 0;
                         byte[] pcmData = new byte[samples.Length * 2];

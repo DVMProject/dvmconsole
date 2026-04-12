@@ -3997,9 +3997,6 @@ namespace dvmconsole
             if (channelBox.TxStreamId == 0)
                 return;
 
-            // Prevent stale receive bar artifacts on forwarded targets.
-            channelBox.VolumeMeterLevel = 0;
-
             if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                 P25EncodeAudioFrame(pcm, fne, channelBox, cpgChannel, system, sourceId);
             else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)

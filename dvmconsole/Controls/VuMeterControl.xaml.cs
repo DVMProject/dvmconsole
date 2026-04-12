@@ -8,6 +8,7 @@
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
 *   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
+*   Copyright (C) 2026 C. Lovell, K7CBL
 *
 */
 
@@ -72,6 +73,9 @@ namespace dvmconsole.Controls
     public class VuMeterViewModel : INotifyPropertyChanged
     {
         public double LevelScaleFactor { get; set; } = 1d / 20000d;
+        private const double DISPLAY_COMPRESSION = 3.2;
+        private const double ATTACK_SMOOTHING = 0.55;
+        private const double RELEASE_SMOOTHING = 0.18;
         protected double level = 0;
         protected double invertedLevel = 1;
 
@@ -87,7 +91,15 @@ namespace dvmconsole.Controls
             get => level;
             set
             {
-                level = value;
+                double targetLevel = NormalizeLevel(value);
+                if (targetLevel <= 0)
+                    level = 0;
+                else
+                {
+                    double smoothing = targetLevel > level ? ATTACK_SMOOTHING : RELEASE_SMOOTHING;
+                    level += (targetLevel - level) * smoothing;
+                }
+
                 OnPropertyChanged("Level");
                 InvertedLevel = 1 - level;
             }
@@ -131,6 +143,19 @@ namespace dvmconsole.Controls
         /// 
         /// </summary>
         public void Reset() => Level = 0;
+
+        private double NormalizeLevel(double value)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value) || value <= 0)
+                return 0;
+
+            double normalized = value > 1 && LevelScaleFactor > 0
+                ? value * LevelScaleFactor
+                : value;
+
+            normalized = Math.Clamp(normalized, 0, 1);
+            return Math.Clamp(1 - Math.Exp(-normalized * DISPLAY_COMPRESSION), 0, 1);
+        }
 
         /// <summary>
         /// 

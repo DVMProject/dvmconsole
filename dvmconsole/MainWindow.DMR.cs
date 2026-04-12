@@ -135,6 +135,8 @@ namespace dvmconsole
                     smpIdx++;
                 }
 
+                UpdateVolumeMeterFromSamples(channel, samples, VolumeMeterSource.ConsoleTx);
+
                 // encode PCM samples into AMBE codewords
                 byte[] ambe = null;
 
@@ -205,6 +207,7 @@ namespace dvmconsole
                         Log.WriteLine($"({system.SystemName}) DMRD: Traffic *VOICE FRAME    * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} TS {e.Slot + 1} VC{e.n}.{n} ERRS {errs} [STREAM ID {e.StreamId}]");
                         // Log.Logger.Debug($"PARTIAL AMBE {FneUtils.HexDump(ambePartial)}");
                         // Log.Logger.Debug($"SAMPLE BUFFER {FneUtils.HexDump(samples)}");
+                        UpdateVolumeMeterFromSamples(channel, samples, VolumeMeterSource.RadioRx);
 
                         int pcmIdx = 0;
                         byte[] pcm = new byte[samples.Length * 2];
