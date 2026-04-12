@@ -1,125 +1,87 @@
 # Building
 
-This section explains how to build the **Digital Voice Modem Desktop Dispatch Console** from source.
+This page explains how to build the Digital Voice Modem Desktop Dispatch Console from source.
 
-The console is built using **Visual Studio** and the provided solution file.
-
-Most users only need a standard Visual Studio installation with the .NET desktop development workload installed.
+Most developers should use Visual Studio with the .NET desktop workload.
 
 ---
 
 # Requirements
 
-Before building the console, make sure the following tools are installed.
-
 ## Visual Studio
 
-Install **Visual Studio 2022** (or newer) with the following workload:
+Install Visual Studio 2022 or newer with:
 
 ```
 .NET Desktop Development
 ```
 
-Download:
-
-https://visualstudio.microsoft.com/
-
----
-
 ## Git
 
-Git is required to clone the repository and its submodules.
+Git is required to clone the repository and submodules.
 
-Download:
+## Windows
 
-https://git-scm.com/
-
----
-
-# Dependencies
-
-The console depends on the **dvmvocoder** library.
-
-Repository:
-
-https://github.com/DVMProject/dvmvocoder
-
-When cloning the console repository using `--recurse-submodules`, this dependency will be downloaded automatically.
+The console is a WPF application and is intended to build and run on Windows.
 
 ---
 
-# Build Instructions
+# Clone the Repository
 
-## 1. Clone the Repository
-
-Open a terminal or command prompt and run:
+Use `--recurse-submodules` so required submodules are downloaded.
 
 ```bash
 git clone --recurse-submodules https://github.com/DVMProject/dvmconsole.git
-```
-
-This downloads the console source code along with required submodules.
-
----
-
-## 2. Enter the Project Directory
-
-```
 cd dvmconsole
 ```
 
+If the repository was already cloned without submodules, run:
+
+```bash
+git submodule update --init --recursive
+```
+
 ---
 
-## 3. Open the Solution
+# Open the Solution
 
-Open the solution file in Visual Studio:
+Open:
 
 ```
 dvmconsole.sln
 ```
 
-You can either:
+from Visual Studio.
 
-- Double-click the `.sln` file  
-- Or open it through **File > Open > Project/Solution** inside Visual Studio.
+You can open it by double-clicking the solution file or by using:
+
+```
+File > Open > Project/Solution
+```
 
 ---
 
-## 4. Select Build Architecture
+# Build
 
-In the Visual Studio toolbar, select:
-
-```
-x86
-```
-
-as the build architecture.
-
-This is the recommended default.
-
----
-
-## 5. Build the Project
-
-Press:
-
-```
-Ctrl + Shift + B
-```
-
-or select:
+Select the desired platform, usually `x64` or `x86`, then build:
 
 ```
 Build > Build Solution
 ```
 
-Visual Studio will compile the console.
+or press:
+
+```
+Ctrl + Shift + B
+```
+
+The app targets .NET for Windows and includes WPF UI resources, audio assets, and markdown documentation files.
 
 ---
 
-# Running the Console
+# Run
 
-Once the build completes successfully, you can run the console directly from Visual Studio:
+Run from Visual Studio with:
 
 ```
 Debug > Start Debugging
@@ -131,49 +93,42 @@ or press:
 F5
 ```
 
-The compiled executable will also be located in:
+The compiled app is written under the project `bin` directory for the selected platform and configuration.
+
+Example:
 
 ```
-dvmconsole\bin\x86\Debug\
+dvmconsole\bin\x64\Debug\net8.0-windows7.0\
 ```
-
-or
-
-```
-dvmconsole\bin\x86\Release\
-```
-
-depending on your build configuration.
 
 ---
 
-# x64 Builds
+# Documentation Files
 
-While x64 builds are supported, the **dvmvocoder** library must also be compiled for the x64 architecture.
+The built-in documentation viewer reads markdown files from:
 
-If you plan to build the console for x64:
+```
+dvmconsole\Docs
+```
 
-1. Build `dvmvocoder` for x64
-2. Update the console project to reference the x64 library
-3. Switch the solution platform to `x64`
-
-For most users, the default **x86 build is recommended**.
+The project file copies these docs into the build output. If new markdown files are added, make sure they are included as content in the project file so they appear in the in-app Documentation window.
 
 ---
 
 # Troubleshooting
 
-## Submodules did not download
+## Submodules are missing
 
-If you cloned the repository without submodules, run:
+Run:
 
 ```bash
 git submodule update --init --recursive
 ```
 
-## Build fails due to missing dependencies
+## Build fails due to missing Windows desktop support
 
-Verify that:
+Verify that Visual Studio has the `.NET Desktop Development` workload installed.
 
-- Visual Studio has the **.NET Desktop Development** workload installed
-- The repository was cloned with `--recurse-submodules`
+## Build succeeds but docs are missing in the app
+
+Verify that the markdown files are included as content in `dvmconsole.csproj` and copied to the output directory.

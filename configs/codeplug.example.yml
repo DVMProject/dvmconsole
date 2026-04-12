@@ -10,15 +10,15 @@ systems:
     # Textual name for internal and external reference to this system
   - name: "System 1"
     # Textual name to idenitify this peer in the FNE
-    identity: "CONS OP1"
-    # FNE Address
-    address: "127.0.0.1"
+    identity: "Console 1"
+    # FNE hostname or IP address
+    address: "fne.example.local"
     # FNE Port
     port: 62031
     # Peer ID for FNE
-    peerId: 1234567
+    peerId: 1000001
     # Radio ID transmitted traffic will come from
-    rid: "12345"
+    rid: "1001"
     # FNE Password
     password: "RPT_PASSWORD"
     # FNE Encrypted flag
@@ -29,8 +29,9 @@ systems:
     #aliasPath: "Full/Path/To/alias.yml"
     
 # Optional groups (each group becomes a tab in the Groups window)
-# Group memberships are assigned at runtime from the Groups window.
-# They are not defined in the codeplug.
+# Group memberships are assigned at runtime from the Groups window and persist in user settings.
+# Patch enabled/disabled state is separate from membership and is only restored when
+# "Retain Patch State on Startup" is enabled in the console Settings menu.
 groups:
     # Textual name of the group and type ("patch" or "multiselect")
   - name: "Patch 1"
@@ -38,8 +39,8 @@ groups:
   - name: "Multi Select 1"
     type: "multiselect"
 
-# Optional: pass through inbound source IDs while patch forwarding
-# If false, forwarded traffic uses the configured console RID for the destination system
+# Optional: pass through inbound source IDs while patch forwarding.
+# If false, forwarded traffic uses the configured console RID for the destination system.
 patchSourceIdPassthrough: false
 
 #
@@ -58,7 +59,8 @@ zones:
       - name: "Channel 1"
         # System name this channel is linked to
         system: "System 1"
-        # Talkgroup Id to send and receive traffic
+        # Talkgroup ID to send and receive traffic.
+        # The console validates transmit/use attempts against active TG rules received from the FNE.
         tgid: "2001"
         # Encryption Key Id (If 0 or blank, will be assumed clear)
         keyId: 0x50
@@ -73,11 +75,11 @@ zones:
         resourceColor: "#150282"
       - name: "Channel 2"
         system: "System 1"
-        tgid: "15002"
+        tgid: "2002"
         resourceColor: "#150282"
       - name: "Channel 3"
         system: "System 1"
-        tgid: "15003"
+        tgid: "2003"
         resourceColor: "#150282"
 
   - name: "Secondary"
@@ -86,11 +88,11 @@ zones:
     channels:
       - name: "Channel A"
         system: "System 1"
-        tgid: "16001"
+        tgid: "3001"
         resourceColor: "#150282"
       - name: "Channel B"
         system: "System 1"
-        tgid: "16002"
+        tgid: "3002"
         resourceColor: "#150282"
 
   - name: "Emergency"
@@ -99,5 +101,5 @@ zones:
     channels:
       - name: "Channel C"
         system: "System 1"
-        tgid: "16002"
+        tgid: "4001"
         resourceColor: "#150282"

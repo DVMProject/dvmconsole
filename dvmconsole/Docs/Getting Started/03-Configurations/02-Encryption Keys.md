@@ -2,150 +2,91 @@
 
 Encryption keys allow the console to decrypt and transmit encrypted voice traffic when supported by the connected FNE system.
 
-The console loads encryption keys from an external YAML key file referenced in the codeplug.
-
-This file contains the key material used for encrypted talkgroups.
+The console can load local key material from a YAML key file referenced by the codeplug.
 
 ---
 
 # Key File Location
 
-Encryption keys are referenced from the console codeplug using the `keyFile` field.
-
-Example:
+Reference the key file with `keyFile` in the codeplug:
 
 ```yaml
 keyFile: "Full/Path/To/Keyfile.clear"
 ```
 
-The specified file should contain encryption key definitions.
-
 ---
 
-# Key File Structure
+# Key File Format
 
-The encryption key file is a YAML document containing a list of keys.
-
-Each key entry defines:
-
-- `keyId`
-- `algId`
-- `key`
+The key file contains a `keys` list.
 
 Example:
 
 ```yaml
 keys:
-  -
-    keyId: 0x1
+  - keyId: 0x1
     algId: 0x84
     key: "1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR"
-  -
-    keyId: 0x2
+
+  - keyId: 0x2
     algId: 0xAA
     key: "1234567890"
 ```
 
+Fields:
+
+- `keyId`: key ID referenced by channels.
+- `algId`: algorithm ID.
+- `key`: key material.
+
 ---
 
-# Field Descriptions
+# Channel Encryption Fields
 
-### keyId
-
-The key ID associated with the encryption key.
-
-This value is referenced by channels in the codeplug.
-
-Example:
+Encrypted channels can include:
 
 ```yaml
-keyId: 0x1
+keyId: 0x50
+algo: "aes"
 ```
 
-Key IDs are typically written in hexadecimal format.
+Supported `algo` values include:
+
+- `aes`
+- `des`
+- `arc4`
+- `none`
+
+If `keyId` is blank or zero, the channel is treated as clear for normal operation.
 
 ---
 
-### algId
+# FNE Key Requests
 
-The encryption algorithm identifier.
+When **Restore Selected Channels On Startup** is enabled, selected encrypted channels may need to request keys after startup.
 
-Example:
+The console waits for the relevant FNE connection to complete before sending startup key requests. It then waits a short post-connect delay and spaces multiple key requests apart so the FNE is not flooded.
 
-```yaml
-algId: 0x84
-```
-
-The algorithm ID determines how the key material is interpreted.
-
-Typical values depend on the encryption type used by the system.
+This startup delay applies to restored selected encrypted resources. Normal key behavior outside startup remains unchanged.
 
 ---
 
-### key
+# Key Status
 
-The encryption key material.
+Use the key status toolbar button to inspect loaded or received key state for configured encrypted resources.
 
-Example:
+If an encrypted channel does not decrypt correctly:
 
-```yaml
-key: "1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR"
-```
-
----
-
-# Using Keys in a Codeplug
-
-Once defined in the key file, keys can be referenced by channels using the `keyId` field.
-
-Example channel configuration:
-
-```yaml
-- name: "Encrypted Channel"
-  system: "System 1"
-  tgid: "2001"
-  keyId: 0x1
-  algo: "aes"
-```
-
-When traffic is transmitted or received on this channel, the console will use the corresponding key.
+- verify the channel `keyId`
+- verify the channel `algo`
+- verify the key file path
+- verify that the FNE is connected
+- verify that the FNE has delivered required key material
 
 ---
 
-# Notes
+# Safety Notes
 
-- The `encryptionKey` channel field is reserved for future functionality.
-- If `keyId` is omitted or set to `0`, the channel is treated as clear (unencrypted).
-
----
-
-# Security Considerations
-
-Encryption keys provide access to protected radio traffic.
-
-You should:
-
-- Store key files securely
-- Limit access to trusted administrators
-- Avoid committing key files to public repositories
-- Rotate keys periodically when required
-
----
-
-# Troubleshooting
-
-### Encrypted traffic cannot be decrypted
-
-Check the following:
-
-- The key file path is correct in the codeplug
-- The correct `keyId` is configured on the channel
-- The `algId` matches the system encryption algorithm
-- The key material is valid
-
-### Encrypted transmit fails
-
-Ensure:
-
-- The channel has a valid `keyId`
-- The correct `algo` is defined
+- Protect clear key files.
+- Do not commit operational key material to source control.
+- Use test keys for development environments.

@@ -1,40 +1,32 @@
 # Codeplug Creation
 
-This page explains how to create and structure a codeplug for the **Digital Voice Modem Desktop Dispatch Console**.
+A codeplug is a YAML configuration file that defines the systems, tabs, resources, and group tabs used by the console.
 
-A codeplug is a YAML configuration file that defines:
+At minimum, a codeplug defines:
 
-- Systems the console connects to
-- Zones (tabs) shown in the UI
-- Channels displayed in each zone
-- Optional patch and multi-select group definitions
-- Optional encryption and visual settings
+- `systems`
+- `zones`
 
-The console loads this configuration file at startup.
+Common optional sections include:
 
-An example codeplug is included with the project.
+- `groups`
+- `keyFile`
+- `patchSourceIdPassthrough`
 
 ---
 
 # Basic Structure
 
-A console codeplug is composed of two primary sections:
-
-```
-systems
-zones
-```
-
-Optional sections such as `groups`, `keyFile`, and `patchSourceIdPassthrough` may also be defined.
-
-Example structure:
-
 ```yaml
+keyFile: "Full/Path/To/Keyfile.clear"
+
 systems:
   - ...
 
 groups:
   - ...
+
+patchSourceIdPassthrough: false
 
 zones:
   - ...
@@ -44,94 +36,42 @@ zones:
 
 # Systems
 
-The `systems` section defines the FNE systems the console can connect to.
-
-Each system entry defines connection parameters and authentication information.
+Systems define FNE connections.
 
 Example:
 
 ```yaml
 systems:
   - name: "System 1"
-    identity: "CONS OP1"
-    address: "127.0.0.1"
+    identity: "Console 1"
+    address: "fne.example.local"
     port: 62031
-    peerId: 1234567
-    rid: "12345"
+    peerId: 1000001
+    rid: "1001"
     password: "RPT_PASSWORD"
     encrypted: false
     presharedKey: "123ABC1234"
+    aliasPath: "Full/Path/To/alias.yml"
 ```
 
 Fields:
 
-### name
-
-Internal system name used throughout the codeplug.
-
-Channels reference this value using the `system` field.
-
-### identity
-
-Human-readable name used to identify the console peer on the FNE.
-
-### address
-
-Hostname or IP address of the FNE master.
-
-### port
-
-Network port used for the FNE connection.
-
-### peerId
-
-Peer ID used when connecting to the FNE.
-
-### rid
-
-Radio ID used when the console transmits traffic.
-
-### password
-
-Authentication password used for the FNE connection.
-
-### encrypted
-
-Indicates whether the FNE connection uses encryption.
-
-### presharedKey
-
-Pre-shared encryption key used when `encrypted` is enabled.
-
-### aliasPath (optional)
-
-```yaml
-aliasPath: "Full/Path/To/alias.yml"
-```
-
-Path to a radio alias file used for displaying subscriber names.
-
----
-
-# Key File (Optional)
-
-A key file can be defined to provide encryption keys.
-
-Example:
-
-```yaml
-keyFile: "Full/Path/To/Keyfile.clear"
-```
-
-The referenced file contains encryption key definitions used by channels.
+- `name`: internal system name. Channels reference this value.
+- `identity`: peer identity shown to the FNE.
+- `address`: FNE hostname or IP address.
+- `port`: FNE port.
+- `peerId`: peer ID used for the console connection.
+- `rid`: radio ID used when the console transmits.
+- `password`: FNE password.
+- `encrypted`: whether the FNE connection uses transport encryption.
+- `presharedKey`: key used when `encrypted` is enabled.
+- `aliasPath`: optional RID alias YAML file.
 
 ---
 
 # Zones
 
-Zones define the tabs displayed across the top of the console interface.
-
-Each zone contains a list of channels that will appear on that tab.
+Zones become main console tabs.
 
 Example:
 
@@ -140,104 +80,24 @@ zones:
   - name: "Primary"
     tabColor: "#E57373"
     tabTextColor: "#000000"
+    channels:
+      - ...
 ```
 
 Fields:
 
-### name
+- `name`: tab label.
+- `tabColor`: tab background color in hex.
+- `tabTextColor`: tab text color in hex.
+- `channels`: resources shown on that tab.
 
-Name of the tab displayed in the console.
-
-### tabColor
-
-Background color of the tab in hexadecimal format.
-
-Example:
-
-```
-#E57373
-```
-
-### tabTextColor
-
-Color of the tab label text.
-
-Example:
-
-```
-#000000
-```
-
-### channels
-
-List of channel resources displayed within the zone.
-
----
-
-# Groups (Optional)
-
-The `groups` section defines the tabs shown in the **Groups** window.
-
-Each group entry defines:
-
-- the group name shown in the UI
-- the group type
-
-Example:
-
-```yaml
-groups:
-  - name: "Patch 1"
-    type: "patch"
-  - name: "Multi Select 1"
-    type: "multiselect"
-```
-
-Fields:
-
-### name
-
-Display name shown on the group tab.
-
-### type
-
-Defines how the group behaves.
-
-Supported values:
-
-```
-patch
-multiselect
-```
-
-Notes:
-
-- Group memberships are not stored in the codeplug itself.
-- Operators build the live member list from the **Groups** window by clicking **Edit Members** and dragging channels from the main console.
-
----
-
-# Patch Source ID Passthrough (Optional)
-
-The `patchSourceIdPassthrough` flag controls how forwarded patch traffic handles source IDs.
-
-Example:
-
-```yaml
-patchSourceIdPassthrough: false
-```
-
-When `false`, forwarded patch traffic uses the configured console RID for the destination system.
-
-When `true`, the console attempts to pass through the inbound source ID while patch forwarding.
+Long tab names are allowed. The console trims long labels so activity icons remain visible.
 
 ---
 
 # Channels
 
-Channels represent individual dispatch resources.
-
-Each channel corresponds to a talkgroup on a system.
+Channels define resource cards.
 
 Example:
 
@@ -246,109 +106,96 @@ channels:
   - name: "Channel 1"
     system: "System 1"
     tgid: "2001"
+    mode: "p25"
+    keyId: 0x50
+    algo: "aes"
+    resourceColor: "#150282"
 ```
 
 Fields:
 
-### name
+- `name`: resource/card name.
+- `system`: system name from the `systems` section.
+- `tgid`: target talkgroup ID.
+- `mode`: `p25` or `dmr`. If omitted, P25 is used.
+- `keyId`: optional encryption key ID.
+- `algo`: optional encryption algorithm, such as `aes`, `des`, `arc4`, or `none`.
+- `resourceColor`: optional resource card color in hex.
+- `slot`: optional DMR slot field if used by the deployment.
 
-Display name of the resource.
-
-### system
-
-System name defined in the `systems` section.
-
-### tgid
-
-Talkgroup ID used for transmit and receive.
-
----
-
-# Optional Channel Settings
-
-Channels may include additional optional configuration fields.
-
-### mode
-
-Voice mode for the channel.
-
-Example:
-
-```yaml
-mode: "p25"
-```
-
-Supported values include:
-
-```
-p25
-dmr
-```
-
-### keyId
-
-Encryption key ID used for the channel.
-
-Example:
-
-```yaml
-keyId: 0x50
-```
-
-### algo
-
-Encryption algorithm used by the channel.
-
-Example:
-
-```yaml
-algo: "aes"
-```
-
-Supported algorithms:
-
-```
-aes
-des
-arc4
-none
-```
-
-### encryptionKey
-
-Currently unused in most deployments. Future versions may allow this field to override FNE key management.
-
-Example:
-
-```yaml
-encryptionKey: null
-```
-
-### resourceColor
-
-Color of the channel widget in the console.
-
-Example:
-
-```yaml
-resourceColor: "#150282"
-```
+The console validates target TGs against active talkgroup rules received from the connected FNE when a user attempts to transmit or otherwise use the TG.
 
 ---
 
-# Example Minimal Codeplug
+# Groups
+
+Groups define tabs in the Groups window.
+
+Example:
 
 ```yaml
+groups:
+  - name: "Patch 1"
+    type: "patch"
+  - name: "Multi Select 1"
+    type: "multiselect"
+```
+
+Fields:
+
+- `name`: group tab label.
+- `type`: `patch` or `multiselect`.
+
+Group memberships are assigned in the Groups window, not in the codeplug.
+
+Patch group members persist across restart. Patch active state is separate and only persists when **Settings > Retain Patch State on Startup** is enabled.
+
+Legacy `patchGroups` entries are treated as patch groups for compatibility.
+
+---
+
+# Patch Source ID Passthrough
+
+`patchSourceIdPassthrough` controls source IDs on forwarded patch traffic.
+
+```yaml
+patchSourceIdPassthrough: false
+```
+
+When `false`, forwarded patch traffic uses the configured console RID for the destination system.
+
+When `true`, the console attempts to pass through the inbound source ID while forwarding patch audio.
+
+---
+
+# Key File
+
+Use `keyFile` to reference a YAML key file:
+
+```yaml
+keyFile: "Full/Path/To/Keyfile.clear"
+```
+
+See **Encryption Keys** for the key file format and runtime behavior.
+
+---
+
+# Example Codeplug
+
+```yaml
+keyFile: "C:/Example/keys.clear"
+
 systems:
   - name: "System 1"
-    identity: "CONS OP1"
-    address: "127.0.0.1"
+    identity: "Console 1"
+    address: "fne.example.local"
     port: 62031
-    peerId: 1234567
-    rid: "12345"
+    peerId: 1000001
+    rid: "1001"
     password: "RPT_PASSWORD"
     encrypted: false
     presharedKey: "123ABC1234"
+    aliasPath: "C:/Example/alias.yml"
 
 groups:
   - name: "Patch 1"
@@ -362,22 +209,39 @@ zones:
   - name: "Primary"
     tabColor: "#E57373"
     tabTextColor: "#000000"
-
     channels:
       - name: "Channel 1"
         system: "System 1"
         tgid: "2001"
         mode: "p25"
+        keyId: 0x50
+        algo: "aes"
+        resourceColor: "#150282"
+
+      - name: "Channel 2"
+        system: "System 1"
+        tgid: "2002"
+        mode: "p25"
+        resourceColor: "#150282"
+
+  - name: "DMR"
+    tabColor: "#81C784"
+    tabTextColor: "#000000"
+    channels:
+      - name: "Channel 3"
+        system: "System 1"
+        tgid: "3001"
+        mode: "dmr"
 ```
 
 ---
 
 # Recommended Practices
 
-- Keep system names short and consistent
-- Use clear zone names for tab organization
-- Use clear group names such as "Dispatch Patch" or "Fire Multi Select"
-- Group channels logically by purpose
-- Verify that each channel references a valid system
-- Verify that each group uses a valid `type`
-- Test codeplug changes before deploying large configurations
+- Keep system names stable after deployment because channels reference them.
+- Use clear channel names because saved positions and volume are keyed by channel name.
+- Use clear group names, such as `Patch 1` or `Multi Select 1`.
+- Keep zone tabs short enough for operators to scan quickly.
+- Verify each channel references a valid system.
+- Verify each group has a supported `type`.
+- Confirm TGs exist in FNE talkgroup rules before relying on them operationally.
