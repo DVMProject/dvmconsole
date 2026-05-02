@@ -138,6 +138,7 @@ namespace dvmconsole
 
         private readonly WaveInEvent waveIn;
         private readonly AudioManager audioManager;
+        private readonly TarManager tarManager;
 
         private static System.Timers.Timer channelHoldTimer;
 
@@ -195,6 +196,7 @@ namespace dvmconsole
             DisableControls();
 
             settingsManager.LoadSettings();
+            tarManager = new TarManager(settingsManager);
             InitializeKeyboardShortcuts();
             callHistoryWindow = new CallHistoryWindow(settingsManager, CallHistoryWindow.MAX_CALL_HISTORY);
             patchGroupsWindow = new PatchGroupsWindow(settingsManager, ResolvePatchTalkgroupState);
@@ -863,6 +865,8 @@ namespace dvmconsole
                 GenerateChannelWidgets();
                 UpdatePatchMemberIndicators(FilterPatchMemberships(memberships), patchGroupEnabledStates);
                 UpdateMultiSelectIndicators(FilterMultiSelectMemberships(memberships));
+                UpdateTarIndicators();
+                tarManager.RunRetentionMaintenanceAsync();
                 patchGroupsWindow.RefreshMemberStatusIcons();
                 EnableControls();
                 MainWindow_SizeChanged(this, null);
@@ -877,6 +881,7 @@ namespace dvmconsole
                 patchManager.ApplyMemberships(new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>(), patchGroupModes);
                 UpdatePatchMemberIndicators(new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>(), new Dictionary<string, bool>());
                 UpdateMultiSelectIndicators(new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>());
+                UpdateTarIndicators();
                 if (patchGroupsWindow.Visibility == Visibility.Visible)
                     patchGroupsWindow.Hide();
                 MessageBox.Show($"Error loading codeplug: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -1154,6 +1159,7 @@ namespace dvmconsole
 
             UpdatePatchMemberIndicators(FilterPatchMemberships(currentPatchMemberships), patchGroupEnabledStates);
             UpdateMultiSelectIndicators(FilterMultiSelectMemberships(currentPatchMemberships));
+            UpdateTarIndicators();
 
             RestoreSelectedChannels();
             Cursor = Cursors.Arrow;
@@ -2001,6 +2007,7 @@ namespace dvmconsole
         {
             isShuttingDown = true;
             StopAllPatchPttTargets();
+            tarManager.StopAllSessions();
 
             // stop maintainence task
             if (maintainenceTask != null)
@@ -2212,6 +2219,7 @@ namespace dvmconsole
                   {
                       isAnyTgOn = true;
                       transmittedTargets.Add(BuildPatchTargetKey(system.Name, cpgChannel.Tgid));
+                      AppendTarTxAudio(system.Name, channel.DstId, channel.TxStreamId, micBuffer);
                       Task.Run(() =>
                       {
                           List<byte[]> chunks = AudioConverter.SplitToChunks(micBuffer);
@@ -3155,6 +3163,7 @@ namespace dvmconsole
                 e.TxStreamId = fne.NewStreamId();
                 Log.WriteLine($"({system.Name}) {e.ChannelMode.ToUpperInvariant()} Traffic *CALL START     * SRC_ID {srcId} TGID {dstId} [STREAM ID {e.TxStreamId}]");
                 e.VolumeMeterLevel = 0;
+                BeginTarTxRecording(e, system, cpgChannel, e.TxStreamId);
 
                 if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                     fne.SendP25TDU(srcId, dstId, true);
@@ -3165,6 +3174,7 @@ namespace dvmconsole
             {
                 e.VolumeMeterLevel = 0;
                 Log.WriteLine($"({system.Name}) {e.ChannelMode.ToUpperInvariant()} Traffic *CALL END       * SRC_ID {srcId} TGID {dstId} [STREAM ID {e.TxStreamId}]");
+                EndTarTxRecording(e, system, cpgChannel);
                 if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                     fne.SendP25TDU(srcId, dstId, false);
                 else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
@@ -3240,6 +3250,7 @@ namespace dvmconsole
                 e.TxStreamId = fne.NewStreamId();
                 Log.WriteLine($"({system.Name}) {e.ChannelMode.ToUpperInvariant()} Traffic *CALL START     * SRC_ID {srcId} TGID {dstId} [STREAM ID {e.TxStreamId}]");
                 e.VolumeMeterLevel = 0;
+                BeginTarTxRecording(e, system, cpgChannel, e.TxStreamId);
 
                 if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                     fne.SendP25TDU(srcId, dstId, true);
@@ -3297,6 +3308,7 @@ namespace dvmconsole
 
                 Log.WriteLine($"({system.Name}) {e.ChannelMode.ToUpperInvariant()} Traffic *CALL END       * SRC_ID {srcId} TGID {dstId} [STREAM ID {e.TxStreamId}]");
                 e.VolumeMeterLevel = 0;
+                EndTarTxRecording(e, system, cpgChannel);
                 if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                     fne.SendP25TDU(srcId, dstId, false);
                 else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
@@ -3864,6 +3876,7 @@ namespace dvmconsole
                 uint sourceId = uint.Parse(system.Rid);
                 uint dstId = uint.Parse(cpgChannel.Tgid);
                 Log.WriteLine($"({system.Name}) {cpgChannel.GetChannelMode().ToString().ToUpperInvariant()} Traffic *CALL START     * SRC_ID {sourceId} TGID {dstId} [STREAM ID {channelBox.TxStreamId}] (Patch PTT: {groupName})");
+                BeginTarTxRecording(channelBox, system, cpgChannel, channelBox.TxStreamId);
 
                 if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                     fne.SendP25TDU(sourceId, dstId, true);
@@ -3932,6 +3945,7 @@ namespace dvmconsole
 
             uint dstId = uint.Parse(session.CodeplugChannel.Tgid);
             Log.WriteLine($"({session.CodeplugSystem.Name}) {session.CodeplugChannel.GetChannelMode().ToString().ToUpperInvariant()} Traffic *CALL END       * SRC_ID {session.SourceId} TGID {dstId} [STREAM ID {session.Channel.TxStreamId}] (Patch PTT: {session.GroupName})");
+            EndTarTxRecording(session.Channel, session.CodeplugSystem, session.CodeplugChannel);
 
             if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                 session.Fne.SendP25TDU(session.SourceId, dstId, false);
@@ -3960,6 +3974,7 @@ namespace dvmconsole
                     continue;
 
                 alreadySentTargets.Add(session.Key);
+                AppendTarTxAudio(session.CodeplugSystem.Name, session.CodeplugChannel.Tgid, session.Channel.TxStreamId, pcmBuffer);
 
                 Task.Run(() =>
                 {

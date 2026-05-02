@@ -68,6 +68,11 @@
                 <MenuItem Header="_Always on Top" IsCheckable="True" Checked="ToggleKeepWindowOnTop_Click" Unchecked="ToggleKeepWindowOnTop_Click" x:Name="menuKeepWindowOnTop" />
             </MenuItem>
             <MenuItem Header="_Tools">
+                <MenuItem Header="_Talkgroup Audio Recorder">
+                    <MenuItem Header="_Viewer" Click="TarViewer_Click" />
+                    <MenuItem Header="_Configuration" Click="TarConfiguration_Click" />
+                </MenuItem>
+                <Separator />
                 <MenuItem Header="_FNE Connection Manager" Click="FneConnectionManager_Click" />
             </MenuItem>
             <MenuItem Header="_Help">

@@ -118,6 +118,21 @@ Keeps the console above other windows.
 
 # Tools Menu
 
+## Talkgroup Audio Recorder
+
+Open from:
+
+```
+Tools > Talkgroup Audio Recorder
+```
+
+Sub-items:
+
+- Viewer
+- Configuration
+
+See **Configurations > Talkgroup Audio Recorder** for TAR recording, retention, playback, filtering, and retention details.
+
 ## FNE Connection Manager
 
 Opens manual connection controls for configured FNE systems.

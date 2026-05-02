@@ -79,11 +79,11 @@
     <None Remove="Docs\Getting Started\03-Configurations\02-Encryption Keys.md" />
     <None Remove="Docs\Getting Started\03-Configurations\03-RID Aliases.md" />
     <None Remove="Docs\Getting Started\03-Configurations\04-Groups and Patching.md" />
+    <None Remove="Docs\Getting Started\03-Configurations\05-Talkgroup Audio Recorder.md" />
     <None Remove="Docs\Getting Started\04-Operations\01-Console Operation.md" />
     <None Remove="Docs\Getting Started\04-Operations\02-Settings Reference.md" />
     <None Remove="Docs\Getting Started\04-Operations\03-Audio Settings.md" />
     <None Remove="Docs\Getting Started\04-Operations\04-Alert Tones.md" />
-    <None Remove="Docs\Getting Started\04-Operations\05-Troubleshooting Tools.md" />
     <None Remove="Docs\Getting Started\Building.md" />
     <None Remove="Docs\Getting Started\Overview.md" />
     <None Remove="page.png" />
@@ -109,6 +109,9 @@
     <Content Include="Docs\Getting Started\03-Configurations\04-Groups and Patching.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="Docs\Getting Started\03-Configurations\05-Talkgroup Audio Recorder.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="Docs\Getting Started\04-Operations\01-Console Operation.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
@@ -119,9 +122,6 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Docs\Getting Started\04-Operations\04-Alert Tones.md">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Docs\Getting Started\04-Operations\05-Troubleshooting Tools.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

@@ -67,6 +67,8 @@ namespace dvmconsole.Controls
         private string indicatorIconSource = "/dvmconsole;component/Assets/patch_edit_off.png";
         private Visibility indicatorIconVisibility = Visibility.Collapsed;
         private string indicatorIconToolTip = "Member of one or more patch groups";
+        private Visibility tarIndicatorVisibility = Visibility.Collapsed;
+        private string tarIndicatorToolTip = "TAR recording enabled for this channel";
 
         public FlashingBackgroundManager flashingBackgroundManager;
 
@@ -448,6 +450,38 @@ namespace dvmconsole.Controls
                 {
                     indicatorIconToolTip = value;
                     OnPropertyChanged(nameof(IndicatorIconToolTip));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Visibility for the TAR recording badge.
+        /// </summary>
+        public Visibility TarIndicatorVisibility
+        {
+            get => tarIndicatorVisibility;
+            private set
+            {
+                if (tarIndicatorVisibility != value)
+                {
+                    tarIndicatorVisibility = value;
+                    OnPropertyChanged(nameof(TarIndicatorVisibility));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Tooltip for the TAR recording badge.
+        /// </summary>
+        public string TarIndicatorToolTip
+        {
+            get => tarIndicatorToolTip;
+            private set
+            {
+                if (tarIndicatorToolTip != value)
+                {
+                    tarIndicatorToolTip = value;
+                    OnPropertyChanged(nameof(TarIndicatorToolTip));
                 }
             }
         }
@@ -970,6 +1004,17 @@ namespace dvmconsole.Controls
         {
             IsMultiSelectMember = isMember;
             UpdateIndicatorIcon();
+        }
+
+        /// <summary>
+        /// Sets the TAR recording badge visibility for this resource.
+        /// </summary>
+        public void SetTarRecordingIndicator(bool isEnabled)
+        {
+            TarIndicatorVisibility = isEnabled ? Visibility.Visible : Visibility.Collapsed;
+            TarIndicatorToolTip = isEnabled
+                ? "TAR recording enabled for this channel"
+                : "TAR recording disabled for this channel";
         }
 
         /// <summary>

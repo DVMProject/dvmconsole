@@ -221,6 +221,7 @@ namespace dvmconsole
                         //Log.WriteLine($"PCM BYTE BUFFER {FneUtils.HexDump(pcm)}");
                         if (!ShouldMuteRxPlayback())
                             audioManager.AddTalkgroupStream(e.DstId.ToString(), pcm);
+                        AppendTarRxAudio(sourceSystemName, channel.DstId, e.StreamId, pcm);
                         patchManager.HandleAudio(sourceSystemName, e.DstId.ToString(), e.StreamId, e.SrcId, pcm);
                     }
                 }
@@ -312,6 +313,8 @@ namespace dvmconsole
                         continue;
                     }
 
+                    string alias = TryResolveSubscriberAlias(system, (int)e.SrcId);
+
                     // is this a new call stream?
                     SlotStatus slotStatus = systemStatuses[statusKey];
                     bool isNewCallStream = !channel.IsReceiving || e.StreamId != slotStatus.RxStreamId;
@@ -349,6 +352,16 @@ namespace dvmconsole
                         callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, DateTime.Now.ToString());
                         channel.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, DateTime.Now.ToString());
                         callHistoryWindow.ChannelKeyed(cpgChannel.Name, (int)e.SrcId, false); // TODO: Encrypted state
+                        BeginTarRxRecording(
+                            system,
+                            cpgChannel,
+                            e.StreamId,
+                            e.SrcId,
+                            alias,
+                            false,
+                            string.Empty,
+                            null,
+                            pktTime);
 
                     }
 
@@ -371,6 +384,17 @@ namespace dvmconsole
                     if ((e.FrameType == FrameType.DATA_SYNC) && (e.DataType == DMRDataType.TERMINATOR_WITH_LC) && (slotStatus.RxType != FrameType.TERMINATOR))
                     {
                         patchManager.HandleCallEnd(system.Name, cpgChannel.Tgid, e.StreamId);
+                        bool isEncrypted = slotStatus.DMR_RxPILC != null && slotStatus.DMR_RxPILC.AlgId != 0;
+                        EndTarRxRecording(
+                            system,
+                            cpgChannel,
+                            e.StreamId,
+                            e.SrcId,
+                            alias,
+                            isEncrypted,
+                            DescribeDmrEncryptionAlgorithm(slotStatus.DMR_RxPILC?.AlgId ?? 0),
+                            NormalizeEncryptionKeyId(slotStatus.DMR_RxPILC?.KId ?? 0),
+                            pktTime);
 
                         ClearReceiveState(channel, slotStatus);
                         
@@ -382,14 +406,6 @@ namespace dvmconsole
                         callHistoryWindow.ChannelUnkeyed(cpgChannel.Name, (int)e.SrcId);
                         continue;
                     }
-
-                    string alias = string.Empty;
-
-                    try
-                    {
-                        alias = AliasTools.GetAliasByRid(system.RidAlias, (int)e.SrcId);
-                    }
-                    catch (Exception) { }
 
                     if (string.IsNullOrEmpty(alias))
                         channel.LastSrcId = "Last ID: " + e.SrcId;

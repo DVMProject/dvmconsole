@@ -36,6 +36,10 @@ namespace dvmconsole
 
         public static readonly string UserAppData = Environment.GetFolderPath(
             Environment.SpecialFolder.ApplicationData);
+        public static readonly string DefaultTarRecordingsPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            "DVMConsole",
+            "TAR");
 
         public static readonly string RootAppDataPath = "DVMProject" + Path.DirectorySeparatorChar + "dvmconsole";
         public static string UserAppDataPath = UserAppData + Path.DirectorySeparatorChar + RootAppDataPath;
@@ -122,6 +126,14 @@ namespace dvmconsole
         /// Saved per-channel volume levels.
         /// </summary>
         public Dictionary<string, double> ChannelVolumes { get; set; } = new Dictionary<string, double>();
+        /// <summary>
+        /// Root folder where TAR recordings are stored.
+        /// </summary>
+        public string TarRecordingsRootPath { get; set; } = DefaultTarRecordingsPath;
+        /// <summary>
+        /// Per-talkgroup TAR settings keyed by talkgroup ID.
+        /// </summary>
+        public Dictionary<string, TarChannelConfig> TarChannelConfigs { get; set; } = new Dictionary<string, TarChannelConfig>();
         /// <summary>
         /// Saved patch group memberships scoped by codeplug context key.
         /// </summary>
@@ -292,6 +304,10 @@ namespace dvmconsole
                     MuteRxAudioWhileTransmitting = loadedSettings.MuteRxAudioWhileTransmitting;
                     MigrateLegacyAudioSettings();
                     ChannelVolumes = loadedSettings.ChannelVolumes ?? new Dictionary<string, double>();
+                    TarRecordingsRootPath = string.IsNullOrWhiteSpace(loadedSettings.TarRecordingsRootPath)
+                        ? DefaultTarRecordingsPath
+                        : loadedSettings.TarRecordingsRootPath.Trim();
+                    TarChannelConfigs = loadedSettings.TarChannelConfigs ?? new Dictionary<string, TarChannelConfig>();
                     PatchGroupMemberships = loadedSettings.PatchGroupMemberships ?? new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>();
                     PatchGroupModes = loadedSettings.PatchGroupModes ?? new Dictionary<string, Dictionary<string, bool>>();
                     PatchGroupEnabledStates = loadedSettings.PatchGroupEnabledStates ?? new Dictionary<string, Dictionary<string, bool>>();
@@ -606,6 +622,68 @@ namespace dvmconsole
             SaveSettings();
         }
 
+        /// <summary>
+        /// Returns a normalized copy of the TAR channel configuration map.
+        /// </summary>
+        public Dictionary<string, TarChannelConfig> GetTarChannelConfigs()
+        {
+            Dictionary<string, TarChannelConfig> copy = new Dictionary<string, TarChannelConfig>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, TarChannelConfig> kvp in TarChannelConfigs ?? new Dictionary<string, TarChannelConfig>())
+            {
+                string configKey = kvp.Key?.Trim();
+                if (string.IsNullOrWhiteSpace(configKey))
+                    continue;
+
+                copy[configKey] = NormalizeTarChannelConfig(kvp.Value);
+            }
+
+            return copy;
+        }
+
+        /// <summary>
+        /// Gets TAR settings for a talkgroup, returning defaults if no saved entry exists.
+        /// </summary>
+        public TarChannelConfig GetTarChannelConfig(string talkgroupId, string legacyChannelName = null)
+        {
+            if (string.IsNullOrWhiteSpace(talkgroupId) && string.IsNullOrWhiteSpace(legacyChannelName))
+                return NormalizeTarChannelConfig(null);
+
+            if (TarChannelConfigs != null &&
+                !string.IsNullOrWhiteSpace(talkgroupId) &&
+                TarChannelConfigs.TryGetValue(talkgroupId, out TarChannelConfig config))
+                return NormalizeTarChannelConfig(config);
+
+            if (TarChannelConfigs != null &&
+                !string.IsNullOrWhiteSpace(legacyChannelName) &&
+                TarChannelConfigs.TryGetValue(legacyChannelName, out TarChannelConfig legacyConfig))
+                return NormalizeTarChannelConfig(legacyConfig);
+
+            return NormalizeTarChannelConfig(null);
+        }
+
+        /// <summary>
+        /// Saves TAR root folder and per-channel configuration.
+        /// </summary>
+        public void SaveTarSettings(string rootPath, IDictionary<string, TarChannelConfig> configs)
+        {
+            TarRecordingsRootPath = string.IsNullOrWhiteSpace(rootPath)
+                ? DefaultTarRecordingsPath
+                : rootPath.Trim();
+
+            Dictionary<string, TarChannelConfig> normalized = new Dictionary<string, TarChannelConfig>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, TarChannelConfig> kvp in configs ?? new Dictionary<string, TarChannelConfig>())
+            {
+                string configKey = kvp.Key?.Trim();
+                if (string.IsNullOrWhiteSpace(configKey))
+                    continue;
+
+                normalized[configKey] = NormalizeTarChannelConfig(kvp.Value);
+            }
+
+            TarChannelConfigs = normalized;
+            SaveSettings();
+        }
+
         public void PruneResourceSettings(IEnumerable<string> validChannelNames, IEnumerable<string> validTalkgroupIds, IEnumerable<string> validSystemNames)
         {
             HashSet<string> channelNames = new HashSet<string>(
@@ -624,6 +702,11 @@ namespace dvmconsole
             bool changed = false;
             changed |= PruneDictionary(ChannelPositions, channelNames);
             changed |= PruneDictionary(ChannelVolumes, channelNames);
+            HashSet<string> validTarKeys = new HashSet<string>(talkgroupIds, StringComparer.OrdinalIgnoreCase);
+            foreach (string channelName in channelNames)
+                validTarKeys.Add(channelName);
+
+            changed |= PruneDictionary(TarChannelConfigs, validTarKeys);
             changed |= PruneDictionary(ChannelOutputDevices, talkgroupIds);
             changed |= PruneDictionary(SystemStatusPositions, systemNames);
 
@@ -796,6 +879,32 @@ namespace dvmconsole
                 return "__default__";
 
             return contextKey.Trim().ToLowerInvariant();
+        }
+
+        private static TarChannelConfig NormalizeTarChannelConfig(TarChannelConfig config)
+        {
+            bool looksLikeLegacyDefault = config != null &&
+                !config.Enabled &&
+                config.RetentionDays == 30 &&
+                (config.IgnoredSubscriberIds == null || config.IgnoredSubscriberIds.Count == 0);
+
+            TarChannelConfig normalized = new TarChannelConfig
+            {
+                Enabled = config?.Enabled ?? false,
+                RetentionDays = looksLikeLegacyDefault
+                    ? 7
+                    : (config?.RetentionDays ?? 7),
+                IgnoredSubscriberIds = (config?.IgnoredSubscriberIds ?? new List<uint>())
+                    .Where(id => id > 0)
+                    .Distinct()
+                    .OrderBy(id => id)
+                    .ToList()
+            };
+
+            if (normalized.RetentionDays < 0)
+                normalized.RetentionDays = 0;
+
+            return normalized;
         }
     } // public class SettingsManager
 } // namespace dvmconsole

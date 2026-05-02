@@ -366,6 +366,7 @@ namespace dvmconsole
 
                         if (!ShouldMuteRxPlayback())
                             audioManager.AddTalkgroupStream(e.DstId.ToString(), pcmData);
+                        AppendTarRxAudio(sourceSystemName, channel.DstId, e.StreamId, pcmData);
                         patchManager.HandleAudio(sourceSystemName, e.DstId.ToString(), e.StreamId, e.SrcId, pcmData);
                     }
                 }
@@ -486,6 +487,8 @@ namespace dvmconsole
                         continue;
                     }
 
+                    string alias = TryResolveSubscriberAlias(system, (int)e.SrcId);
+
                     // is this a new call stream?
                     bool isNewCallStream = !channel.IsReceiving || e.StreamId != slot.RxStreamId;
                     if (isNewCallStream && ((e.DUID != P25DUID.TDU) && (e.DUID != P25DUID.TDULC)))
@@ -512,6 +515,16 @@ namespace dvmconsole
                         callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, DateTime.Now.ToString());
                         channel.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, DateTime.Now.ToString());
                         callHistoryWindow.ChannelKeyed(cpgChannel.Name, (int)e.SrcId, encrypted);
+                        BeginTarRxRecording(
+                            system,
+                            cpgChannel,
+                            e.StreamId,
+                            e.SrcId,
+                            alias,
+                            channel.algId != P25Defines.P25_ALGO_UNENCRYPT,
+                            DescribeP25EncryptionAlgorithm(channel.algId),
+                            channel.kId > 0 ? channel.kId : null,
+                            pktTime);
 
                         if (channel.algId != P25Defines.P25_ALGO_UNENCRYPT)
                             Log.WriteLine($"({system.Name}) P25D: Traffic *CALL ENC PARMS * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
@@ -528,6 +541,16 @@ namespace dvmconsole
                     if (((e.DUID == P25DUID.TDU) || (e.DUID == P25DUID.TDULC)) && (slot.RxType != fnecore.FrameType.TERMINATOR))
                     {
                         patchManager.HandleCallEnd(system.Name, cpgChannel.Tgid, e.StreamId);
+                        EndTarRxRecording(
+                            system,
+                            cpgChannel,
+                            e.StreamId,
+                            e.SrcId,
+                            alias,
+                            channel.algId != P25Defines.P25_ALGO_UNENCRYPT,
+                            DescribeP25EncryptionAlgorithm(channel.algId),
+                            channel.kId > 0 ? channel.kId : null,
+                            pktTime);
 
                         ClearReceiveState(channel, slot);
                         
@@ -542,14 +565,6 @@ namespace dvmconsole
 
                     // do background updates here -- this catches late entry
                     channel.IsReceivingEncrypted = channel.algId != P25Defines.P25_ALGO_UNENCRYPT;
-
-                    string alias = string.Empty;
-
-                    try
-                    {
-                        alias = AliasTools.GetAliasByRid(system.RidAlias, (int)e.SrcId);
-                    }
-                    catch (Exception) { }
 
                     if (string.IsNullOrEmpty(alias))
                         channel.LastSrcId = "Last ID: " + e.SrcId;

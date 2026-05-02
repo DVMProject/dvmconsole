@@ -90,6 +90,16 @@ Settings > Alerts > Manage Alert Tones
 
 Used to add, rename, delete, replace, and assign custom alert tones to tabs.
 
+## Talkgroup Audio Recorder (TAR)
+
+Open from:
+
+```
+Tools > Talkgroup Audio Recorder
+```
+
+Used to configure per-talkgroup recording, review saved recordings, filter results, and manage TAR playback or deletion.
+
 ## FNE Connection Manager
 
 Open from:
