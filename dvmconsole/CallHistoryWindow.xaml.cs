@@ -46,6 +46,11 @@ namespace dvmconsole
         public int DstId { get; set; }
 
         /// <summary>
+        /// Resolved RID alias when available.
+        /// </summary>
+        public string RidAlias { get; set; } = string.Empty;
+
+        /// <summary>
         /// Timestamp for entry.
         /// </summary>
         public string Timestamp { get; set; }
@@ -101,7 +106,7 @@ namespace dvmconsole
     /// </summary>
     public partial class CallHistoryWindow : Window
     {
-        public const int MAX_CALL_HISTORY = 200;
+        public const int MAX_CALL_HISTORY = 100;
         private int maxCallHistory = MAX_CALL_HISTORY;
         private SettingsManager settingsManager;
 
@@ -155,7 +160,8 @@ namespace dvmconsole
         /// <param name="channel"></param>
         /// <param name="srcId"></param>
         /// <param name="dstId"></param>
-        public void AddCall(string channel, int srcId, int dstId, string timestamp)
+        /// <param name="ridAlias"></param>
+        public void AddCall(string channel, int srcId, int dstId, string ridAlias, string timestamp)
         {
             Dispatcher.Invoke(() =>
             {
@@ -167,6 +173,7 @@ namespace dvmconsole
                     Channel = channel,
                     SrcId = srcId,
                     DstId = dstId,
+                    RidAlias = ridAlias ?? string.Empty,
                     Timestamp = timestamp,
                     BackgroundColor = Brushes.Transparent
                 });

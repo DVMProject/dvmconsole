@@ -35,7 +35,6 @@ namespace dvmconsole.Controls
     /// </summary>
     public partial class ChannelBox : UserControl, INotifyPropertyChanged
     {
-        public const int MAX_CALL_HISTORY = 10;
         public const int DEFAULT_PTT_RELEASE_TAIL_MS = 500;
 
         public readonly static Border BORDER_DEFAULT;
@@ -651,7 +650,7 @@ namespace dvmconsole.Controls
 
             flashingBackgroundManager = new FlashingBackgroundManager(this);
 
-            callHistoryWindow = new CallHistoryWindow(SettingsManager.Instance, MAX_CALL_HISTORY);
+            callHistoryWindow = new CallHistoryWindow(SettingsManager.Instance, CallHistoryWindow.MAX_CALL_HISTORY);
             callHistoryWindow.Title = $"Call History - Channel: {channelName}";
 
             ChannelName = channelName;
@@ -856,9 +855,9 @@ namespace dvmconsole.Controls
         /// <param name="channel"></param>
         /// <param name="srcId"></param>
         /// <param name="dstId"></param>
-        public void AddCall(string channel, int srcId, int dstId, string timestamp)
+        public void AddCall(string channel, int srcId, int dstId, string ridAlias, string timestamp)
         {
-            callHistoryWindow.AddCall(channel, srcId, dstId, timestamp);
+            callHistoryWindow.AddCall(channel, srcId, dstId, ridAlias, timestamp);
         }
 
         /** WPF Events */

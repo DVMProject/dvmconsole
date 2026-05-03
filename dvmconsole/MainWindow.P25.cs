@@ -512,8 +512,8 @@ namespace dvmconsole
                         if (channel.algId == 0 && channel.kId == 0)
                             channel.algId = P25Defines.P25_ALGO_UNENCRYPT;
 
-                        callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, DateTime.Now.ToString());
-                        channel.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, DateTime.Now.ToString());
+                        callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"));
+                        channel.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"));
                         callHistoryWindow.ChannelKeyed(cpgChannel.Name, (int)e.SrcId, encrypted);
                         BeginTarRxRecording(
                             system,

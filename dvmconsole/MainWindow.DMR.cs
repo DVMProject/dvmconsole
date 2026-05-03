@@ -349,8 +349,8 @@ namespace dvmconsole
                         slotStatus.DMR_RxPILC = new PrivacyLC();
                         Log.WriteLine($"({system.Name}) TS {e.Slot + 1} [STREAM ID {e.StreamId}] RX_LC {FneUtils.HexDump(slotStatus.DMR_RxLC.GetBytes())}");
 
-                        callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, DateTime.Now.ToString());
-                        channel.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, DateTime.Now.ToString());
+                        callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"));
+                        channel.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"));
                         callHistoryWindow.ChannelKeyed(cpgChannel.Name, (int)e.SrcId, false); // TODO: Encrypted state
                         BeginTarRxRecording(
                             system,
