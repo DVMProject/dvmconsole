@@ -488,6 +488,7 @@ namespace dvmconsole
                     }
 
                     string alias = TryResolveSubscriberAlias(system, (int)e.SrcId);
+                    bool isConsoleRid = IsConsoleSourceRid(system, e.SrcId);
 
                     // is this a new call stream?
                     bool isNewCallStream = !channel.IsReceiving || e.StreamId != slot.RxStreamId;
@@ -512,8 +513,11 @@ namespace dvmconsole
                         if (channel.algId == 0 && channel.kId == 0)
                             channel.algId = P25Defines.P25_ALGO_UNENCRYPT;
 
-                        callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"));
-                        channel.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"));
+                        if (!isConsoleRid)
+                        {
+                            callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"));
+                            channel.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"));
+                        }
                         callHistoryWindow.ChannelKeyed(cpgChannel.Name, (int)e.SrcId, encrypted);
                         BeginTarRxRecording(
                             system,
@@ -566,10 +570,13 @@ namespace dvmconsole
                     // do background updates here -- this catches late entry
                     channel.IsReceivingEncrypted = channel.algId != P25Defines.P25_ALGO_UNENCRYPT;
 
-                    if (string.IsNullOrEmpty(alias))
-                        channel.LastSrcId = "Last ID: " + e.SrcId;
-                    else
-                        channel.LastSrcId = "Last: " + alias;
+                    if (!isConsoleRid)
+                    {
+                        if (string.IsNullOrEmpty(alias))
+                            channel.LastSrcId = "Last ID: " + e.SrcId;
+                        else
+                            channel.LastSrcId = "Last: " + alias;
+                    }
 
                     byte[] newMI = new byte[P25Defines.P25_MI_LENGTH];
                     int count = 0;

@@ -314,6 +314,7 @@ namespace dvmconsole
                     }
 
                     string alias = TryResolveSubscriberAlias(system, (int)e.SrcId);
+                    bool isConsoleRid = IsConsoleSourceRid(system, e.SrcId);
 
                     // is this a new call stream?
                     SlotStatus slotStatus = systemStatuses[statusKey];
@@ -349,8 +350,11 @@ namespace dvmconsole
                         slotStatus.DMR_RxPILC = new PrivacyLC();
                         Log.WriteLine($"({system.Name}) TS {e.Slot + 1} [STREAM ID {e.StreamId}] RX_LC {FneUtils.HexDump(slotStatus.DMR_RxLC.GetBytes())}");
 
-                        callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"));
-                        channel.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"));
+                        if (!isConsoleRid)
+                        {
+                            callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"));
+                            channel.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"));
+                        }
                         callHistoryWindow.ChannelKeyed(cpgChannel.Name, (int)e.SrcId, false); // TODO: Encrypted state
                         BeginTarRxRecording(
                             system,
@@ -407,10 +411,13 @@ namespace dvmconsole
                         continue;
                     }
 
-                    if (string.IsNullOrEmpty(alias))
-                        channel.LastSrcId = "Last ID: " + e.SrcId;
-                    else
-                        channel.LastSrcId = "Last: " + alias;
+                    if (!isConsoleRid)
+                    {
+                        if (string.IsNullOrEmpty(alias))
+                            channel.LastSrcId = "Last ID: " + e.SrcId;
+                        else
+                            channel.LastSrcId = "Last: " + alias;
+                    }
 
                     if (e.FrameType == FrameType.VOICE_SYNC || e.FrameType == FrameType.VOICE)
                     {

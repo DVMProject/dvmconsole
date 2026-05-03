@@ -173,6 +173,11 @@ namespace dvmconsole
             }
         }
 
+        private static bool IsConsoleSourceRid(Codeplug.System system, uint sourceId)
+        {
+            return uint.TryParse(system?.Rid, out uint consoleRid) && consoleRid == sourceId;
+        }
+
         private static string DescribeTxEncryptionAlgorithm(Codeplug.Channel channel)
         {
             if (channel == null || channel.GetAlgoId() == P25Defines.P25_ALGO_UNENCRYPT || channel.GetKeyId() == 0)
