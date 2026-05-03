@@ -33,6 +33,8 @@ namespace dvmconsole
     {
         public const int WINDOWS_DEFAULT_AUDIO_DEVICE = -1;
         public const string LEGACY_GLOBAL_INPUT_DEVICE_KEY = "GLOBAL_INPUT";
+        public const int MAX_TOOLBAR_CLOCKS = 8;
+        public const string DEFAULT_TOOLBAR_CLOCK_COLOR = "#3A3A3A";
 
         public static readonly string UserAppData = Environment.GetFolderPath(
             Environment.SpecialFolder.ApplicationData);
@@ -135,6 +137,22 @@ namespace dvmconsole
         /// </summary>
         public Dictionary<string, TarChannelConfig> TarChannelConfigs { get; set; } = new Dictionary<string, TarChannelConfig>();
         /// <summary>
+        /// Saved toolbar clock configuration rows.
+        /// </summary>
+        public List<ToolbarClockConfig> ToolbarClockConfigs { get; set; } = CreateDefaultToolbarClockConfigs();
+        /// <summary>
+        /// Saved toolbar clock configuration keyed by clock slot.
+        /// </summary>
+        public Dictionary<string, ToolbarClockConfig> ToolbarClockConfigSlots { get; set; } = CreateDefaultToolbarClockConfigSlots();
+        /// <summary>
+        /// Flag indicating toolbar clocks should use 24-hour time.
+        /// </summary>
+        public bool ClockUse24HourTime { get; set; } = true;
+        /// <summary>
+        /// Flag indicating toolbar clocks should show seconds.
+        /// </summary>
+        public bool ClockShowSeconds { get; set; } = true;
+        /// <summary>
         /// Saved patch group memberships scoped by codeplug context key.
         /// </summary>
         public Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> PatchGroupMemberships { get; set; } = new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>();
@@ -166,6 +184,16 @@ namespace dvmconsole
             public string FilePath { get; set; } = string.Empty;
             public string TabName { get; set; } = string.Empty;
             public ChannelPosition Position { get; set; } = new ChannelPosition { X = 20, Y = 20 };
+        }
+
+        /// <summary>
+        /// Persisted configuration for a toolbar clock slot.
+        /// </summary>
+        public class ToolbarClockConfig
+        {
+            public bool Enabled { get; set; } = false;
+            public int UtcOffsetHours { get; set; } = 0;
+            public string ColorHex { get; set; } = DEFAULT_TOOLBAR_CLOCK_COLOR;
         }
 
         /// <summary>
@@ -308,6 +336,12 @@ namespace dvmconsole
                         ? DefaultTarRecordingsPath
                         : loadedSettings.TarRecordingsRootPath.Trim();
                     TarChannelConfigs = loadedSettings.TarChannelConfigs ?? new Dictionary<string, TarChannelConfig>();
+                    ToolbarClockConfigSlots = NormalizeToolbarClockConfigSlots(
+                        loadedSettings.ToolbarClockConfigSlots,
+                        loadedSettings.ToolbarClockConfigs);
+                    ToolbarClockConfigs = ToolbarClockConfigSlotsToList(ToolbarClockConfigSlots);
+                    ClockUse24HourTime = loadedSettings.ClockUse24HourTime;
+                    ClockShowSeconds = loadedSettings.ClockShowSeconds;
                     PatchGroupMemberships = loadedSettings.PatchGroupMemberships ?? new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>();
                     PatchGroupModes = loadedSettings.PatchGroupModes ?? new Dictionary<string, Dictionary<string, bool>>();
                     PatchGroupEnabledStates = loadedSettings.PatchGroupEnabledStates ?? new Dictionary<string, Dictionary<string, bool>>();
@@ -535,6 +569,145 @@ namespace dvmconsole
                     group => group.Key,
                     group => group.Last().TabName ?? string.Empty,
                     StringComparer.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Returns a normalized copy of toolbar clock configuration rows.
+        /// </summary>
+        public List<ToolbarClockConfig> GetToolbarClockConfigs()
+        {
+            ToolbarClockConfigSlots = NormalizeToolbarClockConfigSlots(ToolbarClockConfigSlots, ToolbarClockConfigs);
+            ToolbarClockConfigs = ToolbarClockConfigSlotsToList(ToolbarClockConfigSlots);
+            return CopyToolbarClockConfigs(ToolbarClockConfigs);
+        }
+
+        /// <summary>
+        /// Saves toolbar clock configuration rows.
+        /// </summary>
+        public void SaveToolbarClockConfigs(IEnumerable<ToolbarClockConfig> configs)
+        {
+            ToolbarClockConfigs = NormalizeToolbarClockConfigs(configs);
+            ToolbarClockConfigSlots = ToolbarClockConfigsToSlots(ToolbarClockConfigs);
+            SaveSettings();
+        }
+
+        /// <summary>
+        /// Saves all toolbar clock display settings.
+        /// </summary>
+        public void SaveToolbarClockSettings(IEnumerable<ToolbarClockConfig> configs, bool use24HourTime, bool showSeconds)
+        {
+            ToolbarClockConfigs = NormalizeToolbarClockConfigs(configs);
+            ToolbarClockConfigSlots = ToolbarClockConfigsToSlots(ToolbarClockConfigs);
+            ClockUse24HourTime = use24HourTime;
+            ClockShowSeconds = showSeconds;
+            SaveSettings();
+        }
+
+        private static List<ToolbarClockConfig> CreateDefaultToolbarClockConfigs()
+        {
+            return Enumerable.Range(0, MAX_TOOLBAR_CLOCKS)
+                .Select(_ => new ToolbarClockConfig())
+                .ToList();
+        }
+
+        private static Dictionary<string, ToolbarClockConfig> CreateDefaultToolbarClockConfigSlots()
+        {
+            return ToolbarClockConfigsToSlots(CreateDefaultToolbarClockConfigs());
+        }
+
+        private static List<ToolbarClockConfig> NormalizeToolbarClockConfigs(IEnumerable<ToolbarClockConfig> configs)
+        {
+            List<ToolbarClockConfig> normalized = (configs ?? Enumerable.Empty<ToolbarClockConfig>())
+                .Take(MAX_TOOLBAR_CLOCKS)
+                .Select(config => new ToolbarClockConfig
+                {
+                    Enabled = config?.Enabled == true,
+                    UtcOffsetHours = NormalizeToolbarClockOffset(config?.UtcOffsetHours ?? 0),
+                    ColorHex = NormalizeToolbarClockColor(config?.ColorHex)
+                })
+                .ToList();
+
+            while (normalized.Count < MAX_TOOLBAR_CLOCKS)
+                normalized.Add(new ToolbarClockConfig());
+
+            return normalized;
+        }
+
+        private static Dictionary<string, ToolbarClockConfig> NormalizeToolbarClockConfigSlots(
+            IDictionary<string, ToolbarClockConfig> slots,
+            IEnumerable<ToolbarClockConfig> fallbackConfigs)
+        {
+            Dictionary<string, ToolbarClockConfig> normalized = new Dictionary<string, ToolbarClockConfig>(StringComparer.OrdinalIgnoreCase);
+            List<ToolbarClockConfig> fallback = NormalizeToolbarClockConfigs(fallbackConfigs);
+
+            for (int i = 0; i < MAX_TOOLBAR_CLOCKS; i++)
+            {
+                string slotKey = (i + 1).ToString();
+                ToolbarClockConfig source = null;
+
+                if (slots != null && slots.TryGetValue(slotKey, out ToolbarClockConfig slotConfig))
+                    source = slotConfig;
+                else if (i < fallback.Count)
+                    source = fallback[i];
+
+                normalized[slotKey] = NormalizeToolbarClockConfig(source);
+            }
+
+            return normalized;
+        }
+
+        private static Dictionary<string, ToolbarClockConfig> ToolbarClockConfigsToSlots(IEnumerable<ToolbarClockConfig> configs)
+        {
+            List<ToolbarClockConfig> normalized = NormalizeToolbarClockConfigs(configs);
+            Dictionary<string, ToolbarClockConfig> slots = new Dictionary<string, ToolbarClockConfig>(StringComparer.OrdinalIgnoreCase);
+
+            for (int i = 0; i < MAX_TOOLBAR_CLOCKS; i++)
+                slots[(i + 1).ToString()] = NormalizeToolbarClockConfig(normalized.ElementAtOrDefault(i));
+
+            return slots;
+        }
+
+        private static List<ToolbarClockConfig> ToolbarClockConfigSlotsToList(IDictionary<string, ToolbarClockConfig> slots)
+        {
+            return Enumerable.Range(1, MAX_TOOLBAR_CLOCKS)
+                .Select(slot => slots != null && slots.TryGetValue(slot.ToString(), out ToolbarClockConfig config)
+                    ? NormalizeToolbarClockConfig(config)
+                    : new ToolbarClockConfig())
+                .ToList();
+        }
+
+        private static List<ToolbarClockConfig> CopyToolbarClockConfigs(IEnumerable<ToolbarClockConfig> configs)
+        {
+            return NormalizeToolbarClockConfigs(configs)
+                .Select(NormalizeToolbarClockConfig)
+                .ToList();
+        }
+
+        private static ToolbarClockConfig NormalizeToolbarClockConfig(ToolbarClockConfig config)
+        {
+            return new ToolbarClockConfig
+            {
+                Enabled = config?.Enabled == true,
+                UtcOffsetHours = NormalizeToolbarClockOffset(config?.UtcOffsetHours ?? 0),
+                ColorHex = NormalizeToolbarClockColor(config?.ColorHex)
+            };
+        }
+
+        private static int NormalizeToolbarClockOffset(int offsetHours)
+        {
+            return Math.Max(-12, Math.Min(14, offsetHours));
+        }
+
+        private static string NormalizeToolbarClockColor(string colorHex)
+        {
+            if (string.IsNullOrWhiteSpace(colorHex))
+                return DEFAULT_TOOLBAR_CLOCK_COLOR;
+
+            string trimmed = colorHex.Trim();
+            if (!trimmed.StartsWith("#") || (trimmed.Length != 7 && trimmed.Length != 9))
+                return DEFAULT_TOOLBAR_CLOCK_COLOR;
+
+            return trimmed.ToUpperInvariant();
         }
 
         /// <summary>

@@ -54,6 +54,25 @@ Restored selected encrypted resources request keys after the relevant FNE connec
 
 When disabled, selected resources and per-resource volume do not come back sticky on startup.
 
+## Clock Manager
+
+Opens the Clock Manager window.
+
+Clock Manager controls the optional clocks shown in the top-right toolbar area. Up to eight clocks can be enabled.
+
+Each clock has:
+
+- an enable/disable checkbox
+- a UTC offset, such as `UTC+00`, `UTC-05`, or `UTC+09`
+- a preset box color for visual grouping
+
+Clock Manager also controls the shared clock display format:
+
+- `Use 24-hour time`
+- `Show seconds`
+
+Clock settings are saved and restored on startup. Enabled clock slots, UTC offsets, colors, 12/24-hour mode, and seconds display are all sticky user preferences.
+
 ## Audio Settings
 
 Opens the Audio Settings window.

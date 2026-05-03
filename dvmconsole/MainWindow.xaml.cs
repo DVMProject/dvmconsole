@@ -249,9 +249,11 @@ namespace dvmconsole
             LocationChanged += MainWindow_LocationChanged;
             SizeChanged += MainWindow_SizeChanged;
             Loaded += MainWindow_Loaded;
+            Closed += MainWindow_Closed;
 
             // Initialize first tab
             InitializeFirstTab();
+            InitializeToolbarClocks();
         }
         
         /// <summary>
@@ -2422,6 +2424,11 @@ namespace dvmconsole
 
                 windowLoaded = true;
             }
+        }
+
+        private void MainWindow_Closed(object sender, EventArgs e)
+        {
+            ShutdownToolbarClocks();
         }
 
         /// <summary>

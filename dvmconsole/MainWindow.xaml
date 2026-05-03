@@ -41,6 +41,8 @@
                 <MenuItem Header="_Retain Patch State on Startup" IsCheckable="True" Checked="ToggleRetainPatchStateOnStartup_Click" Unchecked="ToggleRetainPatchStateOnStartup_Click" x:Name="menuRetainPatchStateOnStartup" />
                 <MenuItem Header="_Restore Selected Channels On Startup" IsCheckable="True" Checked="ToggleRestoreSelectedChannels_Click" Unchecked="ToggleRestoreSelectedChannels_Click" x:Name="menuRestoreSelectedChannels" />
                 <Separator />
+                <MenuItem Header="_Clock Manager" Click="ClockManager_Click" />
+                <Separator />
                 <MenuItem Header="_Audio Settings" Click="AudioSettings_Click" />
                 <MenuItem Header="_Reset Settings" Click="ResetSettings_Click" />
                 <Separator />
@@ -81,8 +83,13 @@
             </MenuItem>
         </Menu>
 
-        <ToolBarTray Grid.Row="1" Background="{DynamicResource MaterialDesignPaper}">
-            <ToolBar ClipToBounds="False" Style="{StaticResource MaterialDesignToolBar}" Background="{DynamicResource MaterialDesignPaper}">
+        <Grid Grid.Row="1" Grid.ColumnSpan="2" Background="{DynamicResource MaterialDesignPaper}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <ToolBar Grid.Column="0" ClipToBounds="False" Style="{StaticResource MaterialDesignToolBar}" Background="{DynamicResource MaterialDesignPaper}">
                 <!-- Application Banner -->
                 <Image Width="48" Height="48" VerticalAlignment="Top" HorizontalAlignment="Left" Source="/dvmconsole;component/Assets/AppIcon.png" Stretch="Uniform" SnapsToDevicePixels="True"/>
                 <Separator />
@@ -181,7 +188,52 @@
                     <Image HorizontalAlignment="Left" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/audio.png" IsHitTestVisible="False" />
                 </Button>
             </ToolBar>
-        </ToolBarTray>
+
+            <Border x:Name="ToolbarClockContainer"
+                    Grid.Column="1"
+                    Background="{DynamicResource MaterialDesignPaper}"
+                    Padding="0,4,12,4"
+                    Visibility="Collapsed">
+                <Viewbox Stretch="Uniform"
+                         StretchDirection="DownOnly"
+                         HorizontalAlignment="Right"
+                         VerticalAlignment="Center">
+                    <ItemsControl x:Name="ToolbarClockStrip">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Width="118"
+                                        Height="42"
+                                        Margin="8,0,0,0"
+                                        Padding="8,4"
+                                        CornerRadius="8"
+                                        BorderBrush="{DynamicResource MaterialDesignDivider}"
+                                        BorderThickness="1"
+                                        Background="{Binding BackgroundBrush}">
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding TimeZoneLabel}"
+                                                   HorizontalAlignment="Center"
+                                                   FontSize="9"
+                                                   Foreground="{Binding ForegroundBrush}"
+                                                   Opacity="0.76" />
+                                        <TextBlock Text="{Binding TimeText}"
+                                                   HorizontalAlignment="Center"
+                                                   FontFamily="Consolas"
+                                                   FontSize="16"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{Binding ForegroundBrush}" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Viewbox>
+            </Border>
+        </Grid>
 
         <!-- Tab Control for Resource Views -->
         <TabControl x:Name="resourceTabs" Grid.Row="2" Grid.ColumnSpan="2" Grid.RowSpan="2" VerticalAlignment="Stretch" HorizontalAlignment="Stretch"
