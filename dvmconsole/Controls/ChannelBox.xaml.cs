@@ -793,11 +793,7 @@ namespace dvmconsole.Controls
                 return;
             }
 
-            if (PttState || PatchForwardingTxState)
-            {
-                ControlBorder.Background = IsTxEncrypted ? ORANGE_GRADIENT : RED_GRADIENT;
-            }
-            else if (IsReceivingEncrypted)
+            if (IsReceivingEncrypted)
             {
                 ControlBorder.Background = ORANGE_GRADIENT;
             }
