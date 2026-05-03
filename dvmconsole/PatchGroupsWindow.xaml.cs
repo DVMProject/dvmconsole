@@ -35,10 +35,18 @@ namespace dvmconsole
             public List<SettingsManager.PatchTalkgroupMember> Members { get; set; } = new List<SettingsManager.PatchTalkgroupMember>();
         }
 
+        public sealed class PatchGroupAlertToneEventArgs : EventArgs
+        {
+            public string GroupName { get; set; } = string.Empty;
+            public bool IsActive { get; set; }
+            public List<SettingsManager.PatchTalkgroupMember> Members { get; set; } = new List<SettingsManager.PatchTalkgroupMember>();
+        }
+
         public event Action<Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>> MembershipsCommitted;
         public event Action<Dictionary<string, bool>> GroupModesCommitted;
         public event Action<Dictionary<string, bool>> GroupEnabledStatesCommitted;
         public event EventHandler<PatchGroupPttEventArgs> PatchPttStateChanged;
+        public event EventHandler<PatchGroupAlertToneEventArgs> AlertToneTargetStateChanged;
 
         public enum PatchTalkgroupState
         {
@@ -73,6 +81,9 @@ namespace dvmconsole
             public Image PttIcon { get; set; }
             public Button PttButton { get; set; }
             public TextBlock PttText { get; set; }
+            public Image AlertToneIcon { get; set; }
+            public Button AlertToneButton { get; set; }
+            public TextBlock AlertToneText { get; set; }
             public Button EditButton { get; set; }
             public Image EditIcon { get; set; }
             public TextBlock EditText { get; set; }
@@ -85,6 +96,7 @@ namespace dvmconsole
             public List<ChannelIdentity> Members { get; set; } = new List<ChannelIdentity>();
             public bool IsEditing { get; set; }
             public bool IsPttActive { get; set; }
+            public bool IsAlertToneTargetActive { get; set; }
             public bool IsOneWay { get; set; }
             public bool IsPatchEnabled { get; set; }
         }
@@ -97,6 +109,7 @@ namespace dvmconsole
         private static readonly BitmapImage TRANSMIT_IN_MSEL_ICON = new BitmapImage(new Uri("pack://application:,,,/dvmconsole;component/Assets/transmit_in_msel.png"));
         private static readonly BitmapImage MSEL_EDIT_OFF_ICON = new BitmapImage(new Uri("pack://application:,,,/dvmconsole;component/Assets/msel_inactive.png"));
         private static readonly BitmapImage MSEL_EDIT_ON_ICON = new BitmapImage(new Uri("pack://application:,,,/dvmconsole;component/Assets/msel_active.png"));
+        private static readonly BitmapImage ALERT_TONE_TARGET_ICON = new BitmapImage(new Uri("pack://application:,,,/dvmconsole;component/Assets/pageselect.png"));
         private static readonly BitmapImage STATUS_RECEIVING_ICON = new BitmapImage(new Uri("pack://application:,,,/dvmconsole;component/Assets/ind_transmit_busy.png"));
         private static readonly BitmapImage STATUS_TRANSMITTING_ICON = new BitmapImage(new Uri("pack://application:,,,/dvmconsole;component/Assets/ind_transmit_select.png"));
         private static readonly BitmapImage STATUS_IDLE_ICON = new BitmapImage(new Uri("pack://application:,,,/dvmconsole;component/Assets/ind_transmit_callback_select.png"));
@@ -272,6 +285,45 @@ namespace dvmconsole
                 context.PttIcon = pttIcon;
                 context.PttText = pttText;
 
+                Image alertToneIcon = new Image
+                {
+                    Source = ALERT_TONE_TARGET_ICON,
+                    Width = 24,
+                    Height = 24,
+                    Margin = new Thickness(0, 0, 8, 0)
+                };
+                TextBlock alertToneText = new TextBlock
+                {
+                    VerticalAlignment = VerticalAlignment.Center,
+                    FontWeight = FontWeights.SemiBold,
+                    Text = "Alert Tone"
+                };
+                Button alertToneButton = new Button
+                {
+                    Content = new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        Children = { alertToneIcon, alertToneText }
+                    },
+                    Height = 56,
+                    Margin = new Thickness(4, 0, 4, 8),
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    VerticalAlignment = VerticalAlignment.Stretch,
+                    Padding = new Thickness(12, 6, 12, 6),
+                    Background = ButtonIdleBackground,
+                    Foreground = InfoTextBrush,
+                    BorderThickness = new Thickness(1),
+                    BorderBrush = GetAccentBrush(context),
+                    ToolTip = string.Empty,
+                    Uid = "PatchAlertTone",
+                    Tag = context
+                };
+                alertToneButton.Click += AlertToneTargetButton_Click;
+                context.AlertToneButton = alertToneButton;
+                context.AlertToneIcon = alertToneIcon;
+                context.AlertToneText = alertToneText;
+
                 Image editIcon = new Image
                 {
                     Source = isMultiSelect ? MSEL_EDIT_OFF_ICON : PATCH_EDIT_OFF_ICON,
@@ -294,7 +346,7 @@ namespace dvmconsole
                         Children = { editIcon, editText }
                     },
                     Height = 56,
-                    Margin = new Thickness(0, 0, 6, 8),
+                    Margin = new Thickness(0, 0, 4, 8),
                     HorizontalAlignment = HorizontalAlignment.Stretch,
                     VerticalAlignment = VerticalAlignment.Stretch,
                     Padding = new Thickness(12, 6, 12, 6),
@@ -323,10 +375,13 @@ namespace dvmconsole
                 Grid buttonGrid = new Grid();
                 buttonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 buttonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                buttonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
                 Grid.SetColumn(editButton, 0);
-                Grid.SetColumn(pttButton, 1);
+                Grid.SetColumn(alertToneButton, 1);
+                Grid.SetColumn(pttButton, 2);
                 buttonGrid.Children.Add(pttButton);
+                buttonGrid.Children.Add(alertToneButton);
                 buttonGrid.Children.Add(editButton);
 
                 TextBlock statusText = new TextBlock
@@ -464,6 +519,18 @@ namespace dvmconsole
                 RebuildTalkgroupList(context);
         }
 
+        public void ClearAlertToneTargetStates()
+        {
+            foreach (PatchTabContext context in tabContexts.Values)
+            {
+                if (!context.IsAlertToneTargetActive)
+                    continue;
+
+                context.IsAlertToneTargetActive = false;
+                UpdateContextVisualState(context);
+            }
+        }
+
         /// <summary>
         /// Resets patch control states when switching tabs.
         /// </summary>
@@ -488,12 +555,16 @@ namespace dvmconsole
         {
             context.IsEditing = false;
             bool wasPttActive = context.IsPttActive;
+            bool wasAlertToneTargetActive = context.IsAlertToneTargetActive;
             context.IsPttActive = false;
+            context.IsAlertToneTargetActive = false;
             if (context.PttButton != null)
                 context.PttButton.Tag = context;
             UpdateContextVisualState(context);
             if (wasPttActive)
                 RaisePatchPttStateChanged(context, false);
+            if (wasAlertToneTargetActive)
+                RaiseAlertToneTargetStateChanged(context, false);
             RebuildTalkgroupList(context);
             if (commitChanges)
                 PersistAllMemberships();
@@ -530,6 +601,18 @@ namespace dvmconsole
             context.IsPttActive = !context.IsPttActive;
             UpdateContextVisualState(context);
             RaisePatchPttStateChanged(context, context.IsPttActive);
+        }
+
+        private void AlertToneTargetButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not Button button || button.Tag is not PatchTabContext context)
+                return;
+            if (context.GroupType.Equals("patch", StringComparison.OrdinalIgnoreCase) && !context.IsPatchEnabled)
+                return;
+
+            context.IsAlertToneTargetActive = !context.IsAlertToneTargetActive;
+            UpdateContextVisualState(context);
+            RaiseAlertToneTargetStateChanged(context, context.IsAlertToneTargetActive);
         }
 
         /// <summary>
@@ -592,6 +675,11 @@ namespace dvmconsole
             {
                 context.IsPttActive = false;
                 RaisePatchPttStateChanged(context, false);
+            }
+            if (!context.IsPatchEnabled && context.IsAlertToneTargetActive)
+            {
+                context.IsAlertToneTargetActive = false;
+                RaiseAlertToneTargetStateChanged(context, false);
             }
 
             UpdateContextVisualState(context);
@@ -938,6 +1026,20 @@ namespace dvmconsole
             });
         }
 
+        private void RaiseAlertToneTargetStateChanged(PatchTabContext context, bool isActive)
+        {
+            AlertToneTargetStateChanged?.Invoke(this, new PatchGroupAlertToneEventArgs
+            {
+                GroupName = context.GroupName,
+                IsActive = isActive,
+                Members = context.Members.Select(m => new SettingsManager.PatchTalkgroupMember
+                {
+                    SystemName = m.SystemName,
+                    Tgid = m.Tgid
+                }).ToList()
+            });
+        }
+
         /// <summary>
         /// Returns one-way mode map for patch groups.
         /// </summary>
@@ -1023,6 +1125,8 @@ namespace dvmconsole
                 context.PttText.Text = context.IsPttActive
                     ? (isMultiSelect ? "Stop Multi-Select PTT" : "Stop Patch PTT")
                     : (isMultiSelect ? "Multi-Select PTT" : "Patch PTT");
+            if (context.AlertToneText != null)
+                context.AlertToneText.Text = context.IsAlertToneTargetActive ? "Alert Armed" : "Alert Tone";
 
             if (context.EditButton != null)
             {
@@ -1047,6 +1151,20 @@ namespace dvmconsole
                     : context.IsPttActive
                         ? $"Transmitting to every member in {context.GroupName}. Click again to stop."
                         : $"Transmit to every member in {context.GroupName}. Use this when you want to talk to the whole {groupKind} at once.";
+            }
+
+            if (context.AlertToneButton != null)
+            {
+                context.AlertToneButton.Background = context.IsAlertToneTargetActive ? GetAccentBrush(context) : ButtonIdleBackground;
+                context.AlertToneButton.Foreground = InfoTextBrush;
+                context.AlertToneButton.BorderBrush = GetAccentBrush(context);
+                context.AlertToneButton.IsEnabled = patchAvailable;
+                context.AlertToneButton.Opacity = patchAvailable ? 1.0 : 0.55;
+                context.AlertToneButton.ToolTip = !patchAvailable
+                    ? $"Enable {context.GroupName} before arming it for alert tones."
+                    : context.IsAlertToneTargetActive
+                        ? $"All members in {context.GroupName} are armed for the next alert tone. Click again to clear."
+                        : $"Arm every member in {context.GroupName} for the next alert tone.";
             }
 
             if (context.StatusBorder != null)

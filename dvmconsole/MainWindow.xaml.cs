@@ -97,6 +97,13 @@ namespace dvmconsole
 
         private const string URI_RESOURCE_PATH = "pack://application:,,,/dvmconsole;component";
 
+        private const int ALERT_TONE_PCM_BYTES_PER_MS = 16; // 8 kHz, mono, 16-bit PCM.
+        private const int ALERT_TONE_LEAD_IN_MS = 750;
+        private const int ALERT_TONE_TAIL_MS = 750;
+        private const double ALERT_TONE_TARGET_RMS_DBFS = -18.0;
+        private const double ALERT_TONE_PEAK_CEILING_DBFS = -6.0;
+        private const double ALERT_TONE_MIN_RMS = 0.0001;
+
         private bool isShuttingDown = false;
         private bool globalPttState = false;
 
@@ -150,6 +157,7 @@ namespace dvmconsole
         private Dictionary<string, bool> patchGroupModes = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         private Dictionary<string, bool> patchGroupEnabledStates = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         private Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> currentPatchMemberships = new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>();
+        private readonly Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> activeAlertToneGroupTargets = new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>(StringComparer.OrdinalIgnoreCase);
 
         private bool selectAll = false;
         private KeyboardManager keyboardManager;
@@ -204,6 +212,7 @@ namespace dvmconsole
             patchGroupsWindow.GroupModesCommitted += PatchGroupsWindow_GroupModesCommitted;
             patchGroupsWindow.GroupEnabledStatesCommitted += PatchGroupsWindow_GroupEnabledStatesCommitted;
             patchGroupsWindow.PatchPttStateChanged += PatchGroupsWindow_PatchPttStateChanged;
+            patchGroupsWindow.AlertToneTargetStateChanged += PatchGroupsWindow_AlertToneTargetStateChanged;
             patchManager = new PatchManager(
                 BeginPatchForwardOnUiThread,
                 EndPatchForwardOnUiThread,
@@ -1397,6 +1406,82 @@ namespace dvmconsole
             e.TxStreamId = 0;
         }
 
+        private static byte[] AddAlertToneTransmitPadding(byte[] pcmData)
+        {
+            if (pcmData == null || pcmData.Length == 0)
+                return pcmData;
+
+            // Keep padding aligned to the 20 ms vocoder frame size so silence does not split a frame with tone audio.
+            int leadInBytes = GetAlertToneFrameAlignedByteCount(ALERT_TONE_LEAD_IN_MS);
+            int tailBytes = GetAlertToneFrameAlignedByteCount(ALERT_TONE_TAIL_MS);
+            byte[] paddedData = new byte[leadInBytes + pcmData.Length + tailBytes];
+            Buffer.BlockCopy(pcmData, 0, paddedData, leadInBytes, pcmData.Length);
+            return paddedData;
+        }
+
+        private static int GetAlertToneFrameAlignedByteCount(int durationMs)
+        {
+            int byteCount = durationMs * ALERT_TONE_PCM_BYTES_PER_MS;
+            return ((byteCount + PCM_SAMPLES_LENGTH - 1) / PCM_SAMPLES_LENGTH) * PCM_SAMPLES_LENGTH;
+        }
+
+        private static byte[] NormalizeAlertTonePcm(byte[] pcmData)
+        {
+            if (pcmData == null || pcmData.Length < 2)
+                return pcmData;
+
+            const double maxPcmAmplitude = 32768.0;
+            int sampleCount = pcmData.Length / 2;
+            double sumSquares = 0;
+            int peak = 0;
+
+            for (int i = 0; i + 1 < pcmData.Length; i += 2)
+            {
+                short sample = (short)(pcmData[i] | (pcmData[i + 1] << 8));
+                int absSample = Math.Abs((int)sample);
+
+                if (absSample > peak)
+                    peak = absSample;
+
+                double normalizedSample = sample / maxPcmAmplitude;
+                sumSquares += normalizedSample * normalizedSample;
+            }
+
+            double rms = Math.Sqrt(sumSquares / sampleCount);
+            if (rms < ALERT_TONE_MIN_RMS || peak == 0)
+                return pcmData;
+
+            double targetRms = DecibelsToLinear(ALERT_TONE_TARGET_RMS_DBFS);
+            double peakCeiling = DecibelsToLinear(ALERT_TONE_PEAK_CEILING_DBFS);
+            double peakLevel = peak / maxPcmAmplitude;
+
+            // Use one transparent gain stage: raise quiet tones toward target RMS, but never above the peak ceiling.
+            double gain = Math.Min(targetRms / rms, peakCeiling / peakLevel);
+            if (Math.Abs(gain - 1.0) < 0.001)
+                return pcmData;
+
+            byte[] normalizedData = new byte[pcmData.Length];
+            for (int i = 0; i + 1 < pcmData.Length; i += 2)
+            {
+                short sample = (short)(pcmData[i] | (pcmData[i + 1] << 8));
+                double scaled = Math.Round(sample * gain);
+                short normalizedSample = (short)Math.Max(short.MinValue, Math.Min(short.MaxValue, scaled));
+
+                normalizedData[i] = (byte)(normalizedSample & 0xFF);
+                normalizedData[i + 1] = (byte)((normalizedSample >> 8) & 0xFF);
+            }
+
+            if (pcmData.Length % 2 != 0)
+                normalizedData[pcmData.Length - 1] = pcmData[pcmData.Length - 1];
+
+            return normalizedData;
+        }
+
+        private static double DecibelsToLinear(double db)
+        {
+            return Math.Pow(10.0, db / 20.0);
+        }
+
         /// <summary>
         /// Clears the UI-facing receive state for a channel and optionally resets the tracked slot status.
         /// </summary>
@@ -1475,7 +1560,7 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void SendAlertTone(AlertTone e)
         {
-            Task.Run(() => SendAlertTone(e.AlertFilePath));
+            SendAlertTone(e.AlertFilePath);
         }
 
         /// <summary>
@@ -1486,6 +1571,12 @@ namespace dvmconsole
         /// <param name="targetChannel"></param>
         private void SendAlertTone(string filePath, bool forHold = false, ChannelBox targetChannel = null)
         {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.Invoke(() => SendAlertTone(filePath, forHold, targetChannel));
+                return;
+            }
+
             if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
             {
                 try
@@ -1503,16 +1594,20 @@ namespace dvmconsole
                             .Where(channel => channel.HoldState)
                             .ToList();
                     }
-                    else if (primaryChannel != null)
-                    {
-                        channelsToProcess = new List<ChannelBox> { primaryChannel };
-                    }
                     else
                     {
                         channelsToProcess = selectedChannelsManager.GetSelectedChannels()
                             .Where(channel => channel.PageState)
                             .ToList();
+                        channelsToProcess.AddRange(GetActiveAlertToneGroupTargetChannels());
+
+                        if (channelsToProcess.Count == 0 && primaryChannel != null)
+                            channelsToProcess = new List<ChannelBox> { primaryChannel };
                     }
+
+                    channelsToProcess = ResolveAlertToneTransmitTargets(channelsToProcess);
+                    patchGroupsWindow.ClearAlertToneTargetStates();
+                    activeAlertToneGroupTargets.Clear();
 
                     foreach (ChannelBox channel in channelsToProcess)
                     {
@@ -1554,8 +1649,6 @@ namespace dvmconsole
                         if (!ValidateTalkgroupAvailability(fne, cpgChannel, channel, rollback))
                             return;
 
-                        if (channel.PageState || (forHold && channel.HoldState) || (!forHold && primaryChannel != null))
-                        {
                             byte[] pcmData;
 
                             Task.Run(async () =>
@@ -1578,7 +1671,10 @@ namespace dvmconsole
                                     }
                                 }
 
-                                int chunkSize = 1600;
+                                pcmData = NormalizeAlertTonePcm(pcmData);
+                                pcmData = AddAlertToneTransmitPadding(pcmData);
+
+                                int chunkSize = PCM_SAMPLES_LENGTH;
                                 int totalChunks = (pcmData.Length + chunkSize - 1) / chunkSize;
 
                                 if (pcmData.Length % chunkSize != 0)
@@ -1606,30 +1702,27 @@ namespace dvmconsole
                                     byte[] chunk = new byte[chunkSize];
                                     Buffer.BlockCopy(pcmData, offset, chunk, 0, chunkSize);
 
-                                    channel.chunkedPCM = AudioConverter.SplitToChunks(chunk);
-
-                                    foreach (byte[] audioChunk in channel.chunkedPCM)
+                                    if (chunk.Length == PCM_SAMPLES_LENGTH)
                                     {
-                                        if (audioChunk.Length == PCM_SAMPLES_LENGTH)
-                                        {
-                                            if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                                                P25EncodeAudioFrame(audioChunk, fne, channel, cpgChannel, system);
-                                            else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                                                DMREncodeAudioFrame(audioChunk, fne, channel, cpgChannel, system);
-                                        }
+                                        if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                                            P25EncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
+                                        else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                                            DMREncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
                                     }
 
-                                    DateTime nextPacketTime = startTime.AddMilliseconds((i + 1) * 100);
+                                    DateTime nextPacketTime = startTime.AddMilliseconds((i + 1) * 20);
                                     TimeSpan waitTime = nextPacketTime - DateTime.UtcNow;
 
                                     if (waitTime.TotalMilliseconds > 0)
                                         await Task.Delay(waitTime);
                                 }
 
-                                double totalDurationMs = ((double)pcmData.Length / 16000) + 250;
-                                await Task.Delay((int)totalDurationMs + 3000);
-
-                                fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
+                                uint srcId = uint.Parse(system.Rid);
+                                uint dstId = uint.Parse(cpgChannel.Tgid);
+                                if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                                    fne.SendP25TDU(srcId, dstId, false);
+                                else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                                    fne.SendDMRTerminator(srcId, dstId, 1, channel.dmrSeqNo, channel.dmrN, channel.embeddedData);
 
                                 ResetChannel(channel);
 
@@ -1641,7 +1734,6 @@ namespace dvmconsole
                                         channel.PageState = false;
                                 });
                             });
-                        }
                     }
                 }
                 catch (Exception ex)
@@ -1653,6 +1745,115 @@ namespace dvmconsole
             else
                 MessageBox.Show("Alert file not set or file not found.", "Alert", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
+
+        private List<ChannelBox> ResolveAlertToneTransmitTargets(IEnumerable<ChannelBox> requestedChannels)
+        {
+            Dictionary<string, ChannelBox> targets = new Dictionary<string, ChannelBox>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (ChannelBox sourceChannel in requestedChannels ?? Enumerable.Empty<ChannelBox>())
+            {
+                if (sourceChannel == null)
+                    continue;
+                if (sourceChannel.SystemName == PLAYBACKSYS || sourceChannel.ChannelName == PLAYBACKCHNAME || sourceChannel.DstId == PLAYBACKTG)
+                    continue;
+
+                AddAlertToneTarget(targets, sourceChannel);
+
+                string sourceKey = BuildPatchTargetKey(NormalizeChannelSystemName(sourceChannel.SystemName), sourceChannel.DstId);
+                AddAlertTonePatchTargets(targets, sourceKey);
+                AddAlertToneMultiSelectTargets(targets, sourceKey);
+            }
+
+            return targets.Values.ToList();
+        }
+
+        private List<ChannelBox> GetActiveAlertToneGroupTargetChannels()
+        {
+            Dictionary<string, ChannelBox> targets = new Dictionary<string, ChannelBox>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (SettingsManager.PatchTalkgroupMember member in activeAlertToneGroupTargets.Values
+                .SelectMany(members => members ?? new List<SettingsManager.PatchTalkgroupMember>()))
+            {
+                if (string.IsNullOrWhiteSpace(member?.SystemName) || string.IsNullOrWhiteSpace(member?.Tgid))
+                    continue;
+                if (!TryResolvePatchEndpoint(member.SystemName, member.Tgid, out ChannelBox channelBox, out _, out _, out _))
+                    continue;
+
+                AddAlertToneTarget(targets, channelBox);
+            }
+
+            return targets.Values.ToList();
+        }
+
+        private bool IsAlertToneGroupTargetStillActive(SettingsManager.PatchTalkgroupMember member)
+        {
+            if (member == null)
+                return false;
+
+            string memberKey = BuildPatchTargetKey(member.SystemName, member.Tgid);
+            return activeAlertToneGroupTargets.Values
+                .SelectMany(members => members ?? new List<SettingsManager.PatchTalkgroupMember>())
+                .Any(activeMember => BuildPatchTargetKey(activeMember.SystemName, activeMember.Tgid)
+                    .Equals(memberKey, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private void AddAlertTonePatchTargets(Dictionary<string, ChannelBox> targets, string sourceKey)
+        {
+            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> activePatchMemberships =
+                FilterPatchMemberships(currentPatchMemberships, patchGroupEnabledStates);
+
+            foreach (KeyValuePair<string, List<SettingsManager.PatchTalkgroupMember>> kvp in activePatchMemberships)
+            {
+                List<SettingsManager.PatchTalkgroupMember> members = kvp.Value ?? new List<SettingsManager.PatchTalkgroupMember>();
+                if (!members.Any(m => BuildPatchTargetKey(m.SystemName, m.Tgid).Equals(sourceKey, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                bool oneWay = patchGroupModes.TryGetValue(kvp.Key, out bool isOneWay) && isOneWay;
+                if (oneWay && !BuildPatchTargetKey(members.FirstOrDefault()?.SystemName, members.FirstOrDefault()?.Tgid).Equals(sourceKey, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                AddAlertToneMemberTargets(targets, members);
+            }
+        }
+
+        private void AddAlertToneMultiSelectTargets(Dictionary<string, ChannelBox> targets, string sourceKey)
+        {
+            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> multiSelectMemberships =
+                FilterMultiSelectMemberships(currentPatchMemberships);
+
+            foreach (KeyValuePair<string, List<SettingsManager.PatchTalkgroupMember>> kvp in multiSelectMemberships)
+            {
+                List<SettingsManager.PatchTalkgroupMember> members = kvp.Value ?? new List<SettingsManager.PatchTalkgroupMember>();
+                if (!members.Any(m => BuildPatchTargetKey(m.SystemName, m.Tgid).Equals(sourceKey, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                AddAlertToneMemberTargets(targets, members);
+            }
+        }
+
+        private void AddAlertToneMemberTargets(Dictionary<string, ChannelBox> targets, IEnumerable<SettingsManager.PatchTalkgroupMember> members)
+        {
+            foreach (SettingsManager.PatchTalkgroupMember member in members ?? Enumerable.Empty<SettingsManager.PatchTalkgroupMember>())
+            {
+                if (string.IsNullOrWhiteSpace(member?.SystemName) || string.IsNullOrWhiteSpace(member?.Tgid))
+                    continue;
+                if (!TryResolvePatchEndpoint(member.SystemName, member.Tgid, out ChannelBox channelBox, out _, out _, out _))
+                    continue;
+
+                AddAlertToneTarget(targets, channelBox);
+            }
+        }
+
+        private void AddAlertToneTarget(Dictionary<string, ChannelBox> targets, ChannelBox channel)
+        {
+            if (channel == null)
+                return;
+
+            string key = BuildPatchTargetKey(NormalizeChannelSystemName(channel.SystemName), channel.DstId);
+            if (!targets.ContainsKey(key))
+                targets[key] = channel;
+        }
+
         private void PlayTalkPermitTone()
         {
             if (!settingsManager.TalkPermitTone)
@@ -3841,6 +4042,37 @@ namespace dvmconsole
                 StopPatchPttGroup(e.GroupName);
 
             patchGroupsWindow.RefreshMemberStatusIcons();
+        }
+
+        private void PatchGroupsWindow_AlertToneTargetStateChanged(object sender, PatchGroupsWindow.PatchGroupAlertToneEventArgs e)
+        {
+            if (e == null)
+                return;
+
+            string groupName = e.GroupName ?? string.Empty;
+            if (e.IsActive)
+            {
+                activeAlertToneGroupTargets[groupName] = (e.Members ?? new List<SettingsManager.PatchTalkgroupMember>())
+                    .Where(m => !string.IsNullOrWhiteSpace(m?.SystemName) && !string.IsNullOrWhiteSpace(m?.Tgid))
+                    .Select(m => new SettingsManager.PatchTalkgroupMember
+                    {
+                        SystemName = m.SystemName,
+                        Tgid = m.Tgid
+                    })
+                    .ToList();
+            }
+            else
+            {
+                activeAlertToneGroupTargets.Remove(groupName);
+            }
+
+            foreach (SettingsManager.PatchTalkgroupMember member in e.Members ?? new List<SettingsManager.PatchTalkgroupMember>())
+            {
+                if (!TryResolvePatchEndpoint(member.SystemName, member.Tgid, out ChannelBox channelBox, out _, out _, out _))
+                    continue;
+
+                channelBox.PageState = e.IsActive || IsAlertToneGroupTargetStillActive(member);
+            }
         }
 
         /// <summary>
