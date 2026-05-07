@@ -250,6 +250,7 @@ namespace dvmconsole
             
             // Handle tab selection changes to update background
             resourceTabs.SelectionChanged += ResourceTabs_SelectionChanged;
+            resourceTabs.SizeChanged += ResourceTabs_SizeChanged;
 
             selectedChannelsManager.SelectedChannelsChanged += SelectedChannelsChanged;
             selectedChannelsManager.PrimaryChannelChanged += PrimaryChannelChanged;
@@ -1970,6 +1971,11 @@ namespace dvmconsole
             UpdateTabSelectedBackground();
         }
 
+        private void ResourceTabs_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            UpdateResourceTabWidths();
+        }
+
         /// <summary>
         /// Sizes resource tabs to the current window width without bolting on overflow chrome.
         /// </summary>
@@ -1990,13 +1996,13 @@ namespace dvmconsole
                 return;
 
             double computedWidth = Math.Floor((availableWidth - 8) / tabs.Count);
-            computedWidth = Math.Max(72, Math.Min(220, computedWidth));
+            computedWidth = Math.Max(72, computedWidth);
 
             foreach (TabItem tab in tabs)
             {
                 tab.Width = computedWidth;
                 tab.MinWidth = 72;
-                tab.MaxWidth = 220;
+                tab.ClearValue(FrameworkElement.MaxWidthProperty);
             }
         }
 
@@ -2625,6 +2631,8 @@ namespace dvmconsole
 
                 windowLoaded = true;
             }
+
+            Dispatcher.BeginInvoke(new Action(UpdateResourceTabWidths));
         }
 
         private void MainWindow_Closed(object sender, EventArgs e)
