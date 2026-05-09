@@ -44,6 +44,12 @@ namespace dvmconsole
             public int DeviceNumber { get; set; }
         }
 
+        private sealed class AudioOutputSelectorContext
+        {
+            public string TalkgroupId { get; init; } = string.Empty;
+            public StackPanel ZonePanel { get; init; }
+        }
+
         /*
         ** Methods
         */
@@ -172,9 +178,14 @@ namespace dvmconsole
                 SelectedValue = settingsManager.ChannelOutputDevices.TryGetValue(channel.Tgid, out int selectedDevice)
                     ? ResolveSavedDevice(selectedDevice, WaveOut.DeviceCount)
                     : INHERIT_MASTER_OUTPUT,
-                Tag = channel.Tgid,
+                Tag = new AudioOutputSelectorContext
+                {
+                    TalkgroupId = channel.Tgid,
+                    ZonePanel = panel
+                },
                 MinWidth = 240
             };
+            selector.ContextMenu = BuildOutputSelectorContextMenu(selector);
 
             Grid.SetColumn(label, 0);
             Grid.SetColumn(selector, 1);
@@ -183,6 +194,31 @@ namespace dvmconsole
             panel.Children.Add(row);
 
             outputSelectorsByTalkgroup[channel.Tgid] = selector;
+        }
+
+        private ContextMenu BuildOutputSelectorContextMenu(ComboBox selector)
+        {
+            ContextMenu menu = new ContextMenu();
+
+            MenuItem fillUpItem = new MenuItem
+            {
+                Header = "Fill Up",
+                ToolTip = "Apply this output device to resources above this row.",
+                Tag = selector
+            };
+            fillUpItem.Click += FillOutputUp_Click;
+
+            MenuItem fillDownItem = new MenuItem
+            {
+                Header = "Fill Down",
+                ToolTip = "Apply this output device to resources below this row.",
+                Tag = selector
+            };
+            fillDownItem.Click += FillOutputDown_Click;
+
+            menu.Items.Add(fillUpItem);
+            menu.Items.Add(fillDownItem);
+            return menu;
         }
 
         private static List<AudioDeviceOption> GetAudioInputDevices()
@@ -320,6 +356,42 @@ namespace dvmconsole
                 scrollTabsRightButton.Visibility = canScroll ? Visibility.Visible : Visibility.Collapsed;
                 scrollTabsRightButton.IsEnabled = canScroll && tabHeaderScrollViewer.HorizontalOffset < tabHeaderScrollViewer.ScrollableWidth;
             }
+        }
+
+        private void FillOutputUp_Click(object sender, RoutedEventArgs e)
+        {
+            FillOutputSelectors(sender, fillDown: false);
+        }
+
+        private void FillOutputDown_Click(object sender, RoutedEventArgs e)
+        {
+            FillOutputSelectors(sender, fillDown: true);
+        }
+
+        private void FillOutputSelectors(object sender, bool fillDown)
+        {
+            if ((sender as FrameworkElement)?.Tag is not ComboBox sourceSelector)
+                return;
+            if (sourceSelector.SelectedValue is not int selectedOutput)
+                return;
+            if (sourceSelector.Tag is not AudioOutputSelectorContext context || context.ZonePanel == null)
+                return;
+
+            List<ComboBox> zoneSelectors = context.ZonePanel.Children
+                .OfType<Grid>()
+                .SelectMany(row => row.Children.OfType<ComboBox>())
+                .ToList();
+
+            int sourceIndex = zoneSelectors.IndexOf(sourceSelector);
+            if (sourceIndex < 0)
+                return;
+
+            IEnumerable<ComboBox> targets = fillDown
+                ? zoneSelectors.Skip(sourceIndex + 1)
+                : zoneSelectors.Take(sourceIndex);
+
+            foreach (ComboBox target in targets)
+                target.SelectedValue = selectedOutput;
         }
 
         /// <summary>
