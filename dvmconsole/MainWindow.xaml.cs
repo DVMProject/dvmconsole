@@ -1555,7 +1555,7 @@ namespace dvmconsole
 
             Codeplug.Channel cpgChannel = Codeplug?.GetChannelByName(channel.ChannelName);
             ClearReceiveState(channel, FindActiveReceiveStatus(channel, cpgChannel));
-            audioManager.ClearTalkgroupBuffer(channel.DstId);
+            audioManager.StopTalkgroupStream(channel.DstId);
             UpdateTabAudioIndicatorForChannel(channel);
         }
 
@@ -2348,6 +2348,7 @@ namespace dvmconsole
                               Dispatcher.Invoke(() =>
                               {
                                   ClearReceiveState(channel, FindActiveReceiveStatus(channel, cpgChannel));
+                                  audioManager.ReleaseTalkgroupStream(cpgChannel.Tgid);
                                   
                                   // Update tab audio indicator
                                   UpdateTabAudioIndicatorForChannel(channel);

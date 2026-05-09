@@ -28,9 +28,12 @@ namespace dvmconsole
     public class AudioManager
     {
         private Dictionary<string, (WaveOutEvent waveOut, MixingSampleProvider mixer, BufferedWaveProvider buffer, GainSampleProvider gainProvider)> talkgroupProviders;
+        private readonly Dictionary<string, float> talkgroupVolumes;
+        private readonly Dictionary<string, DateTime> talkgroupLastAudioTimes;
         private readonly List<WaveOutEvent> oneShotPlayers;
         private SettingsManager settingsManager;
         private readonly object talkgroupProvidersSync = new object();
+        private static readonly TimeSpan DefaultTalkgroupReleaseDelay = TimeSpan.FromSeconds(2);
 
         /*
         ** Methods
@@ -43,6 +46,8 @@ namespace dvmconsole
         {
             this.settingsManager = settingsManager;
             talkgroupProviders = new Dictionary<string, (WaveOutEvent, MixingSampleProvider, BufferedWaveProvider, GainSampleProvider)>();
+            talkgroupVolumes = new Dictionary<string, float>();
+            talkgroupLastAudioTimes = new Dictionary<string, DateTime>();
             oneShotPlayers = new List<WaveOutEvent>();
         }
 
@@ -59,6 +64,7 @@ namespace dvmconsole
             lock (talkgroupProvidersSync)
             {
                 var provider = GetOrCreateTalkgroupProvider(talkgroupId);
+                talkgroupLastAudioTimes[talkgroupId] = DateTime.UtcNow;
                 provider.buffer.AddSamples(audioData, 0, audioData.Length);
             }
         }
@@ -74,6 +80,7 @@ namespace dvmconsole
             lock (talkgroupProvidersSync)
             {
                 var provider = GetOrCreateTalkgroupProvider(talkgroupId);
+                talkgroupLastAudioTimes[talkgroupId] = DateTime.UtcNow;
                 if (provider.buffer.BufferedDuration > maxBufferedDuration)
                     provider.buffer.ClearBuffer();
 
@@ -147,13 +154,21 @@ namespace dvmconsole
                 BufferDuration = TimeSpan.FromSeconds(10),
                 DiscardOnBufferOverflow = true
             };
-            var gainProvider = new GainSampleProvider(bufferProvider.ToSampleProvider()) { Gain = 1.0f };
+            var gainProvider = new GainSampleProvider(bufferProvider.ToSampleProvider()) { Gain = ResolveTalkgroupVolume(talkgroupId) };
             var mixer = new MixingSampleProvider(WaveFormat.CreateIeeeFloatWaveFormat(8000, 1)) { ReadFully = true };
 
             mixer.AddMixerInput(gainProvider);
 
-            waveOut.Init(mixer);
-            waveOut.Play();
+            try
+            {
+                waveOut.Init(mixer);
+                waveOut.Play();
+            }
+            catch
+            {
+                waveOut.Dispose();
+                throw;
+            }
 
             talkgroupProviders[talkgroupId] = (waveOut, mixer, bufferProvider, gainProvider);
         }
@@ -162,6 +177,11 @@ namespace dvmconsole
         {
             if (!talkgroupProviders.ContainsKey(talkgroupId))
                 AddTalkgroupStream(talkgroupId);
+            else if (talkgroupProviders[talkgroupId].waveOut.PlaybackState == PlaybackState.Stopped)
+            {
+                RemoveTalkgroupProvider(talkgroupId);
+                AddTalkgroupStream(talkgroupId);
+            }
 
             return talkgroupProviders[talkgroupId];
         }
@@ -173,8 +193,9 @@ namespace dvmconsole
         {
             lock (talkgroupProvidersSync)
             {
-                var provider = GetOrCreateTalkgroupProvider(talkgroupId);
-                provider.gainProvider.Gain = volume;
+                talkgroupVolumes[talkgroupId] = volume;
+                if (talkgroupProviders.TryGetValue(talkgroupId, out var provider))
+                    provider.gainProvider.Gain = volume;
             }
         }
 
@@ -214,10 +235,12 @@ namespace dvmconsole
         {
             lock (talkgroupProvidersSync)
             {
+                bool wasActive = talkgroupProviders.ContainsKey(talkgroupId);
                 RemoveTalkgroupProvider(talkgroupId);
 
                 settingsManager.UpdateChannelOutputDevice(talkgroupId, deviceIndex);
-                AddTalkgroupStream(talkgroupId);
+                if (wasActive)
+                    AddTalkgroupStream(talkgroupId);
             }
         }
 
@@ -267,14 +290,91 @@ namespace dvmconsole
             return deviceIndex >= WaveOut.DeviceCount ? SettingsManager.WINDOWS_DEFAULT_AUDIO_DEVICE : deviceIndex;
         }
 
+        private float ResolveTalkgroupVolume(string talkgroupId)
+        {
+            if (!string.IsNullOrWhiteSpace(talkgroupId) &&
+                talkgroupVolumes.TryGetValue(talkgroupId, out float volume))
+            {
+                return volume;
+            }
+
+            return 1.0f;
+        }
+
+        public void ReleaseTalkgroupStream(string talkgroupId, TimeSpan? releaseDelay = null)
+        {
+            if (string.IsNullOrWhiteSpace(talkgroupId))
+                return;
+
+            DateTime observedLastAudio;
+            lock (talkgroupProvidersSync)
+            {
+                if (!talkgroupProviders.ContainsKey(talkgroupId))
+                    return;
+
+                observedLastAudio = talkgroupLastAudioTimes.TryGetValue(talkgroupId, out DateTime lastAudio)
+                    ? lastAudio
+                    : DateTime.UtcNow;
+            }
+
+            Task.Run(async () =>
+            {
+                TimeSpan delay = releaseDelay ?? DefaultTalkgroupReleaseDelay;
+                await Task.Delay(delay).ConfigureAwait(false);
+
+                for (int attempt = 0; attempt < 8; attempt++)
+                {
+                    lock (talkgroupProvidersSync)
+                    {
+                        if (!talkgroupProviders.TryGetValue(talkgroupId, out var provider))
+                            return;
+
+                        if (talkgroupLastAudioTimes.TryGetValue(talkgroupId, out DateTime lastAudio) &&
+                            lastAudio > observedLastAudio)
+                            return;
+
+                        if (provider.buffer.BufferedBytes == 0)
+                        {
+                            RemoveTalkgroupProvider(talkgroupId);
+                            return;
+                        }
+                    }
+
+                    await Task.Delay(250).ConfigureAwait(false);
+                }
+
+                lock (talkgroupProvidersSync)
+                {
+                    if (talkgroupLastAudioTimes.TryGetValue(talkgroupId, out DateTime lastAudio) &&
+                        lastAudio > observedLastAudio)
+                        return;
+
+                    RemoveTalkgroupProvider(talkgroupId);
+                }
+            });
+        }
+
+        public void StopTalkgroupStream(string talkgroupId)
+        {
+            if (string.IsNullOrWhiteSpace(talkgroupId))
+                return;
+
+            lock (talkgroupProvidersSync)
+            {
+                RemoveTalkgroupProvider(talkgroupId);
+            }
+        }
+
         private void RemoveTalkgroupProvider(string talkgroupId)
         {
             if (!talkgroupProviders.TryGetValue(talkgroupId, out var provider))
                 return;
 
+            provider.buffer.ClearBuffer();
             provider.waveOut.Stop();
             provider.waveOut.Dispose();
             talkgroupProviders.Remove(talkgroupId);
+            talkgroupLastAudioTimes.Remove(talkgroupId);
         }
 
         /// <summary>

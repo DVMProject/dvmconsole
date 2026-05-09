@@ -401,6 +401,7 @@ namespace dvmconsole
                             pktTime);
 
                         ClearReceiveState(channel, slotStatus);
+                        audioManager.ReleaseTalkgroupStream(cpgChannel.Tgid);
                         
                         // Update tab audio indicator
                         Dispatcher.Invoke(() => UpdateTabAudioIndicatorForChannel(channel));
