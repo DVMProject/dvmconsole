@@ -1185,14 +1185,53 @@ namespace dvmconsole
             if (tab.Header is string name && !string.IsNullOrWhiteSpace(name))
                 return name;
 
-            if (tab.Header is StackPanel panel)
-            {
-                TextBlock textBlock = panel.Children.OfType<TextBlock>().FirstOrDefault();
-                if (textBlock != null && !string.IsNullOrWhiteSpace(textBlock.Text))
-                    return textBlock.Text;
-            }
+            string headerText = GetHeaderText(tab.Header as DependencyObject);
+            if (!string.IsNullOrWhiteSpace(headerText))
+                return headerText;
 
             return "Tab 1";
+        }
+
+        private string GetHeaderText(DependencyObject element)
+        {
+            if (element == null)
+                return null;
+
+            if (element is TextBlock textBlock && !string.IsNullOrWhiteSpace(textBlock.Text))
+                return textBlock.Text;
+
+            if (element is ContentControl contentControl)
+            {
+                if (contentControl.Content is string contentText && !string.IsNullOrWhiteSpace(contentText))
+                    return contentText;
+
+                if (contentControl.Content is DependencyObject contentElement)
+                {
+                    string text = GetHeaderText(contentElement);
+                    if (!string.IsNullOrWhiteSpace(text))
+                        return text;
+                }
+            }
+
+            if (element is System.Windows.Controls.Panel panel)
+            {
+                foreach (UIElement child in panel.Children)
+                {
+                    string text = GetHeaderText(child);
+                    if (!string.IsNullOrWhiteSpace(text))
+                        return text;
+                }
+            }
+
+            int childCount = VisualTreeHelper.GetChildrenCount(element);
+            for (int i = 0; i < childCount; i++)
+            {
+                string text = GetHeaderText(VisualTreeHelper.GetChild(element, i));
+                if (!string.IsNullOrWhiteSpace(text))
+                    return text;
+            }
+
+            return null;
         }
 
         private List<string> GetAlertToneTabNames()

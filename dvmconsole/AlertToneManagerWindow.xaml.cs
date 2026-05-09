@@ -18,6 +18,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Windows;
+using System.Windows.Controls;
 
 using Microsoft.Win32;
 
@@ -184,6 +185,9 @@ namespace dvmconsole
 
         private void Save_Click(object sender, RoutedEventArgs e)
         {
+            AlertToneGrid.CommitEdit(DataGridEditingUnit.Cell, true);
+            AlertToneGrid.CommitEdit(DataGridEditingUnit.Row, true);
+
             List<AlertToneManagerItem> sanitizedItems = AlertTones
                 .Where(item => !string.IsNullOrWhiteSpace(item.FilePath))
                 .Select(item => new AlertToneManagerItem
