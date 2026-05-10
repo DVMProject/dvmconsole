@@ -63,6 +63,7 @@ namespace dvmconsole.Controls
         private string lastSrcId = "0";
         private double volume = DEFAULT_VOLUME;
         private bool updatingVolumeSlider;
+        private bool isRxOnly;
         private bool isSelected;
 
         private bool isMultiSelectMember = false;
@@ -154,6 +155,19 @@ namespace dvmconsole.Controls
         /// Optional callback used to approve a new outbound PTT start before UI state is latched.
         /// </summary>
         public Func<ChannelBox, bool> CanStartPtt { get; set; }
+
+        /// <summary>
+        /// Flag indicating whether this resource should only receive traffic.
+        /// </summary>
+        public bool IsRxOnly
+        {
+            get => isRxOnly;
+            set
+            {
+                isRxOnly = value;
+                ApplyRxOnlyVisualState();
+            }
+        }
 
         /// <summary>
         /// Private internal reference ID for this channel.
@@ -718,9 +732,9 @@ namespace dvmconsole.Controls
         /// </summary>
         private void EnableControls()
         {
-            PttButton.IsEnabled = true;
-            PageSelectButton.IsEnabled = true;
-            ChannelMarkerBtn.IsEnabled = true;
+            PttButton.IsEnabled = !IsRxOnly;
+            PageSelectButton.IsEnabled = !IsRxOnly;
+            ChannelMarkerBtn.IsEnabled = !IsRxOnly;
             ChannelCallHistoryBtn.IsEnabled = true;
 
             VolumeSlider.IsEnabled = true;
@@ -746,6 +760,41 @@ namespace dvmconsole.Controls
         {
             PttButton.IsEnabled = false;
             PttButton.Visibility = Visibility.Hidden;
+        }
+
+        /// <summary>
+        /// Applies receive-only UI restrictions to transmit-only controls.
+        /// </summary>
+        private void ApplyRxOnlyVisualState()
+        {
+            if (PttButton == null || PageSelectButton == null || ChannelMarkerBtn == null)
+                return;
+
+            Visibility txControlVisibility = IsRxOnly ? Visibility.Collapsed : Visibility.Visible;
+            PttButton.Visibility = txControlVisibility;
+            PageSelectButton.Visibility = txControlVisibility;
+            ChannelMarkerBtn.Visibility = txControlVisibility;
+
+            if (IsRxOnly)
+            {
+                CancelPendingPttRelease();
+                PttState = false;
+                PageState = false;
+                HoldState = false;
+                PttButton.IsEnabled = false;
+                PageSelectButton.IsEnabled = false;
+                ChannelMarkerBtn.IsEnabled = false;
+                PttButton.ToolTip = "RX-only resource";
+                PageSelectButton.ToolTip = "RX-only resource";
+                ChannelMarkerBtn.ToolTip = "RX-only resource";
+                return;
+            }
+
+            PttButton.ToolTip = "Push To Talk";
+            PageSelectButton.ToolTip = "Select for Alert Tone";
+            ChannelMarkerBtn.ToolTip = "Transmit Channel Marker";
+            if (IsSelected)
+                EnableControls();
         }
 
         /// <summary>
@@ -917,6 +966,8 @@ namespace dvmconsole.Controls
         /// <param name="pttState"></param>
         public void TriggerPTTState(bool pttState)
         {
+            if (IsRxOnly)
+                return;
             if (!IsSelected)
                 return;
 
@@ -1024,6 +1075,8 @@ namespace dvmconsole.Controls
         /// <param name="e"></param>
         public void PttButton_Click(object sender, RoutedEventArgs e)
         {
+            if (IsRxOnly)
+                return;
             if (!IsSelected)
                 return;
 
@@ -1070,6 +1123,8 @@ namespace dvmconsole.Controls
         /// <exception cref="NotImplementedException"></exception>
         private async void PttButton_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
+            if (IsRxOnly)
+                return;
             if (pttToggleMode)
                 return;
 
@@ -1087,6 +1142,8 @@ namespace dvmconsole.Controls
         /// <exception cref="NotImplementedException"></exception>
         private async void PttButton_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
+            if (IsRxOnly)
+                return;
             if (!IsSelected)
                 return;
 
@@ -1148,6 +1205,8 @@ namespace dvmconsole.Controls
         /// <exception cref="NotImplementedException"></exception>
         private void PttButton_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
+            if (IsRxOnly)
+                return;
             if (pttToggleMode)
                 return;
             if (!IsSelected)
@@ -1207,6 +1266,8 @@ namespace dvmconsole.Controls
         /// <param name="e"></param>
         private void PageSelectButton_Click(object sender, RoutedEventArgs e)
         {
+            if (IsRxOnly)
+                return;
             if (!IsSelected) 
                 return;
 
@@ -1297,6 +1358,8 @@ namespace dvmconsole.Controls
         /// <param name="e"></param>
         private void ChannelMarkerBtn_Click(object sender, RoutedEventArgs e)
         {
+            if (IsRxOnly)
+                return;
             if (!IsSelected) 
                 return;
 

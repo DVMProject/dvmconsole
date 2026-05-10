@@ -110,6 +110,7 @@ channels:
     keyId: 0x50
     algo: "aes"
     resourceColor: "#150282"
+    rx_only: false
 ```
 
 Fields:
@@ -121,6 +122,7 @@ Fields:
 - `keyId`: optional encryption key ID.
 - `algo`: optional encryption algorithm, such as `aes`, `des`, `arc4`, or `none`.
 - `resourceColor`: optional resource card color in hex.
+- `rx_only`: optional receive-only flag. When `true`, the resource card hides PTT, alert tone select, and channel marker/hold controls, and the resource is skipped by global, patch/group, and alert-tone transmit target paths.
 - `slot`: optional DMR slot field if used by the deployment.
 
 The console validates target TGs against active talkgroup rules received from the connected FNE when a user attempts to transmit or otherwise use the TG.

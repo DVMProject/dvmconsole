@@ -1065,6 +1065,7 @@ namespace dvmconsole
 
                         ChannelBox channelBox = new ChannelBox(selectedChannelsManager, audioManager, channel.Name, channel.System, channel.Tgid, settingsManager.TogglePTTMode);
                         channelBox.ChannelMode = channel.Mode.ToUpperInvariant();
+                        channelBox.IsRxOnly = channel.RxOnly;
                         channelBox.CanStartPtt = CanStartChannelPtt;
 
                         if (channel.GetAlgoId() != P25Defines.P25_ALGO_UNENCRYPT && channel.GetKeyId() > 0)
@@ -1909,6 +1910,8 @@ namespace dvmconsole
         private void AddAlertToneTarget(Dictionary<string, ChannelBox> targets, ChannelBox channel)
         {
             if (channel == null)
+                return;
+            if (channel.IsRxOnly)
                 return;
 
             string key = BuildPatchTargetKey(NormalizeChannelSystemName(channel.SystemName), channel.DstId);
@@ -4209,6 +4212,8 @@ namespace dvmconsole
 
                 if (!TryResolvePatchEndpoint(systemName, tgid, out ChannelBox channelBox, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne))
                     continue;
+                if (cpgChannel.RxOnly || channelBox.IsRxOnly)
+                    continue;
 
                 if (!ValidateTalkgroupAvailability(fne, cpgChannel))
                     continue;
@@ -4395,6 +4400,8 @@ namespace dvmconsole
         private uint BeginPatchForward(string systemName, string tgid, uint sourceId)
         {
             if (!TryResolvePatchEndpoint(systemName, tgid, out ChannelBox channelBox, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne))
+                return 0;
+            if (cpgChannel.RxOnly || channelBox.IsRxOnly)
                 return 0;
 
             if (!ValidateTalkgroupAvailability(fne, cpgChannel))
@@ -4613,6 +4620,13 @@ namespace dvmconsole
 
             if (primaryChannel != null)
             {
+                if (globalPttState && primaryChannel.IsRxOnly)
+                {
+                    globalPttState = false;
+                    Dispatcher.Invoke(() => btnGlobalPtt.Background = btnGlobalPttDefaultBg);
+                    return;
+                }
+
                 Dispatcher.Invoke(() =>
                 {
                     if (globalPttState)
@@ -4636,6 +4650,8 @@ namespace dvmconsole
             foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
             {
                 if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                    continue;
+                if (globalPttState && channel.IsRxOnly)
                     continue;
 
                 Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);

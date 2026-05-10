@@ -284,6 +284,11 @@ namespace dvmconsole
             /// Resource color in hex (#RRGGBB or #AARRGGBB).
             /// </summary>
             public string ResourceColor { get; set; }
+            /// <summary>
+            /// Optional flag indicating this resource is receive-only and should not expose transmit controls.
+            /// </summary>
+            [YamlMember(Alias = "rx_only", ApplyNamingConventions = false)]
+            public bool RxOnly { get; set; } = false;
 
             /*
             ** Methods

@@ -53,6 +53,8 @@ namespace dvmconsole
             Codeplug.Channel cpgChannel = Codeplug?.GetChannelByName(channel.ChannelName);
             if (cpgChannel == null)
                 return false;
+            if (cpgChannel.RxOnly || channel.IsRxOnly)
+                return false;
 
             Codeplug.System system = Codeplug?.Systems?.FirstOrDefault(s => s.Name == cpgChannel.System);
             if (system == null)
