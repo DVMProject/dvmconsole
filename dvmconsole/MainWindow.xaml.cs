@@ -118,7 +118,6 @@ namespace dvmconsole
         private ChannelBox channelDragSource;
         private bool channelDragMoved;
         private bool channelDragSuppressSelection;
-
         private bool windowLoaded = false;
         
         // Tab management
@@ -142,7 +141,6 @@ namespace dvmconsole
         public static string PLAYBACKTG = "LOCPLAYBACK";
         public static string PLAYBACKSYS = "Local Playback";
         public static string PLAYBACKCHNAME = "PLAYBACK";
-
         private readonly WaveInEvent waveIn;
         private readonly AudioManager audioManager;
         private readonly TarManager tarManager;
@@ -771,6 +769,7 @@ namespace dvmconsole
         /// </summary>
         private void DisableControls()
         {
+            StopAllWebStreams();
             StopAllPatchPttTargets();
             DisableCommandControls();
 
@@ -839,7 +838,7 @@ namespace dvmconsole
                 foreach (Codeplug.Zone zone in Codeplug.Zones ?? new List<Codeplug.Zone>())
                 {
                     // channels
-                    foreach (Codeplug.Channel channel in zone.Channels)
+                    foreach (Codeplug.Channel channel in zone.Channels ?? new List<Codeplug.Channel>())
                     {
                         if (Codeplug.Systems.Find((x) => x.Name == channel.System) == null)
                             errors.Add($"{channel.Name} refers to an {INVALID_SYSTEM} {channel.System}.");
@@ -862,6 +861,14 @@ namespace dvmconsole
                             channel.Slot = 1;
                         if (channel.Slot > 2)
                             channel.Slot = 1;
+                    }
+
+                    foreach (Codeplug.WebStream stream in zone.WebStreams ?? new List<Codeplug.WebStream>())
+                    {
+                        if (string.IsNullOrWhiteSpace(stream.Name))
+                            errors.Add($"Zone '{zone.Name}' has a web stream missing a name.");
+                        if (string.IsNullOrWhiteSpace(stream.Url))
+                            errors.Add($"Web stream '{stream.Name}' is missing a URL.");
                     }
                 }
 
@@ -929,6 +936,8 @@ namespace dvmconsole
         /// </summary>
         private void GenerateChannelWidgets()
         {
+            StopAllWebStreams();
+
             // Clear all canvases
             foreach (var canvas in tabCanvases.Values)
             {
@@ -1155,6 +1164,70 @@ namespace dvmconsole
                         }
                         tabOffsets[targetTab] = tabOffset;
                     }
+
+                    foreach (var stream in zone.WebStreams ?? new List<Codeplug.WebStream>())
+                    {
+                        if (string.IsNullOrWhiteSpace(stream.Name) || string.IsNullOrWhiteSpace(stream.Url))
+                            continue;
+
+                        if (!tabOffsets.ContainsKey(targetTab))
+                        {
+                            tabOffsets[targetTab] = new Point(20, 140);
+                        }
+                        Point tabOffset = tabOffsets[targetTab];
+
+                        Canvas targetCanvas = targetTab != null && tabCanvases.ContainsKey(targetTab)
+                            ? tabCanvases[targetTab]
+                            : channelsCanvas;
+
+                        WebStreamChip streamChip = CreateWebStreamChip(stream);
+                        if (settingsManager.WebStreamPositions.TryGetValue(stream.Name, out var streamPosition))
+                        {
+                            Canvas.SetLeft(streamChip, streamPosition.X);
+                            Canvas.SetTop(streamChip, streamPosition.Y);
+                        }
+                        else
+                        {
+                            double safeLeft = Math.Max(20, tabOffset.X);
+                            double safeTop = Math.Max(20, tabOffset.Y);
+
+                            Canvas.SetLeft(streamChip, safeLeft);
+                            Canvas.SetTop(streamChip, safeTop);
+                        }
+
+                        streamChip.MouseRightButtonDown += ChannelBox_MouseRightButtonDown;
+                        streamChip.MouseRightButtonUp += ChannelBox_MouseRightButtonUp;
+                        streamChip.MouseMove += ChannelBox_MouseMove;
+                        streamChip.VolumeChanged += WebStreamChip_VolumeChanged;
+
+                        targetCanvas.Children.Add(streamChip);
+                        if (targetTab != null)
+                            elementToTabMap[streamChip] = targetTab;
+
+                        double layoutWidth = 0;
+                        if (targetTab != null && tabScrollViewers.TryGetValue(targetTab, out ScrollViewer sv))
+                            layoutWidth = sv.ViewportWidth;
+
+                        if (layoutWidth < 200)
+                            layoutWidth = ActualWidth;
+
+                        if (layoutWidth < 200)
+                            layoutWidth = settingsManager.WindowWidth;
+
+                        if (layoutWidth < 200)
+                            layoutWidth = settingsManager.CanvasWidth;
+
+                        if (layoutWidth < 200)
+                            layoutWidth = 1200;
+
+                        tabOffset.X += 188;
+                        if (tabOffset.X + 178 > layoutWidth - 20)
+                        {
+                            tabOffset.X = 20;
+                            tabOffset.Y += 98;
+                        }
+                        tabOffsets[targetTab] = tabOffset;
+                    }
                 }
             }
 
@@ -1197,7 +1270,84 @@ namespace dvmconsole
             UpdateTarIndicators();
 
             RestoreSelectedChannels();
+            RestoreSelectedWebStreams();
             Cursor = Cursors.Arrow;
+        }
+
+        private WebStreamChip CreateWebStreamChip(Codeplug.WebStream stream)
+        {
+            WebStreamChip streamChip = new WebStreamChip
+            {
+                DisplayName = stream.Name?.Trim() ?? string.Empty,
+                StreamUrl = stream.Url?.Trim() ?? string.Empty,
+                AudioOutputKey = stream.Name?.Trim() ?? string.Empty,
+                AudioManager = audioManager,
+                AuthUsername = stream.AuthUsername?.Trim() ?? string.Empty,
+                AuthPassword = stream.AuthPassword ?? string.Empty,
+                IdleBackground = ParseWebStreamIdleBrush(stream.IdleColor)
+            };
+
+            bool hasSavedVolume = settingsManager.WebStreamVolumes.TryGetValue(streamChip.DisplayName, out double savedVolume);
+            streamChip.SetInitialVolume(hasSavedVolume ? savedVolume : 1.0);
+            streamChip.ApplyCurrentVolume();
+
+            return streamChip;
+        }
+
+        private static Brush ParseWebStreamIdleBrush(string color)
+        {
+            if (string.IsNullOrWhiteSpace(color))
+                return ChannelBox.BLUE_GRADIENT;
+
+            try
+            {
+                return (Brush)new BrushConverter().ConvertFrom(color.Trim());
+            }
+            catch
+            {
+                Log.WriteLine($"Invalid web stream idleColor '{color}', using default stream color.");
+                return ChannelBox.BLUE_GRADIENT;
+            }
+        }
+
+        private void StopAllWebStreams()
+        {
+            foreach (WebStreamChip streamChip in GetAllWebStreamChips().ToList())
+                streamChip.Stop();
+        }
+
+        private IEnumerable<WebStreamChip> GetAllWebStreamChips()
+        {
+            return GetAllCanvases()
+                .SelectMany(canvas => canvas.Children.OfType<WebStreamChip>());
+        }
+
+        private void WebStreamChip_VolumeChanged(object sender, double volume)
+        {
+            if (sender is WebStreamChip streamChip)
+                settingsManager.UpdateWebStreamVolume(streamChip.DisplayName, volume);
+        }
+
+        private void RestoreSelectedWebStreams()
+        {
+            if (!settingsManager.RestoreSelectedChannelsOnStartup)
+                return;
+
+            if (settingsManager.SelectedWebStreams == null || settingsManager.SelectedWebStreams.Count == 0)
+                return;
+
+            HashSet<string> selectedStreams = new HashSet<string>(settingsManager.SelectedWebStreams, StringComparer.OrdinalIgnoreCase);
+            foreach (WebStreamChip streamChip in GetAllWebStreamChips())
+            {
+                if (!selectedStreams.Contains(streamChip.DisplayName))
+                    continue;
+
+                if (settingsManager.WebStreamVolumes.TryGetValue(streamChip.DisplayName, out double savedVolume))
+                    streamChip.SetInitialVolume(savedVolume);
+
+                streamChip.ApplyCurrentVolume();
+                streamChip.StartPlayback();
+            }
         }
 
         private string GetTabDisplayName(TabItem tab)
@@ -2319,10 +2469,17 @@ namespace dvmconsole
                         .Select(c => c.ChannelName)
                         .Distinct()
                         .ToList();
+                    settingsManager.SelectedWebStreams = GetAllWebStreamChips()
+                        .Where(s => s.IsActive)
+                        .Select(s => s.DisplayName)
+                        .Where(name => !string.IsNullOrWhiteSpace(name))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
                 }
                 else
                 {
                     settingsManager.SelectedChannels = new List<string>();
+                    settingsManager.SelectedWebStreams = new List<string>();
                 }
 
                 settingsManager.SaveSettings();
@@ -2702,6 +2859,7 @@ namespace dvmconsole
 
         private void MainWindow_Closed(object sender, EventArgs e)
         {
+            StopAllWebStreams();
             ShutdownToolbarClocks();
         }
 
@@ -3269,6 +3427,8 @@ namespace dvmconsole
             const double startY = 20;
             const double cardWidth = 264;
             const double cardHeight = 106;
+            const double streamWidth = 178;
+            const double streamHeight = 90;
             const double spacingX = 5;
             const double spacingY = 10;
 
@@ -3282,16 +3442,21 @@ namespace dvmconsole
 
             double x = startX;
             double y = startY;
+            double rowHeight = 0;
 
             foreach (UIElement element in canvas.Children)
             {
                 if (element is not ChannelBox &&
                     element is not SystemStatusBox &&
-                    element is not AlertTone)
+                    element is not AlertTone &&
+                    element is not WebStreamChip)
                     continue;
 
                 Canvas.SetLeft(element, x);
                 Canvas.SetTop(element, y);
+                double elementWidth = element is WebStreamChip ? streamWidth : cardWidth;
+                double elementHeight = element is WebStreamChip ? streamHeight : cardHeight;
+                rowHeight = Math.Max(rowHeight, elementHeight);
 
                 if (element is ChannelBox channelBox)
                 {
@@ -3306,13 +3471,18 @@ namespace dvmconsole
                 {
                     settingsManager.UpdateAlertTonePositionById(alertTone.AlertToneId, x, y);
                 }
+                else if (element is WebStreamChip streamChip)
+                {
+                    settingsManager.UpdateWebStreamPosition(streamChip.DisplayName, x, y);
+                }
 
-                x += cardWidth + spacingX;
+                x += elementWidth + spacingX;
 
-                if (x + cardWidth > layoutWidth)
+                if (x + elementWidth > layoutWidth)
                 {
                     x = startX;
-                    y += cardHeight + spacingY;
+                    y += rowHeight + spacingY;
+                    rowHeight = 0;
                 }
             }
 
@@ -3688,6 +3858,8 @@ namespace dvmconsole
             // Save the new position if it's a ChannelBox
             if (draggedElement is ChannelBox channelBox)
                 settingsManager.UpdateChannelPosition(channelBox.ChannelName, newLeft, newTop);
+            else if (draggedElement is WebStreamChip streamChip)
+                settingsManager.UpdateWebStreamPosition(streamChip.DisplayName, newLeft, newTop);
         }
 
         /// <summary>
@@ -3797,7 +3969,7 @@ namespace dvmconsole
             channelDragMoved = false;
             channelDragSuppressSelection = false;
         }
-        
+
         /// <summary>
         /// Gets the canvas that contains the given element
         /// </summary>
@@ -3845,14 +4017,24 @@ namespace dvmconsole
             return Codeplug.Zones.SelectMany(z => z.Channels ?? new List<Codeplug.Channel>());
         }
 
+        private IEnumerable<Codeplug.WebStream> GetConfiguredWebStreams()
+        {
+            if (Codeplug?.Zones == null)
+                return Enumerable.Empty<Codeplug.WebStream>();
+
+            return Codeplug.Zones.SelectMany(z => z.WebStreams ?? new List<Codeplug.WebStream>());
+        }
+
         private void PruneSettingsForLoadedCodeplug()
         {
             IEnumerable<Codeplug.Channel> channels = GetConfiguredChannels().ToList();
+            IEnumerable<Codeplug.WebStream> webStreams = GetConfiguredWebStreams().ToList();
             IEnumerable<string> validChannelNames = channels.Select(c => c.Name);
             IEnumerable<string> validTalkgroupIds = channels.Select(c => c.Tgid);
             IEnumerable<string> validSystemNames = Codeplug?.Systems?.Select(s => s.Name) ?? Enumerable.Empty<string>();
+            IEnumerable<string> validWebStreamNames = webStreams.Select(s => s.Name);
 
-            settingsManager.PruneResourceSettings(validChannelNames, validTalkgroupIds, validSystemNames);
+            settingsManager.PruneResourceSettings(validChannelNames, validTalkgroupIds, validSystemNames, validWebStreamNames);
         }
 
         /// <summary>
@@ -4114,6 +4296,7 @@ namespace dvmconsole
                     string channelKey = BuildPatchTargetKey(NormalizeChannelSystemName(channel.SystemName), channel.DstId);
                     channel.SetPatchMembershipIndicator(patchMembers.Contains(channelKey), activePatchMembers.Contains(channelKey));
                 }
+
             }
         }
         private void UpdateMultiSelectIndicators(Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships)
@@ -4400,12 +4583,21 @@ namespace dvmconsole
         private uint BeginPatchForward(string systemName, string tgid, uint sourceId)
         {
             if (!TryResolvePatchEndpoint(systemName, tgid, out ChannelBox channelBox, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne))
+            {
+                Log.WriteWarning($"Patch forward target unavailable: {systemName} TG {tgid} could not be resolved.");
                 return 0;
+            }
             if (cpgChannel.RxOnly || channelBox.IsRxOnly)
+            {
+                Log.WriteWarning($"Patch forward target blocked: {channelBox.ChannelName} ({systemName} TG {tgid}) is RX-only.");
                 return 0;
+            }
 
             if (!ValidateTalkgroupAvailability(fne, cpgChannel))
+            {
+                Log.WriteWarning($"Patch forward target blocked: {channelBox.ChannelName} ({systemName} TG {tgid}) is unavailable on the FNE.");
                 return 0;
+            }
 
             // Patch forwarding takes channel out of receive presentation state.
             channelBox.IsReceiving = false;
@@ -4420,6 +4612,7 @@ namespace dvmconsole
             if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                 fne.SendP25TDU(sourceId, dstId, true);
 
+            Log.WriteLine($"Patch forward started: {channelBox.ChannelName} ({systemName} TG {tgid}) stream {channelBox.TxStreamId}, source {sourceId}.");
             return channelBox.TxStreamId;
         }
 

@@ -81,6 +81,19 @@ zones:
         system: "System 1"
         tgid: "2003"
         resourceColor: "#150282"
+    # Optional web URL stream chips shown on this zone/tab.
+    # Streams load disabled, then start/stop when clicked.
+    # Stream position, volume, and output routing are saved by stream name.
+    web_streams:
+      - name: "Stream 1"
+        # Direct audio stream URL. The stream must be playable by Windows Media Foundation.
+        url: "https://streams.example.local/stream-1"
+        # Optional HTTP Basic Auth credentials for protected streams.
+        # These are stored in the codeplug, so protect access to the file.
+        #authUsername: "stream-user"
+        #authPassword: "stream-password"
+        # Optional active-idle chip color. Connecting is amber, RX is green, and failed/down is red.
+        idleColor: "#150282"
 
   - name: "Secondary"
     tabColor: "#81C784"

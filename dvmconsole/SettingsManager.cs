@@ -96,6 +96,10 @@ namespace dvmconsole
         /// </summary>
         public Dictionary<string, ChannelPosition> AlertTonePositions { get; set; } = new Dictionary<string, ChannelPosition>();
         /// <summary>
+        /// Saved web stream chip positions keyed by stream name.
+        /// </summary>
+        public Dictionary<string, ChannelPosition> WebStreamPositions { get; set; } = new Dictionary<string, ChannelPosition>();
+        /// <summary>
         /// Saved tab assignment for alert tone widgets.
         /// </summary>
         public Dictionary<string, string> AlertToneTabs { get; set; } = new Dictionary<string, string>();
@@ -128,6 +132,10 @@ namespace dvmconsole
         /// Saved per-channel volume levels.
         /// </summary>
         public Dictionary<string, double> ChannelVolumes { get; set; } = new Dictionary<string, double>();
+        /// <summary>
+        /// Saved web stream chip volumes keyed by stream name.
+        /// </summary>
+        public Dictionary<string, double> WebStreamVolumes { get; set; } = new Dictionary<string, double>();
         /// <summary>
         /// Root folder where TAR recordings are stored.
         /// </summary>
@@ -275,6 +283,10 @@ namespace dvmconsole
         /// Saved list of selected channel names to restore on startup.
         /// </summary>
         public List<string> SelectedChannels { get; set; } = new List<string>();
+        /// <summary>
+        /// Saved list of active web stream names to restore on startup.
+        /// </summary>
+        public List<string> SelectedWebStreams { get; set; } = new List<string>();
         /*
         ** Methods
         */
@@ -323,6 +335,7 @@ namespace dvmconsole
                     SystemStatusPositions = loadedSettings.SystemStatusPositions ?? new Dictionary<string, ChannelPosition>();
                     AlertToneFilePaths = loadedSettings.AlertToneFilePaths ?? new List<string>();
                     AlertTonePositions = loadedSettings.AlertTonePositions ?? new Dictionary<string, ChannelPosition>();
+                    WebStreamPositions = loadedSettings.WebStreamPositions ?? new Dictionary<string, ChannelPosition>();
                     AlertToneTabs = loadedSettings.AlertToneTabs ?? new Dictionary<string, string>();
                     AlertTones = loadedSettings.AlertTones ?? new List<AlertToneConfig>();
                     ChannelOutputDevices = loadedSettings.ChannelOutputDevices ?? new Dictionary<string, int>();
@@ -332,6 +345,7 @@ namespace dvmconsole
                     MuteRxAudioWhileTransmitting = loadedSettings.MuteRxAudioWhileTransmitting;
                     MigrateLegacyAudioSettings();
                     ChannelVolumes = loadedSettings.ChannelVolumes ?? new Dictionary<string, double>();
+                    WebStreamVolumes = loadedSettings.WebStreamVolumes ?? new Dictionary<string, double>();
                     TarRecordingsRootPath = string.IsNullOrWhiteSpace(loadedSettings.TarRecordingsRootPath)
                         ? DefaultTarRecordingsPath
                         : loadedSettings.TarRecordingsRootPath.Trim();
@@ -377,6 +391,7 @@ namespace dvmconsole
                     GlobalPTTShortcut = loadedSettings.GlobalPTTShortcut;
                     RestoreSelectedChannelsOnStartup = loadedSettings.RestoreSelectedChannelsOnStartup;
                     SelectedChannels = loadedSettings.SelectedChannels ?? new List<string>();
+                    SelectedWebStreams = loadedSettings.SelectedWebStreams ?? new List<string>();
 
                     if (AlertTones == null || AlertTones.Count == 0)
                         AlertTones = MigrateLegacyAlertTones();
@@ -723,6 +738,30 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// Saves a web stream chip position.
+        /// </summary>
+        public void UpdateWebStreamPosition(string streamName, double x, double y)
+        {
+            if (string.IsNullOrWhiteSpace(streamName))
+                return;
+
+            WebStreamPositions[streamName] = new ChannelPosition { X = x, Y = y };
+            SaveSettings();
+        }
+
+        /// <summary>
+        /// Saves a web stream chip volume.
+        /// </summary>
+        public void UpdateWebStreamVolume(string streamName, double volume)
+        {
+            if (string.IsNullOrWhiteSpace(streamName))
+                return;
+
+            WebStreamVolumes[streamName] = Math.Max(0.0, Math.Min(4.0, volume));
+            SaveSettings();
+        }
+
+        /// <summary>
         /// 
         /// </summary>
         /// <param name="systemName"></param>
@@ -857,7 +896,7 @@ namespace dvmconsole
             SaveSettings();
         }
 
-        public void PruneResourceSettings(IEnumerable<string> validChannelNames, IEnumerable<string> validTalkgroupIds, IEnumerable<string> validSystemNames)
+        public void PruneResourceSettings(IEnumerable<string> validChannelNames, IEnumerable<string> validTalkgroupIds, IEnumerable<string> validSystemNames, IEnumerable<string> validWebStreamNames = null)
         {
             HashSet<string> channelNames = new HashSet<string>(
                 validChannelNames?.Where(v => !string.IsNullOrWhiteSpace(v)) ?? Enumerable.Empty<string>(),
@@ -868,9 +907,15 @@ namespace dvmconsole
             HashSet<string> systemNames = new HashSet<string>(
                 validSystemNames?.Where(v => !string.IsNullOrWhiteSpace(v)) ?? Enumerable.Empty<string>(),
                 StringComparer.OrdinalIgnoreCase);
+            HashSet<string> webStreamNames = new HashSet<string>(
+                validWebStreamNames?.Where(v => !string.IsNullOrWhiteSpace(v)) ?? Enumerable.Empty<string>(),
+                StringComparer.OrdinalIgnoreCase);
 
             channelNames.Add(MainWindow.PLAYBACKCHNAME);
             talkgroupIds.Add(MainWindow.PLAYBACKTG);
+            HashSet<string> validAudioOutputKeys = new HashSet<string>(talkgroupIds, StringComparer.OrdinalIgnoreCase);
+            foreach (string webStreamName in webStreamNames)
+                validAudioOutputKeys.Add(webStreamName);
 
             bool changed = false;
             changed |= PruneDictionary(ChannelPositions, channelNames);
@@ -880,11 +925,33 @@ namespace dvmconsole
                 validTarKeys.Add(channelName);
 
             changed |= PruneDictionary(TarChannelConfigs, validTarKeys);
-            changed |= PruneDictionary(ChannelOutputDevices, talkgroupIds);
+            changed |= PruneDictionary(ChannelOutputDevices, validAudioOutputKeys);
             changed |= PruneDictionary(SystemStatusPositions, systemNames);
+            changed |= PruneDictionary(WebStreamPositions, webStreamNames);
+            changed |= PruneDictionary(WebStreamVolumes, webStreamNames);
+            changed |= PruneList(SelectedWebStreams, webStreamNames);
 
             if (changed)
                 SaveSettings();
+        }
+
+        private static bool PruneList(List<string> list, HashSet<string> validKeys)
+        {
+            if (list == null || validKeys == null)
+                return false;
+
+            int originalCount = list.Count;
+            List<string> normalized = list
+                .Where(item => !string.IsNullOrWhiteSpace(item) && validKeys.Contains(item))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (normalized.Count == originalCount && list.SequenceEqual(normalized, StringComparer.OrdinalIgnoreCase))
+                return false;
+
+            list.Clear();
+            list.AddRange(normalized);
+            return true;
         }
 
         private static bool PruneDictionary<TValue>(Dictionary<string, TValue> dictionary, HashSet<string> validKeys)

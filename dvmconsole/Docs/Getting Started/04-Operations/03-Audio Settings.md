@@ -44,7 +44,7 @@ If Windows Default Output is selected, the console follows the current Windows d
 
 Audio Settings is organized by the same zones/tabs used on the main console.
 
-Each resource can use:
+Each channel resource and web stream chip can use:
 
 ```
 Default (Master Output)
@@ -53,6 +53,8 @@ Default (Master Output)
 or a specific output device override.
 
 Use default for most resources. Use overrides when a specific talkgroup must always play through a different speaker or audio interface.
+
+Web stream output overrides are keyed by stream name. Keep stream names stable if you want saved routing, volume, active startup state, and position to continue applying to the same stream.
 
 ---
 

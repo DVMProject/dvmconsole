@@ -119,6 +119,9 @@ namespace dvmconsole
                 foreach (Codeplug.Channel channel in zone.Channels ?? new List<Codeplug.Channel>())
                     AddResourceOutputRow(panel, channel, outputDevices);
 
+                foreach (Codeplug.WebStream stream in zone.WebStreams ?? new List<Codeplug.WebStream>())
+                    AddWebStreamOutputRow(panel, stream, outputDevices);
+
                 ScrollViewer scrollViewer = new ScrollViewer
                 {
                     Content = panel,
@@ -194,6 +197,51 @@ namespace dvmconsole
             panel.Children.Add(row);
 
             outputSelectorsByTalkgroup[channel.Tgid] = selector;
+        }
+
+        private void AddWebStreamOutputRow(StackPanel panel, Codeplug.WebStream stream, List<AudioDeviceOption> outputDevices)
+        {
+            if (stream == null || string.IsNullOrWhiteSpace(stream.Name))
+                return;
+
+            string streamKey = stream.Name.Trim();
+            Grid row = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(260) });
+
+            TextBlock label = new TextBlock
+            {
+                Text = $"{streamKey}  Stream",
+                FontWeight = FontWeights.Bold,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                ToolTip = $"{streamKey} ({stream.Url})"
+            };
+
+            ComboBox selector = new ComboBox
+            {
+                ItemsSource = outputDevices,
+                SelectedValuePath = nameof(AudioDeviceOption.DeviceNumber),
+                DisplayMemberPath = nameof(AudioDeviceOption.DisplayName),
+                SelectedValue = settingsManager.ChannelOutputDevices.TryGetValue(streamKey, out int selectedDevice)
+                    ? ResolveSavedDevice(selectedDevice, WaveOut.DeviceCount)
+                    : INHERIT_MASTER_OUTPUT,
+                Tag = new AudioOutputSelectorContext
+                {
+                    TalkgroupId = streamKey,
+                    ZonePanel = panel
+                },
+                MinWidth = 240
+            };
+            selector.ContextMenu = BuildOutputSelectorContextMenu(selector);
+
+            Grid.SetColumn(label, 0);
+            Grid.SetColumn(selector, 1);
+            row.Children.Add(label);
+            row.Children.Add(selector);
+            panel.Children.Add(row);
+
+            outputSelectorsByTalkgroup[streamKey] = selector;
         }
 
         private ContextMenu BuildOutputSelectorContextMenu(ComboBox selector)

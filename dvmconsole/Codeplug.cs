@@ -167,6 +167,11 @@ namespace dvmconsole
             /// List of channels in the zone.
             /// </summary>
             public List<Channel> Channels { get; set; }
+            /// <summary>
+            /// Optional web URL stream chips displayed in this zone.
+            /// </summary>
+            [YamlMember(Alias = "web_streams", ApplyNamingConventions = false)]
+            public List<WebStream> WebStreams { get; set; }
         } // public class Zone
 
         /// <summary>
@@ -334,6 +339,33 @@ namespace dvmconsole
                 return ChannelMode.P25;
             }
         } // public class Channel
+
+        /// <summary>
+        /// Data structure representation of a web audio stream chip.
+        /// </summary>
+        public class WebStream
+        {
+            /// <summary>
+            /// Display name for the stream chip.
+            /// </summary>
+            public string Name { get; set; }
+            /// <summary>
+            /// HTTP/HTTPS audio stream URL.
+            /// </summary>
+            public string Url { get; set; }
+            /// <summary>
+            /// Optional HTTP Basic Auth username for protected streams.
+            /// </summary>
+            public string AuthUsername { get; set; }
+            /// <summary>
+            /// Optional HTTP Basic Auth password for protected streams.
+            /// </summary>
+            public string AuthPassword { get; set; }
+            /// <summary>
+            /// Optional idle color in hex (#RRGGBB or #AARRGGBB).
+            /// </summary>
+            public string IdleColor { get; set; }
+        } // public class WebStream
 
         /// <summary>
         /// Helper to return a system by looking up a <see cref="Channel"/>

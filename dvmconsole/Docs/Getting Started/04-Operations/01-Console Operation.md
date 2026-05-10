@@ -70,6 +70,26 @@ Tabs show an audio activity icon when a resource on that tab is receiving. Long 
 
 ---
 
+# Web Stream Chips
+
+Codeplug-defined web stream chips appear on the zone tab where they are configured.
+
+Click a stream chip to start or stop playback. Streams load in the off state unless **Restore Selected Channels On Startup** is enabled and the stream was active at shutdown.
+
+Stream chips use a compact volume slider. User volume changes are saved by stream name, and the chip turns green when audio is detected.
+
+When a stream is starting, the chip turns amber while connecting. The console tries up to three connection attempts before marking the stream down.
+
+If a stream URL is unreachable or cannot be decoded, the chip turns red and shows `Down`. Click a down stream once to return it to the off state.
+
+Protected streams can use HTTP Basic Auth through `authUsername` and `authPassword` fields in the codeplug.
+
+Web streams are local monitor widgets. They are not patch or multi-select members.
+
+The reset tab layout action also moves web stream chips on the active tab and saves their new positions.
+
+---
+
 # Sticky Selected Channels
 
 Controlled by:

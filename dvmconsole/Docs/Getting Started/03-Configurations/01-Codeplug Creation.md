@@ -12,6 +12,7 @@ Common optional sections include:
 - `groups`
 - `keyFile`
 - `patchSourceIdPassthrough`
+- `web_streams` under a zone
 
 ---
 
@@ -90,6 +91,7 @@ Fields:
 - `tabColor`: tab background color in hex.
 - `tabTextColor`: tab text color in hex.
 - `channels`: resources shown on that tab.
+- `web_streams`: optional web URL stream chips shown on that tab.
 
 Long tab names are allowed. The console trims long labels so activity icons remain visible.
 
@@ -126,6 +128,43 @@ Fields:
 - `slot`: optional DMR slot field if used by the deployment.
 
 The console validates target TGs against active talkgroup rules received from the connected FNE when a user attempts to transmit or otherwise use the TG.
+
+---
+
+# Web Streams
+
+Web streams define compact URL audio chips on a zone tab.
+
+Example:
+
+```yaml
+web_streams:
+  - name: "Stream 1"
+    url: "https://streams.example.local/stream-1"
+    authUsername: "stream-user"
+    authPassword: "stream-password"
+    idleColor: "#150282"
+```
+
+Fields:
+
+- `name`: stream chip label. Keep names unique because saved position, volume, active startup state, and output routing are keyed by name.
+- `url`: direct audio stream URL. The stream must be playable by Windows Media Foundation.
+- `authUsername`: optional HTTP Basic Auth username for protected streams.
+- `authPassword`: optional HTTP Basic Auth password for protected streams.
+- `idleColor`: optional active-idle chip color in hex. If omitted, the standard selected-resource blue is used.
+
+Web stream chips start disabled after console load. Click the chip to start or stop local playback.
+
+If **Restore Selected Channels On Startup** is enabled, active web streams are saved on shutdown and restarted on the next console launch.
+
+Basic Auth credentials are stored in the codeplug file. Protect the file if protected stream credentials are configured.
+
+When clicked on, the chip turns amber while connecting. The console tries up to three connection attempts with a short delay between attempts before marking the stream down.
+
+When active, the chip turns green when audio is detected. If the stream URL is unreachable or cannot be decoded, the chip turns red and shows `Down`. Click a down stream once to return it to the off state.
+
+Web streams are local monitor widgets only. They are not patch or multi-select members.
 
 ---
 
@@ -225,6 +264,13 @@ zones:
         tgid: "2002"
         mode: "p25"
         resourceColor: "#150282"
+    web_streams:
+      - name: "Stream 1"
+        url: "https://streams.example.local/stream-1"
+        # Optional HTTP Basic Auth credentials for protected streams.
+        #authUsername: "stream-user"
+        #authPassword: "stream-password"
+        idleColor: "#150282"
 
   - name: "DMR"
     tabColor: "#81C784"
@@ -246,4 +292,5 @@ zones:
 - Keep zone tabs short enough for operators to scan quickly.
 - Verify each channel references a valid system.
 - Verify each group has a supported `type`.
+- Keep web stream names stable so saved chip position and volume remain associated with the correct stream.
 - Confirm TGs exist in FNE talkgroup rules before relying on them operationally.
