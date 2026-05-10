@@ -151,7 +151,7 @@
                 <Separator />
 
                 <!-- Select/Unselect All -->
-                <Button x:Name="btnSelectAll" Height="42" Width="42" Click="SelectAll_Click" ToolTip="Select All/Unselect All" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                <Button x:Name="btnSelectAll" Height="42" Width="42" Click="SelectAll_Click" ToolTip="Select/Unselect All On Current Tab" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
                         IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
                     <Image HorizontalAlignment="Left" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/select.png" IsHitTestVisible="False" />
                 </Button>

@@ -4710,41 +4710,49 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void SelectAll_Click(object sender, RoutedEventArgs e)
         {
-            selectAll = !selectAll;
-            
-            // Iterate through all canvases (all tabs) to select/deselect all channels
-            foreach (var canvas in GetAllCanvases())
+            Canvas activeCanvas = GetActiveCanvas();
+            if (activeCanvas == null)
+                return;
+
+            List<ChannelBox> tabChannels = activeCanvas.Children
+                .OfType<ChannelBox>()
+                .Where(channel => channel.SystemName != PLAYBACKSYS &&
+                                  channel.ChannelName != PLAYBACKCHNAME &&
+                                  channel.DstId != PLAYBACKTG)
+                .ToList();
+
+            if (tabChannels.Count == 0)
+                return;
+
+            selectAll = tabChannels.Any(channel => !channel.IsSelected);
+
+            // Scope bulk selection to the currently selected resource tab only.
+            foreach (ChannelBox channel in tabChannels)
             {
-                foreach (ChannelBox channel in canvas.Children.OfType<ChannelBox>())
+                Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
+                if (system == null)
                 {
-                    if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
-                        continue;
-
-                    Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
-                    if (system == null)
-                    {
-                        Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}.");
-                        channel.IsSelected = false;
-                        selectedChannelsManager.RemoveSelectedChannel(channel);
-                        continue;
-                    }
-
-                    Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                    if (cpgChannel == null)
-                    {
-                        Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.");
-                        channel.IsSelected = false;
-                        selectedChannelsManager.RemoveSelectedChannel(channel);
-                        continue;
-                    }
-
-                    channel.IsSelected = selectAll;
-
-                    if (channel.IsSelected)
-                        selectedChannelsManager.AddSelectedChannel(channel);
-                    else
-                        selectedChannelsManager.RemoveSelectedChannel(channel);
+                    Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}.");
+                    channel.IsSelected = false;
+                    selectedChannelsManager.RemoveSelectedChannel(channel);
+                    continue;
                 }
+
+                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
+                if (cpgChannel == null)
+                {
+                    Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.");
+                    channel.IsSelected = false;
+                    selectedChannelsManager.RemoveSelectedChannel(channel);
+                    continue;
+                }
+
+                channel.IsSelected = selectAll;
+
+                if (channel.IsSelected)
+                    selectedChannelsManager.AddSelectedChannel(channel);
+                else
+                    selectedChannelsManager.RemoveSelectedChannel(channel);
             }
         }
 
