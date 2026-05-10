@@ -3923,6 +3923,7 @@ namespace dvmconsole
             Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> multiSelectMemberships = FilterMultiSelectMemberships(memberships);
 
             patchManager.ApplyMemberships(patchMemberships, patchGroupModes);
+            SynchronizeActivePatchReceiveStreams();
             UpdatePatchMemberIndicators(FilterPatchMemberships(memberships), patchGroupEnabledStates);
             UpdateMultiSelectIndicators(multiSelectMemberships);
         }
@@ -3954,6 +3955,7 @@ namespace dvmconsole
         {
             patchGroupModes = new Dictionary<string, bool>(modes ?? new Dictionary<string, bool>(), StringComparer.OrdinalIgnoreCase);
             patchManager.ApplyMemberships(FilterPatchMemberships(currentPatchMemberships, patchGroupEnabledStates), patchGroupModes);
+            SynchronizeActivePatchReceiveStreams();
         }
 
         /// <summary>
@@ -3963,7 +3965,53 @@ namespace dvmconsole
         {
             patchGroupEnabledStates = new Dictionary<string, bool>(states ?? new Dictionary<string, bool>(), StringComparer.OrdinalIgnoreCase);
             patchManager.ApplyMemberships(FilterPatchMemberships(currentPatchMemberships, patchGroupEnabledStates), patchGroupModes);
+            SynchronizeActivePatchReceiveStreams();
             UpdatePatchMemberIndicators(FilterPatchMemberships(currentPatchMemberships), patchGroupEnabledStates);
+        }
+
+        /// <summary>
+        /// Replays already-active RX streams into the patch manager after patch configuration changes.
+        /// </summary>
+        private void SynchronizeActivePatchReceiveStreams()
+        {
+            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> activePatchMemberships =
+                FilterPatchMemberships(currentPatchMemberships, patchGroupEnabledStates);
+
+            if (activePatchMemberships.Count == 0)
+                return;
+
+            HashSet<string> activePatchMembers = new HashSet<string>(
+                activePatchMemberships.Values
+                    .SelectMany(members => members ?? new List<SettingsManager.PatchTalkgroupMember>())
+                    .Where(member => !string.IsNullOrWhiteSpace(member?.SystemName) && !string.IsNullOrWhiteSpace(member?.Tgid))
+                    .Select(member => BuildPatchTargetKey(member.SystemName, member.Tgid)),
+                StringComparer.OrdinalIgnoreCase);
+
+            if (activePatchMembers.Count == 0)
+                return;
+
+            foreach (Canvas canvas in GetAllCanvases())
+            {
+                foreach (ChannelBox channel in canvas.Children.OfType<ChannelBox>())
+                {
+                    if (channel == null || channel.RxStreamId == 0 || !(channel.IsReceiving || channel.IsReceivingEncrypted))
+                        continue;
+                    if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                        continue;
+
+                    Codeplug.Channel cpgChannel = Codeplug?.GetChannelByName(channel.ChannelName);
+                    Codeplug.System system = cpgChannel == null ? null : Codeplug?.GetSystemForChannel(channel.ChannelName);
+                    if (cpgChannel == null || system == null)
+                        continue;
+                    if (!activePatchMembers.Contains(BuildPatchTargetKey(system.Name, cpgChannel.Tgid)))
+                        continue;
+
+                    SlotStatus slotStatus = FindActiveReceiveStatus(channel, cpgChannel);
+                    uint sourceId = slotStatus?.RxRFS ?? 0;
+                    patchManager.HandleCallStart(system.Name, cpgChannel.Tgid, channel.RxStreamId, sourceId);
+                    Log.WriteLine($"({system.Name}) Patch manager synchronized active RX stream for TGID {cpgChannel.Tgid} [STREAM ID {channel.RxStreamId}] after patch configuration change.");
+                }
+            }
         }
 
         /// <summary>
