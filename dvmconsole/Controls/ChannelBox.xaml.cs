@@ -36,6 +36,9 @@ namespace dvmconsole.Controls
     public partial class ChannelBox : UserControl, INotifyPropertyChanged
     {
         public const int DEFAULT_PTT_RELEASE_TAIL_MS = 500;
+        private const double DEFAULT_VOLUME = 1.0;
+        private const double VOLUME_STEP = 0.1;
+        private const double VOLUME_MARKER_TRACK_PADDING = 4.0;
 
         public readonly static Border BORDER_DEFAULT;
         public readonly static Border BORDER_GREEN;
@@ -58,7 +61,8 @@ namespace dvmconsole.Controls
         private bool pageState;
         private bool holdState;
         private string lastSrcId = "0";
-        private double volume = 1.0;
+        private double volume = DEFAULT_VOLUME;
+        private bool updatingVolumeSlider;
         private bool isSelected;
 
         private bool isMultiSelectMember = false;
@@ -492,12 +496,13 @@ namespace dvmconsole.Controls
             get => volume;
             set
             {
-                if (volume != value)
+                double steppedValue = NormalizeVolume(value);
+                if (Math.Abs(volume - steppedValue) > 0.0001)
                 {
-                    volume = value;
+                    volume = steppedValue;
                     OnPropertyChanged(nameof(Volume));
-                    audioManager.SetTalkgroupVolume(DstId, (float)value);
-                    SettingsManager.Instance?.UpdateChannelVolume(ChannelName, value);
+                    audioManager.SetTalkgroupVolume(DstId, (float)steppedValue);
+                    SettingsManager.Instance?.UpdateChannelVolume(ChannelName, steppedValue);
                 }
             }
         }
@@ -507,7 +512,7 @@ namespace dvmconsole.Controls
         /// </summary>
         public void SetInitialVolume(double value)
         {
-            volume = value;
+            volume = NormalizeVolume(value);
             OnPropertyChanged(nameof(Volume));
         }
 
@@ -1216,7 +1221,73 @@ namespace dvmconsole.Controls
         /// <param name="e"></param>
         private void VolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
-            Volume = e.NewValue;
+            if (updatingVolumeSlider)
+                return;
+
+            double steppedValue = NormalizeVolume(e.NewValue);
+            if (Math.Abs(steppedValue - e.NewValue) > 0.0001)
+            {
+                updatingVolumeSlider = true;
+                VolumeSlider.Value = steppedValue;
+                updatingVolumeSlider = false;
+            }
+
+            Volume = steppedValue;
+        }
+
+        private void VolumeSlider_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            AdjustVolumeFromMouseWheel(e);
+        }
+
+        private void VolumeBox_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            AdjustVolumeFromMouseWheel(e);
+        }
+
+        private void AdjustVolumeFromMouseWheel(MouseWheelEventArgs e)
+        {
+            if (!VolumeSlider.IsEnabled)
+                return;
+
+            double direction = e.Delta > 0 ? VOLUME_STEP : -VOLUME_STEP;
+            VolumeSlider.Value = NormalizeVolume(VolumeSlider.Value + direction);
+            e.Handled = true;
+        }
+
+        private void VolumeSlider_Loaded(object sender, RoutedEventArgs e)
+        {
+            UpdateDefaultVolumeMarker();
+        }
+
+        private void VolumeSlider_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            UpdateDefaultVolumeMarker();
+        }
+
+        private static double NormalizeVolume(double value)
+        {
+            double steppedValue = Math.Round(value / VOLUME_STEP) * VOLUME_STEP;
+            return Math.Max(0.0, Math.Min(4.0, steppedValue));
+        }
+
+        private void UpdateDefaultVolumeMarker()
+        {
+            VolumeSlider.ApplyTemplate();
+
+            if (VolumeSlider.Template.FindName("PART_DefaultVolumeMarker", VolumeSlider) is not FrameworkElement marker)
+                return;
+
+            double sliderWidth = VolumeSlider.ActualWidth;
+            double range = VolumeSlider.Maximum - VolumeSlider.Minimum;
+            if (sliderWidth <= 0 || range <= 0)
+                return;
+
+            double percent = (DEFAULT_VOLUME - VolumeSlider.Minimum) / range;
+            double usableWidth = Math.Max(0, sliderWidth - (VOLUME_MARKER_TRACK_PADDING * 2));
+            double markerWidth = marker.Width > 0 ? marker.Width : 2.0;
+            double x = VOLUME_MARKER_TRACK_PADDING + (usableWidth * percent) - (markerWidth / 2.0);
+            marker.Margin = new Thickness(Math.Max(0, x), 0, 0, 0);
         }
 
         /// <summary>
