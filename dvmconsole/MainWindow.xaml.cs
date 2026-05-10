@@ -160,6 +160,8 @@ namespace dvmconsole
         private readonly Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> activeAlertToneGroupTargets = new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>(StringComparer.OrdinalIgnoreCase);
 
         private bool selectAll = false;
+        private const double RESOURCE_TAB_HEIGHT = 36.0;
+        private const double RESOURCE_TAB_HEADER_HEIGHT = 32.0;
         private KeyboardManager keyboardManager;
 
         private CancellationTokenSource maintainenceCancelToken = new CancellationTokenSource();
@@ -305,6 +307,7 @@ namespace dvmconsole
             headerPanel.Children.Add(audioIcon);
             
             firstTab.Header = headerPanel;
+            ApplyCompactResourceTabChrome(firstTab, headerPanel);
             tabHeaders[firstTab] = headerPanel;
             
             // Remove canvasScrollViewer from its parent (Grid) if it exists
@@ -326,6 +329,23 @@ namespace dvmconsole
             resourceTabs.Items.Add(firstTab);
             resourceTabs.SelectedItem = firstTab;
             UpdateResourceTabWidths();
+        }
+
+        private void ApplyCompactResourceTabChrome(TabItem tab, Grid headerPanel)
+        {
+            if (tab == null)
+                return;
+
+            tab.Height = RESOURCE_TAB_HEIGHT;
+            tab.MinHeight = RESOURCE_TAB_HEIGHT;
+            tab.Padding = new Thickness(8, 0, 8, 0);
+
+            if (headerPanel != null)
+            {
+                headerPanel.Height = RESOURCE_TAB_HEADER_HEIGHT;
+                headerPanel.MinHeight = RESOURCE_TAB_HEADER_HEIGHT;
+                headerPanel.VerticalAlignment = VerticalAlignment.Center;
+            }
         }
         
         /// <summary>
@@ -395,6 +415,7 @@ namespace dvmconsole
                 headerPanel.Children.Add(audioIcon);
                 
                 firstTab.Header = headerPanel;
+                ApplyCompactResourceTabChrome(firstTab, headerPanel);
                 tabHeaders[firstTab] = headerPanel;
                 
                 // Remove canvasScrollViewer from its parent if it exists
@@ -494,6 +515,7 @@ namespace dvmconsole
             headerPanel.Children.Add(audioIcon);
             
             tab.Header = headerPanel;
+            ApplyCompactResourceTabChrome(tab, headerPanel);
             tabHeaders[tab] = headerPanel;
             tabTextColors[tab] = tabTextColor;
 
