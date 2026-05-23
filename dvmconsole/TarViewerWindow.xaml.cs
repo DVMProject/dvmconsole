@@ -15,6 +15,8 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -52,8 +54,19 @@ namespace dvmconsole
                         : Metadata.EncryptionAlgorithm;
         }
 
-        public ObservableCollection<TarRecordingListItem> Recordings { get; } = new ObservableCollection<TarRecordingListItem>();
-        public ICollectionView RecordingsView { get; }
+        private ICollectionView recordingsView;
+        public ICollectionView RecordingsView
+        {
+            get => recordingsView;
+            private set
+            {
+                if (recordingsView == value)
+                    return;
+
+                recordingsView = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(RecordingsView)));
+            }
+        }
 
         public IReadOnlyList<string> DirectionFilters { get; } = new[] { "All", "RX", "TX" };
         public IReadOnlyList<string> ProtocolFilters { get; } = new[] { "All", "P25", "DMR" };
@@ -63,6 +76,7 @@ namespace dvmconsole
         private WaveOutEvent playbackOutput;
         private AudioFileReader playbackReader;
         private string currentPlaybackPath = string.Empty;
+        private CancellationTokenSource refreshCancellationTokenSource;
 
         private string searchText = string.Empty;
         private string selectedDirectionFilter = "All";
@@ -146,9 +160,7 @@ namespace dvmconsole
         {
             InitializeComponent();
             this.tarManager = tarManager;
-            RecordingsView = CollectionViewSource.GetDefaultView(Recordings);
-            RecordingsView.Filter = FilterRecording;
-            RecordingsView.SortDescriptions.Add(new SortDescription(nameof(TarRecordingListItem.UtcStartSortKey), ListSortDirection.Descending));
+            ApplyRecordings(Array.Empty<TarRecordingListItem>());
             InitializeColumnVisibilityMenu();
             DataContext = this;
             RefreshRecordings();
@@ -161,6 +173,9 @@ namespace dvmconsole
 
         protected override void OnClosed(EventArgs e)
         {
+            refreshCancellationTokenSource?.Cancel();
+            refreshCancellationTokenSource?.Dispose();
+            refreshCancellationTokenSource = null;
             StopPlayback();
             base.OnClosed(e);
         }
@@ -289,6 +304,11 @@ namespace dvmconsole
 
         private void RefreshRecordings()
         {
+            _ = RefreshRecordingsAsync();
+        }
+
+        private async Task RefreshRecordingsAsync()
+        {
             FolderPathTextBlock.Text = TarManager.TryEnsureRecordingRoot(
                 tarManager.GetConfiguredRecordingRoot(),
                 out string rootPath,
@@ -296,22 +316,65 @@ namespace dvmconsole
                 ? $"Recording Folder: {rootPath}"
                 : $"Recording Folder Unavailable: {errorMessage}";
 
-            Recordings.Clear();
-            foreach (TarRecordingMetadata metadata in tarManager.LoadRecordings())
-                Recordings.Add(new TarRecordingListItem { Metadata = metadata });
+            refreshCancellationTokenSource?.Cancel();
+            refreshCancellationTokenSource?.Dispose();
+            refreshCancellationTokenSource = new CancellationTokenSource();
+            CancellationToken cancellationToken = refreshCancellationTokenSource.Token;
 
-            RecordingsView.Refresh();
+            RefreshButton.IsEnabled = false;
+            SetStatus("Indexing TAR recordings...");
 
-            if (RecordingsView.Cast<object>().Any())
+            try
             {
-                HideStatus();
-                if (RecordingsGrid.SelectedItem == null)
-                    RecordingsGrid.SelectedIndex = 0;
+                List<TarRecordingMetadata> metadata = await Task.Run(() => tarManager.LoadRecordings(cancellationToken), cancellationToken);
+                if (cancellationToken.IsCancellationRequested)
+                    return;
+
+                List<TarRecordingListItem> items = metadata
+                    .Select(recording => new TarRecordingListItem { Metadata = recording })
+                    .ToList();
+
+                ApplyRecordings(items);
+
+                if (HasVisibleRecordings())
+                {
+                    HideStatus();
+                    if (RecordingsGrid.SelectedItem == null)
+                        RecordingsGrid.SelectedIndex = 0;
+                }
+                else
+                {
+                    SetStatus("No TAR recordings match the current view.");
+                }
             }
-            else
+            catch (OperationCanceledException)
             {
-                SetStatus("No TAR recordings match the current view.");
+                /* newer refresh superseded this one */
             }
+            catch (Exception ex)
+            {
+                SetStatus($"Unable to index TAR recordings: {ex.Message}");
+            }
+            finally
+            {
+                if (!cancellationToken.IsCancellationRequested)
+                    RefreshButton.IsEnabled = true;
+            }
+        }
+
+        private void ApplyRecordings(IEnumerable<TarRecordingListItem> items)
+        {
+            List<TarRecordingListItem> recordingItems = items?.ToList() ?? new List<TarRecordingListItem>();
+            ICollectionView view = CollectionViewSource.GetDefaultView(recordingItems);
+            view.Filter = FilterRecording;
+            view.SortDescriptions.Add(new SortDescription(nameof(TarRecordingListItem.UtcStartSortKey), ListSortDirection.Descending));
+            RecordingsView = view;
+        }
+
+        private bool HasVisibleRecordings()
+        {
+            ICollectionView view = RecordingsView;
+            return view != null && view.Cast<object>().Any();
         }
 
         private void InitializeColumnVisibilityMenu()
@@ -419,7 +482,7 @@ namespace dvmconsole
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
             RecordingsView?.Refresh();
 
-            if (!RecordingsView.Cast<object>().Any())
+            if (!HasVisibleRecordings())
                 SetStatus("No TAR recordings match the current view.");
             else
                 HideStatus();

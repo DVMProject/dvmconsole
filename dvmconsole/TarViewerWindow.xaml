@@ -162,12 +162,17 @@
                       AutoGenerateColumns="False"
                       CanUserAddRows="False"
                       CanUserDeleteRows="False"
+                      EnableColumnVirtualization="True"
+                      EnableRowVirtualization="True"
                       HeadersVisibility="Column"
                       IsReadOnly="True"
                       Margin="0"
                       GridLinesVisibility="Horizontal"
+                      ScrollViewer.CanContentScroll="True"
                       SelectionMode="Single"
-                      SelectionUnit="FullRow">
+                      SelectionUnit="FullRow"
+                      VirtualizingPanel.IsVirtualizing="True"
+                      VirtualizingPanel.VirtualizationMode="Recycling">
                 <DataGrid.Columns>
                     <DataGridTextColumn x:Name="TimeColumn"
                                         Header="Time"
@@ -226,7 +231,8 @@
                    LastChildFill="False">
             <StackPanel Orientation="Horizontal"
                         DockPanel.Dock="Left">
-                <Button Content="Refresh"
+                <Button x:Name="RefreshButton"
+                        Content="Refresh"
                         Width="90"
                         Height="34"
                         Margin="0,0,10,0"
