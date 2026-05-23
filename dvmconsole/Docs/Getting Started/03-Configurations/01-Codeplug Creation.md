@@ -111,6 +111,7 @@ channels:
     mode: "p25"
     keyId: 0x50
     algo: "aes"
+    selectable_encryption: true
     resourceColor: "#150282"
     rx_only: false
     card_size: normal
@@ -124,6 +125,7 @@ Fields:
 - `mode`: `p25` or `dmr`. If omitted, P25 is used.
 - `keyId`: optional encryption key ID.
 - `algo`: optional encryption algorithm, such as `aes`, `des`, `arc4`, or `none`.
+- `selectable_encryption`: optional flag for P25 secure-capable resources. When `true`, the card shows a **SELECT** toggle so operators can choose encrypted or clear transmit. This requires a valid `keyId` and `algo`.
 - `resourceColor`: optional resource card color in hex.
 - `rx_only`: optional receive-only flag. When `true`, the resource card hides PTT, alert tone select, and channel marker/hold controls, and the resource is skipped by global, patch/group, and alert-tone transmit target paths.
 - `card_size`: optional fixed resource card size. Supported values are `small`, `normal`, and `large`. If omitted or invalid, `normal` is used.

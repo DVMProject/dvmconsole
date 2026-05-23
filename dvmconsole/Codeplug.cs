@@ -295,6 +295,11 @@ namespace dvmconsole
             [YamlMember(Alias = "rx_only", ApplyNamingConventions = false)]
             public bool RxOnly { get; set; } = false;
             /// <summary>
+            /// Optional flag indicating secure TX can be toggled on/off from the resource card.
+            /// </summary>
+            [YamlMember(Alias = "selectable_encryption", ApplyNamingConventions = false)]
+            public bool SelectableEncryption { get; set; } = false;
+            /// <summary>
             /// Optional fixed card size: small, normal, or large.
             /// </summary>
             [YamlMember(Alias = "card_size", ApplyNamingConventions = false)]
@@ -310,6 +315,9 @@ namespace dvmconsole
             /// <returns></returns>
             public ushort GetKeyId()
             {
+                if (string.IsNullOrWhiteSpace(KeyId))
+                    return 0;
+
                 return Convert.ToUInt16(KeyId, 16);
             }
 
@@ -319,7 +327,7 @@ namespace dvmconsole
             /// <returns></returns>
             public byte GetAlgoId()
             {
-                switch (Algo.ToLowerInvariant())
+                switch ((Algo ?? string.Empty).ToLowerInvariant())
                 {
                     case "aes":
                         return P25Defines.P25_ALGO_AES;
@@ -330,6 +338,15 @@ namespace dvmconsole
                     default:
                         return P25Defines.P25_ALGO_UNENCRYPT;
                 }
+            }
+
+            /// <summary>
+            /// Returns true when this channel has configured TX encryption key material.
+            /// </summary>
+            /// <returns></returns>
+            public bool HasEncryptionConfig()
+            {
+                return GetAlgoId() != P25Defines.P25_ALGO_UNENCRYPT && GetKeyId() > 0;
             }
 
             /// <summary>

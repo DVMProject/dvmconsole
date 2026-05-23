@@ -135,6 +135,10 @@ namespace dvmconsole
         /// </summary>
         public Dictionary<string, double> ChannelVolumes { get; set; } = new Dictionary<string, double>();
         /// <summary>
+        /// Saved selectable encryption TX state keyed by system and talkgroup.
+        /// </summary>
+        public Dictionary<string, bool> SelectableEncryptionStates { get; set; } = new Dictionary<string, bool>();
+        /// <summary>
         /// Saved web stream chip volumes keyed by stream name.
         /// </summary>
         public Dictionary<string, double> WebStreamVolumes { get; set; } = new Dictionary<string, double>();
@@ -381,6 +385,7 @@ namespace dvmconsole
                     MuteRxAudioWhileTransmitting = loadedSettings.MuteRxAudioWhileTransmitting;
                     MigrateLegacyAudioSettings();
                     ChannelVolumes = loadedSettings.ChannelVolumes ?? new Dictionary<string, double>();
+                    SelectableEncryptionStates = loadedSettings.SelectableEncryptionStates ?? new Dictionary<string, bool>();
                     WebStreamVolumes = loadedSettings.WebStreamVolumes ?? new Dictionary<string, double>();
                     TarRecordingsRootPath = string.IsNullOrWhiteSpace(loadedSettings.TarRecordingsRootPath)
                         ? DefaultTarRecordingsPath
@@ -962,6 +967,32 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// Returns the saved selectable encryption state for a system/talkgroup pair.
+        /// </summary>
+        public bool GetSelectableEncryptionState(string stateKey, bool defaultValue)
+        {
+            if (string.IsNullOrWhiteSpace(stateKey) || SelectableEncryptionStates == null)
+                return defaultValue;
+
+            return SelectableEncryptionStates.TryGetValue(stateKey, out bool enabled)
+                ? enabled
+                : defaultValue;
+        }
+
+        /// <summary>
+        /// Saves the selectable encryption state for a system/talkgroup pair.
+        /// </summary>
+        public void UpdateSelectableEncryptionState(string stateKey, bool encrypted)
+        {
+            if (string.IsNullOrWhiteSpace(stateKey))
+                return;
+
+            SelectableEncryptionStates ??= new Dictionary<string, bool>();
+            SelectableEncryptionStates[stateKey] = encrypted;
+            SaveSettings();
+        }
+
+        /// <summary>
         /// Returns a normalized copy of the TAR channel configuration map.
         /// </summary>
         public Dictionary<string, TarChannelConfig> GetTarChannelConfigs()
@@ -1023,7 +1054,7 @@ namespace dvmconsole
             SaveSettings();
         }
 
-        public void PruneResourceSettings(IEnumerable<string> validChannelNames, IEnumerable<string> validTalkgroupIds, IEnumerable<string> validSystemNames, IEnumerable<string> validWebStreamNames = null)
+        public void PruneResourceSettings(IEnumerable<string> validChannelNames, IEnumerable<string> validTalkgroupIds, IEnumerable<string> validSystemNames, IEnumerable<string> validWebStreamNames = null, IEnumerable<string> validSelectableEncryptionKeys = null)
         {
             HashSet<string> channelNames = new HashSet<string>(
                 validChannelNames?.Where(v => !string.IsNullOrWhiteSpace(v)) ?? Enumerable.Empty<string>(),
@@ -1057,6 +1088,11 @@ namespace dvmconsole
             changed |= PruneDictionary(WebStreamPositions, webStreamNames);
             changed |= PruneDictionary(WebStreamVolumes, webStreamNames);
             changed |= PruneList(SelectedWebStreams, webStreamNames);
+
+            HashSet<string> selectableEncryptionKeys = new HashSet<string>(
+                validSelectableEncryptionKeys?.Where(v => !string.IsNullOrWhiteSpace(v)) ?? Enumerable.Empty<string>(),
+                StringComparer.OrdinalIgnoreCase);
+            changed |= PruneDictionary(SelectableEncryptionStates, selectableEncryptionKeys);
 
             if (changed)
                 SaveSettings();

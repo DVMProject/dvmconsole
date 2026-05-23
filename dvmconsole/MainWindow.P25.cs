@@ -46,7 +46,7 @@ namespace dvmconsole
         /// <param name="system"></param>
         private void P25EncodeAudioFrame(byte[] pcm, PeerSystem fne, ChannelBox channel, Codeplug.Channel cpgChannel, Codeplug.System system, uint? sourceIdOverride = null)
         {
-            bool encryptCall = true; // TODO: make this dynamic somewhere?
+            bool encryptCall = channel.IsTxEncrypted && cpgChannel.HasEncryptionConfig();
 
             if (channel.p25N > 17)
                 channel.p25N = 0;
@@ -119,7 +119,7 @@ namespace dvmconsole
             }
             // Log.Logger.Debug($"IMBE {FneUtils.HexDump(imbe)}");
 
-            if (encryptCall && cpgChannel.GetAlgoId() != 0 && cpgChannel.GetKeyId() != 0)
+            if (encryptCall)
             {
                 // initial HDU MI
                 if (channel.p25N == 0)
@@ -224,7 +224,7 @@ namespace dvmconsole
                 Log.WriteWarning($"({channel.SystemName}) P25D: Traffic *VOICE FRAME    * Stream ID not set for traffic? Shouldn't happen.");
 
             CryptoParams cryptoParams = new CryptoParams();
-            if (cpgChannel.GetAlgoId() != P25Defines.P25_ALGO_UNENCRYPT && cpgChannel.GetKeyId() > 0)
+            if (encryptCall)
             {
                 cryptoParams.AlgoId = cpgChannel.GetAlgoId();
                 cryptoParams.KeyId = cpgChannel.GetKeyId();
@@ -276,7 +276,7 @@ namespace dvmconsole
 
 
                 fne.CreateP25MessageHdr((byte)P25DUID.LDU2, callData, ref payload, cryptoParams);
-                fne.CreateP25LDU2Message(channel.netLDU2, ref payload, new CryptoParams { AlgoId = cpgChannel.GetAlgoId(), KeyId = cpgChannel.GetKeyId(), MI = channel.mi });
+                fne.CreateP25LDU2Message(channel.netLDU2, ref payload, cryptoParams);
 
                 peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_P25), payload, channel.pktSeq, channel.TxStreamId);
             }

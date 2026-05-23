@@ -1081,8 +1081,14 @@ namespace dvmconsole
                         channelBox.IsRxOnly = channel.RxOnly;
                         channelBox.CanStartPtt = CanStartChannelPtt;
 
-                        if (channel.GetAlgoId() != P25Defines.P25_ALGO_UNENCRYPT && channel.GetKeyId() > 0)
-                            channelBox.IsTxEncrypted = true;
+                        bool hasEncryptionConfig = channel.HasEncryptionConfig();
+                        bool canSelectEncryption = channel.GetChannelMode() == Codeplug.ChannelMode.P25 && hasEncryptionConfig;
+                        channelBox.IsEncryptionSelectable = channel.SelectableEncryption && canSelectEncryption;
+                        channelBox.IsTxEncrypted = hasEncryptionConfig &&
+                            (!channelBox.IsEncryptionSelectable ||
+                             settingsManager.GetSelectableEncryptionState(
+                                 BuildSelectableEncryptionStateKey(channel.System, channel.Tgid),
+                                 defaultValue: true));
 
                         if (!string.IsNullOrWhiteSpace(channel.ResourceColor))
                         {
@@ -1118,6 +1124,7 @@ namespace dvmconsole
                         channelBox.PTTButtonReleased += ChannelBox_PTTButtonReleased;
                         channelBox.PageButtonClicked += ChannelBox_PageButtonClicked;
                         channelBox.HoldChannelButtonClicked += ChannelBox_HoldChannelButtonClicked;
+                        channelBox.SelectableEncryptionClicked += ChannelBox_SelectableEncryptionClicked;
 
                         // widget placement
                         channelBox.MouseRightButtonDown += ChannelBox_MouseRightButtonDown;
@@ -3527,6 +3534,23 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// Persists selectable encryption state for the channel's configured system/talkgroup.
+        /// </summary>
+        private void ChannelBox_SelectableEncryptionClicked(object sender, ChannelBox e)
+        {
+            if (e == null)
+                return;
+
+            Codeplug.Channel cpgChannel = Codeplug?.GetChannelByName(e.ChannelName);
+            if (cpgChannel == null || !cpgChannel.SelectableEncryption || !cpgChannel.HasEncryptionConfig())
+                return;
+
+            settingsManager.UpdateSelectableEncryptionState(
+                BuildSelectableEncryptionStateKey(cpgChannel.System, cpgChannel.Tgid),
+                e.IsTxEncrypted);
+        }
+
+        /// <summary>
         /// 
         /// </summary>
         /// <param name="sender"></param>
@@ -4050,6 +4074,16 @@ namespace dvmconsole
             return Codeplug.Zones.SelectMany(z => z.WebStreams ?? new List<Codeplug.WebStream>());
         }
 
+        /// <summary>
+        /// Builds a stable settings key for selectable encryption state.
+        /// </summary>
+        private static string BuildSelectableEncryptionStateKey(string systemName, string tgid)
+        {
+            string normalizedSystem = (systemName ?? string.Empty).Trim().ToLowerInvariant();
+            string normalizedTgid = (tgid ?? string.Empty).Trim();
+            return $"{normalizedSystem}|{normalizedTgid}";
+        }
+
         private void PruneSettingsForLoadedCodeplug()
         {
             IEnumerable<Codeplug.Channel> channels = GetConfiguredChannels().ToList();
@@ -4058,8 +4092,11 @@ namespace dvmconsole
             IEnumerable<string> validTalkgroupIds = channels.Select(c => c.Tgid);
             IEnumerable<string> validSystemNames = Codeplug?.Systems?.Select(s => s.Name) ?? Enumerable.Empty<string>();
             IEnumerable<string> validWebStreamNames = webStreams.Select(s => s.Name);
+            IEnumerable<string> validSelectableEncryptionKeys = channels
+                .Where(c => c.SelectableEncryption && c.GetChannelMode() == Codeplug.ChannelMode.P25 && c.HasEncryptionConfig())
+                .Select(c => BuildSelectableEncryptionStateKey(c.System, c.Tgid));
 
-            settingsManager.PruneResourceSettings(validChannelNames, validTalkgroupIds, validSystemNames, validWebStreamNames);
+            settingsManager.PruneResourceSettings(validChannelNames, validTalkgroupIds, validSystemNames, validWebStreamNames, validSelectableEncryptionKeys);
         }
 
         /// <summary>

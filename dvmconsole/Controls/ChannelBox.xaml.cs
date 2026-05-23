@@ -54,6 +54,8 @@ namespace dvmconsole.Controls
         private const double VOLUME_STEP = 0.1;
         private const double VOLUME_MARKER_TRACK_PADDING = 4.0;
         private const double VOLUME_METER_VISIBLE_THRESHOLD = 0.01;
+        private static readonly Brush SELECTABLE_ENCRYPTION_ON_BRUSH = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFC107"));
+        private static readonly Brush SELECTABLE_ENCRYPTION_OFF_BRUSH = Brushes.LightGray;
 
         public readonly static Border BORDER_DEFAULT;
         public readonly static Border BORDER_GREEN;
@@ -75,10 +77,12 @@ namespace dvmconsole.Controls
         private bool patchForwardingTxState;
         private bool pageState;
         private bool holdState;
+        private bool isTxEncrypted;
         private string lastSrcId = "0";
         private double volume = DEFAULT_VOLUME;
         private bool updatingVolumeSlider;
         private bool isRxOnly;
+        private bool isEncryptionSelectable;
         private bool isSelected;
         private bool forceHidePttButton;
         private ResourceCardSize cardSize = ResourceCardSize.Normal;
@@ -90,6 +94,9 @@ namespace dvmconsole.Controls
         private string indicatorIconToolTip = "Member of one or more patch groups";
         private Visibility tarIndicatorVisibility = Visibility.Collapsed;
         private string tarIndicatorToolTip = "TAR recording enabled for this channel";
+        private Visibility selectableEncryptionVisibility = Visibility.Collapsed;
+        private string selectableEncryptionToolTip = "Selectable encryption";
+        private Brush selectableEncryptionForeground = Brushes.LightGray;
 
         public FlashingBackgroundManager flashingBackgroundManager;
 
@@ -159,6 +166,10 @@ namespace dvmconsole.Controls
         /// Event action that handles the hold channel button being clicked.
         /// </summary>
         public event EventHandler<ChannelBox> HoldChannelButtonClicked;
+        /// <summary>
+        /// Event action that handles selectable encryption being toggled.
+        /// </summary>
+        public event EventHandler<ChannelBox> SelectableEncryptionClicked;
         /// <summary>
         /// Event action that occurs when a property changes on this control.
         /// </summary>
@@ -280,7 +291,37 @@ namespace dvmconsole.Controls
         /// <summary>
         /// Flag indicating whether or not the console is transmitting with encryption.
         /// </summary>
-        public bool IsTxEncrypted { get; set; } = false;
+        public bool IsTxEncrypted
+        {
+            get => isTxEncrypted;
+            set
+            {
+                if (isTxEncrypted == value)
+                    return;
+
+                isTxEncrypted = value;
+                UpdatePTTColor();
+                UpdateSelectableEncryptionIndicator();
+                OnPropertyChanged(nameof(IsTxEncrypted));
+            }
+        }
+
+        /// <summary>
+        /// Flag indicating this channel can toggle secure TX on/off from the card.
+        /// </summary>
+        public bool IsEncryptionSelectable
+        {
+            get => isEncryptionSelectable;
+            set
+            {
+                if (isEncryptionSelectable == value)
+                    return;
+
+                isEncryptionSelectable = value;
+                UpdateSelectableEncryptionIndicator();
+                OnPropertyChanged(nameof(IsEncryptionSelectable));
+            }
+        }
 
         /// <summary>
         /// Last Source ID received.
@@ -532,6 +573,54 @@ namespace dvmconsole.Controls
                 {
                     tarIndicatorToolTip = value;
                     OnPropertyChanged(nameof(TarIndicatorToolTip));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Visibility for the selectable encryption badge.
+        /// </summary>
+        public Visibility SelectableEncryptionVisibility
+        {
+            get => selectableEncryptionVisibility;
+            private set
+            {
+                if (selectableEncryptionVisibility != value)
+                {
+                    selectableEncryptionVisibility = value;
+                    OnPropertyChanged(nameof(SelectableEncryptionVisibility));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Tooltip for the selectable encryption badge.
+        /// </summary>
+        public string SelectableEncryptionToolTip
+        {
+            get => selectableEncryptionToolTip;
+            private set
+            {
+                if (selectableEncryptionToolTip != value)
+                {
+                    selectableEncryptionToolTip = value;
+                    OnPropertyChanged(nameof(SelectableEncryptionToolTip));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Foreground color for the selectable encryption badge.
+        /// </summary>
+        public Brush SelectableEncryptionForeground
+        {
+            get => selectableEncryptionForeground;
+            private set
+            {
+                if (selectableEncryptionForeground != value)
+                {
+                    selectableEncryptionForeground = value;
+                    OnPropertyChanged(nameof(SelectableEncryptionForeground));
                 }
             }
         }
@@ -991,6 +1080,7 @@ namespace dvmconsole.Controls
             LastSrcIdTextBlock.FontSize = metadataFontSize;
             SystemTextBlock.FontSize = metadataFontSize;
             TarTextBlock.FontSize = metadataFontSize;
+            SelectableEncryptionTextBlock.FontSize = metadataFontSize;
         }
 
         private static void SetButtonSize(Button button, double width, double height, double imageWidth, double imageHeight)
@@ -1088,6 +1178,23 @@ namespace dvmconsole.Controls
                 ChannelMarkerBtn.Background = ORANGE_GRADIENT;
             else
                 ChannelMarkerBtn.Background = GRAY_GRADIENT;
+        }
+
+        /// <summary>
+        /// Updates the selectable encryption badge state.
+        /// </summary>
+        private void UpdateSelectableEncryptionIndicator()
+        {
+            Dispatcher.Invoke(() =>
+            {
+                SelectableEncryptionVisibility = IsEncryptionSelectable ? Visibility.Visible : Visibility.Collapsed;
+                SelectableEncryptionForeground = IsTxEncrypted
+                    ? SELECTABLE_ENCRYPTION_ON_BRUSH
+                    : SELECTABLE_ENCRYPTION_OFF_BRUSH;
+                SelectableEncryptionToolTip = IsTxEncrypted
+                    ? "Selectable encryption: encrypted TX. Click to transmit clear."
+                    : "Selectable encryption: clear TX. Click to transmit encrypted.";
+            });
         }
 
         /// <summary>
@@ -1198,6 +1305,26 @@ namespace dvmconsole.Controls
                 return;
 
             ProcessSelectionClick(e);
+        }
+
+        /// <summary>
+        /// Toggles selectable secure TX without changing channel selection.
+        /// </summary>
+        private void SelectableEncryptionTextBlock_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+
+            if (!IsEncryptionSelectable)
+                return;
+
+            if (PttState || PatchForwardingTxState)
+            {
+                MessageBox.Show("Encryption selection cannot be changed while transmitting.", "Selectable Encryption", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            IsTxEncrypted = !IsTxEncrypted;
+            SelectableEncryptionClicked?.Invoke(this, this);
         }
 
         /// <summary>

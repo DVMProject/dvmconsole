@@ -61,6 +61,22 @@ If `keyId` is blank or zero, the channel is treated as clear for normal operatio
 
 ---
 
+# Selectable Encryption
+
+P25 secure-capable channels can expose an in-card encryption toggle:
+
+```yaml
+keyId: 0x50
+algo: "aes"
+selectable_encryption: true
+```
+
+When enabled, the resource card shows **SELECT** next to the TAR indicator area. Clicking **SELECT** toggles console transmit between encrypted and clear for that system/talkgroup.
+
+The selected encrypted/clear state is saved and restored across restarts. The key and algorithm still come from the codeplug; the toggle only controls whether the console uses them for transmit.
+
+---
+
 # FNE Key Requests
 
 When **Restore Selected Channels On Startup** is enabled, selected encrypted channels may need to request keys after startup.

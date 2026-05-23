@@ -44,14 +44,27 @@
                            TextTrimming="CharacterEllipsis"
                            ToolTip="{Binding LastSrcId}" />
                 <TextBlock x:Name="SystemTextBlock" Text="{Binding SystemName}" FontStyle="Italic" Foreground="Gold" FontSize="10" TextTrimming="CharacterEllipsis"/>
-                <TextBlock x:Name="TarTextBlock"
-                           Text="TAR"
-                           FontSize="10"
-                           FontWeight="SemiBold"
-                           Foreground="#D7B2FF"
-                           TextTrimming="CharacterEllipsis"
-                           Visibility="{Binding TarIndicatorVisibility}"
-                           ToolTip="{Binding TarIndicatorToolTip}" />
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock x:Name="TarTextBlock"
+                               Text="TAR"
+                               FontSize="10"
+                               FontWeight="SemiBold"
+                               Foreground="#D7B2FF"
+                               TextTrimming="CharacterEllipsis"
+                               Margin="0,0,6,0"
+                               Visibility="{Binding TarIndicatorVisibility}"
+                               ToolTip="{Binding TarIndicatorToolTip}" />
+                    <TextBlock x:Name="SelectableEncryptionTextBlock"
+                               Text="SELECT"
+                               FontSize="10"
+                               FontWeight="SemiBold"
+                               Foreground="{Binding SelectableEncryptionForeground}"
+                               TextTrimming="CharacterEllipsis"
+                               Cursor="Hand"
+                               Visibility="{Binding SelectableEncryptionVisibility}"
+                               ToolTip="{Binding SelectableEncryptionToolTip}"
+                               MouseLeftButtonDown="SelectableEncryptionTextBlock_MouseLeftButtonDown" />
+                </StackPanel>
             </StackPanel>
 
             <!-- Patch Membership Indicator -->
