@@ -113,6 +113,7 @@ channels:
     algo: "aes"
     resourceColor: "#150282"
     rx_only: false
+    card_size: normal
 ```
 
 Fields:
@@ -125,9 +126,16 @@ Fields:
 - `algo`: optional encryption algorithm, such as `aes`, `des`, `arc4`, or `none`.
 - `resourceColor`: optional resource card color in hex.
 - `rx_only`: optional receive-only flag. When `true`, the resource card hides PTT, alert tone select, and channel marker/hold controls, and the resource is skipped by global, patch/group, and alert-tone transmit target paths.
+- `card_size`: optional fixed resource card size. Supported values are `small`, `normal`, and `large`. If omitted or invalid, `normal` is used.
 - `slot`: optional DMR slot field if used by the deployment.
 
 The console validates target TGs against active talkgroup rules received from the connected FNE when a user attempts to transmit or otherwise use the TG.
+
+Card size behavior:
+
+- `small`: compact status/PTT card. The volume slider, alert tone select, channel marker, and call history buttons are hidden.
+- `normal`: default resource card size and layout.
+- `large`: larger resource card with larger text and controls.
 
 ---
 
@@ -258,12 +266,14 @@ zones:
         keyId: 0x50
         algo: "aes"
         resourceColor: "#150282"
+        card_size: normal
 
       - name: "Channel 2"
         system: "System 1"
         tgid: "2002"
         mode: "p25"
         resourceColor: "#150282"
+        card_size: small
     web_streams:
       - name: "Stream 1"
         url: "https://streams.example.local/stream-1"

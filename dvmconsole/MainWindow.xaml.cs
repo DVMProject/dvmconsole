@@ -1046,6 +1046,7 @@ namespace dvmconsole
             {
                 // Track offset per tab
                 Dictionary<TabItem, Point> tabOffsets = new Dictionary<TabItem, Point>();
+                Dictionary<TabItem, double> tabRowHeights = new Dictionary<TabItem, double>();
                 
                 // iterate through the codeplug zones and begin building channel widgets
                 foreach (var zone in Codeplug.Zones ?? new List<Codeplug.Zone>())
@@ -1058,14 +1059,16 @@ namespace dvmconsole
                     }
                     
                     // iterate through zone channels
-                    foreach (var channel in zone.Channels)
+                    foreach (var channel in zone.Channels ?? new List<Codeplug.Channel>())
                     {
                         // Get or create offset for this tab
                         if (!tabOffsets.ContainsKey(targetTab))
                         {
                             tabOffsets[targetTab] = new Point(20, 140);
+                            tabRowHeights[targetTab] = 0;
                         }
                         Point tabOffset = tabOffsets[targetTab];
+                        double tabRowHeight = tabRowHeights.TryGetValue(targetTab, out double currentRowHeight) ? currentRowHeight : 0;
                         
                         // Get the canvas for this tab
                         Canvas targetCanvas = targetTab != null && tabCanvases.ContainsKey(targetTab) 
@@ -1073,6 +1076,7 @@ namespace dvmconsole
                             : channelsCanvas;
 
                         ChannelBox channelBox = new ChannelBox(selectedChannelsManager, audioManager, channel.Name, channel.System, channel.Tgid, settingsManager.TogglePTTMode);
+                        channelBox.CardSize = ChannelBox.ParseCardSize(channel.CardSize);
                         channelBox.ChannelMode = channel.Mode.ToUpperInvariant();
                         channelBox.IsRxOnly = channel.RxOnly;
                         channelBox.CanStartPtt = CanStartChannelPtt;
@@ -1156,13 +1160,19 @@ namespace dvmconsole
                         if (layoutWidth < 200)
                             layoutWidth = 1200; // final fallback
 
-                        tabOffset.X += 269;
-                        if (tabOffset.X + 264 > layoutWidth - 20)
+                        double channelWidth = channelBox.Width > 0 ? channelBox.Width : ChannelBox.NORMAL_CARD_WIDTH;
+                        double channelHeight = channelBox.Height > 0 ? channelBox.Height : ChannelBox.NORMAL_CARD_HEIGHT;
+                        tabRowHeight = Math.Max(tabRowHeight, channelHeight);
+
+                        tabOffset.X += channelWidth + 5;
+                        if (tabOffset.X + channelWidth > layoutWidth - 20)
                         {
                             tabOffset.X = 20;
-                            tabOffset.Y += 116;
+                            tabOffset.Y += tabRowHeight + 10;
+                            tabRowHeight = 0;
                         }
                         tabOffsets[targetTab] = tabOffset;
+                        tabRowHeights[targetTab] = tabRowHeight;
                     }
 
                     foreach (var stream in zone.WebStreams ?? new List<Codeplug.WebStream>())
@@ -1173,8 +1183,10 @@ namespace dvmconsole
                         if (!tabOffsets.ContainsKey(targetTab))
                         {
                             tabOffsets[targetTab] = new Point(20, 140);
+                            tabRowHeights[targetTab] = 0;
                         }
                         Point tabOffset = tabOffsets[targetTab];
+                        double tabRowHeight = tabRowHeights.TryGetValue(targetTab, out double currentRowHeight) ? currentRowHeight : 0;
 
                         Canvas targetCanvas = targetTab != null && tabCanvases.ContainsKey(targetTab)
                             ? tabCanvases[targetTab]
@@ -1221,12 +1233,15 @@ namespace dvmconsole
                             layoutWidth = 1200;
 
                         tabOffset.X += 188;
+                        tabRowHeight = Math.Max(tabRowHeight, 90);
                         if (tabOffset.X + 178 > layoutWidth - 20)
                         {
                             tabOffset.X = 20;
-                            tabOffset.Y += 98;
+                            tabOffset.Y += tabRowHeight + 10;
+                            tabRowHeight = 0;
                         }
                         tabOffsets[targetTab] = tabOffset;
+                        tabRowHeights[targetTab] = tabRowHeight;
                     }
                 }
             }
@@ -3425,8 +3440,6 @@ namespace dvmconsole
         {
             const double startX = 20;
             const double startY = 20;
-            const double cardWidth = 264;
-            const double cardHeight = 106;
             const double streamWidth = 178;
             const double streamHeight = 90;
             const double spacingX = 5;
@@ -3454,8 +3467,18 @@ namespace dvmconsole
 
                 Canvas.SetLeft(element, x);
                 Canvas.SetTop(element, y);
-                double elementWidth = element is WebStreamChip ? streamWidth : cardWidth;
-                double elementHeight = element is WebStreamChip ? streamHeight : cardHeight;
+                double elementWidth = ChannelBox.NORMAL_CARD_WIDTH;
+                double elementHeight = ChannelBox.NORMAL_CARD_HEIGHT;
+                if (element is ChannelBox sizedChannelBox)
+                {
+                    elementWidth = sizedChannelBox.Width > 0 ? sizedChannelBox.Width : ChannelBox.NORMAL_CARD_WIDTH;
+                    elementHeight = sizedChannelBox.Height > 0 ? sizedChannelBox.Height : ChannelBox.NORMAL_CARD_HEIGHT;
+                }
+                else if (element is WebStreamChip)
+                {
+                    elementWidth = streamWidth;
+                    elementHeight = streamHeight;
+                }
                 rowHeight = Math.Max(rowHeight, elementHeight);
 
                 if (element is ChannelBox channelBox)

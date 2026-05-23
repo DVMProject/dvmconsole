@@ -73,14 +73,18 @@ zones:
         # Optional resource color for this channel widget, in hex
         # resourceColor: "#150282"
         resourceColor: "#150282"
+        # Optional fixed card size: small, normal, or large. Defaults to normal.
+        card_size: normal
       - name: "Channel 2"
         system: "System 1"
         tgid: "2002"
         resourceColor: "#150282"
+        card_size: small
       - name: "Channel 3"
         system: "System 1"
         tgid: "2003"
         resourceColor: "#150282"
+        card_size: large
     # Optional web URL stream chips shown on this zone/tab.
     # Streams load disabled, then start/stop when clicked.
     # Stream position, volume, and output routing are saved by stream name.

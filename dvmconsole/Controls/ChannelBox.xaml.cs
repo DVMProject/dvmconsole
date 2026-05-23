@@ -35,10 +35,25 @@ namespace dvmconsole.Controls
     /// </summary>
     public partial class ChannelBox : UserControl, INotifyPropertyChanged
     {
+        public enum ResourceCardSize
+        {
+            Small,
+            Normal,
+            Large
+        }
+
+        public const double SMALL_CARD_WIDTH = 154;
+        public const double SMALL_CARD_HEIGHT = 68;
+        public const double NORMAL_CARD_WIDTH = 264;
+        public const double NORMAL_CARD_HEIGHT = 110;
+        public const double LARGE_CARD_WIDTH = 380;
+        public const double LARGE_CARD_HEIGHT = 158;
+
         public const int DEFAULT_PTT_RELEASE_TAIL_MS = 500;
         private const double DEFAULT_VOLUME = 1.0;
         private const double VOLUME_STEP = 0.1;
         private const double VOLUME_MARKER_TRACK_PADDING = 4.0;
+        private const double VOLUME_METER_VISIBLE_THRESHOLD = 0.01;
 
         public readonly static Border BORDER_DEFAULT;
         public readonly static Border BORDER_GREEN;
@@ -65,6 +80,8 @@ namespace dvmconsole.Controls
         private bool updatingVolumeSlider;
         private bool isRxOnly;
         private bool isSelected;
+        private bool forceHidePttButton;
+        private ResourceCardSize cardSize = ResourceCardSize.Normal;
 
         private bool isMultiSelectMember = false;
         private bool isPatchGroupActive = false;
@@ -155,6 +172,22 @@ namespace dvmconsole.Controls
         /// Optional callback used to approve a new outbound PTT start before UI state is latched.
         /// </summary>
         public Func<ChannelBox, bool> CanStartPtt { get; set; }
+
+        /// <summary>
+        /// Fixed, codeplug-defined resource card size.
+        /// </summary>
+        public ResourceCardSize CardSize
+        {
+            get => cardSize;
+            set
+            {
+                if (cardSize == value)
+                    return;
+
+                cardSize = value;
+                ApplyCardSizeLayout();
+            }
+        }
 
         /// <summary>
         /// Flag indicating whether this resource should only receive traffic.
@@ -549,6 +582,9 @@ namespace dvmconsole.Controls
                 Dispatcher.Invoke(() =>
                 {
                     VolumeMeter.ViewModel.Level = value;
+                    VolumeMeter.Visibility = CardSize != ResourceCardSize.Small && VolumeMeter.ViewModel.Level > VOLUME_METER_VISIBLE_THRESHOLD
+                        ? Visibility.Visible
+                        : Visibility.Collapsed;
                 });
             }
         }
@@ -684,6 +720,7 @@ namespace dvmconsole.Controls
 
             VolumeMeter.ViewModel = new VuMeterViewModel();
             VolumeMeter.ViewModel.Level = 0;
+            VolumeMeter.Visibility = Visibility.Collapsed;
 
             UpdateBackground();
 
@@ -700,6 +737,7 @@ namespace dvmconsole.Controls
             ChannelMarkerBtn.Background = GRAY_GRADIENT;
             ChannelCallHistoryBtn.Background = GRAY_GRADIENT;
 
+            ApplyCardSizeLayout();
             DisableControls();
 
             if (SystemName == MainWindow.PLAYBACKSYS || ChannelName == MainWindow.PLAYBACKCHNAME || DstId == MainWindow.PLAYBACKTG)
@@ -732,10 +770,10 @@ namespace dvmconsole.Controls
         /// </summary>
         private void EnableControls()
         {
-            PttButton.IsEnabled = !IsRxOnly;
-            PageSelectButton.IsEnabled = !IsRxOnly;
-            ChannelMarkerBtn.IsEnabled = !IsRxOnly;
-            ChannelCallHistoryBtn.IsEnabled = true;
+            PttButton.IsEnabled = !IsRxOnly && !forceHidePttButton;
+            PageSelectButton.IsEnabled = !IsRxOnly && CardSize != ResourceCardSize.Small;
+            ChannelMarkerBtn.IsEnabled = !IsRxOnly && CardSize != ResourceCardSize.Small;
+            ChannelCallHistoryBtn.IsEnabled = CardSize != ResourceCardSize.Small;
 
             VolumeSlider.IsEnabled = true;
         }
@@ -758,8 +796,217 @@ namespace dvmconsole.Controls
         /// </summary>
         public void HidePTTButton()
         {
+            forceHidePttButton = true;
             PttButton.IsEnabled = false;
             PttButton.Visibility = Visibility.Hidden;
+        }
+
+        /// <summary>
+        /// Parses a codeplug card_size value.
+        /// </summary>
+        /// <param name="value"></param>
+        /// <returns></returns>
+        public static ResourceCardSize ParseCardSize(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return ResourceCardSize.Normal;
+
+            return value.Trim().ToLowerInvariant() switch
+            {
+                "small" => ResourceCardSize.Small,
+                "large" => ResourceCardSize.Large,
+                _ => ResourceCardSize.Normal
+            };
+        }
+
+        /// <summary>
+        /// Applies fixed size modes without changing channel behavior.
+        /// </summary>
+        private void ApplyCardSizeLayout()
+        {
+            if (CardGrid == null)
+                return;
+
+            switch (CardSize)
+            {
+                case ResourceCardSize.Small:
+                    ApplySmallCardLayout();
+                    break;
+                case ResourceCardSize.Large:
+                    ApplyLargeCardLayout();
+                    break;
+                default:
+                    ApplyNormalCardLayout();
+                    break;
+            }
+
+            ApplyRxOnlyVisualState();
+            if (CardSize == ResourceCardSize.Small)
+                VolumeMeter.Visibility = Visibility.Collapsed;
+            UpdateDefaultVolumeMarker();
+            UpdateBackground();
+        }
+
+        private void ApplyNormalCardLayout()
+        {
+            Width = NORMAL_CARD_WIDTH;
+            Height = NORMAL_CARD_HEIGHT;
+            LeftColumn.Width = new GridLength(58);
+            RightColumn.Width = new GridLength(30);
+            TopSpacerRow.Height = new GridLength(2, GridUnitType.Star);
+            InfoRow.Height = new GridLength(51, GridUnitType.Star);
+            ControlsRow.Height = new GridLength(32.25);
+            BottomSpacerRow.Height = new GridLength(7.75);
+
+            VolumeMeter.Width = 260;
+            VolumeMeter.Height = 10;
+            VolumeMeter.Margin = new Thickness(0, -58, 0, 0);
+
+            InfoPanel.Width = 147;
+            InfoPanel.Margin = new Thickness(4, 5, 0, 4);
+            SetInfoFontSizes(12, 10);
+            SystemTextBlock.Visibility = Visibility.Visible;
+
+            PatchMemberIcon.Width = 28;
+            PatchMemberIcon.Height = 28;
+            PatchMemberIcon.Margin = new Thickness(0, 6, 6, 0);
+
+            PttButton.Width = 42;
+            PttButton.Height = 42;
+            PttButton.Margin = new Thickness(0, 9, 0, 0);
+            SetButtonImageSize(PttButton, 39, 40);
+
+            Grid.SetColumn(VolumeSliderBackground, 0);
+            Grid.SetColumnSpan(VolumeSliderBackground, 2);
+            VolumeSliderBackground.HorizontalAlignment = HorizontalAlignment.Left;
+            VolumeSliderBackground.Width = 116;
+            VolumeSliderBackground.Height = 40;
+            VolumeSliderBackground.Margin = new Thickness(6, -4, 0, 0);
+            Grid.SetColumn(VolumeSlider, 0);
+            Grid.SetColumnSpan(VolumeSlider, 2);
+            VolumeSlider.Margin = new Thickness(12, 0, 112, 0);
+            VolumeSlider.Height = 21;
+
+            BottomButtonsPanel.Margin = new Thickness(70, -8, -2, 0);
+            SetButtonSize(PageSelectButton, 38, 40, 34, 38);
+            SetButtonSize(ChannelMarkerBtn, 38, 40, 34, 38);
+            SetButtonSize(ChannelCallHistoryBtn, 38, 40, 30, 38);
+            ChannelMarkerBtn.Margin = new Thickness(5, 0, 0, 0);
+            ChannelCallHistoryBtn.Margin = new Thickness(5, 0, 0, 0);
+        }
+
+        private void ApplySmallCardLayout()
+        {
+            Width = SMALL_CARD_WIDTH;
+            Height = SMALL_CARD_HEIGHT;
+            LeftColumn.Width = new GridLength(42);
+            RightColumn.Width = new GridLength(24);
+            TopSpacerRow.Height = new GridLength(0);
+            InfoRow.Height = new GridLength(44);
+            ControlsRow.Height = new GridLength(20);
+            BottomSpacerRow.Height = new GridLength(0);
+
+            VolumeMeter.Width = 150;
+            VolumeMeter.Height = 4;
+            VolumeMeter.Margin = new Thickness(0, -21, 0, 0);
+
+            InfoPanel.Width = 86;
+            InfoPanel.Margin = new Thickness(2, 4, 0, 0);
+            SetInfoFontSizes(10, 8);
+            SystemTextBlock.Visibility = Visibility.Collapsed;
+
+            PatchMemberIcon.Width = 18;
+            PatchMemberIcon.Height = 18;
+            PatchMemberIcon.Margin = new Thickness(0, 4, 4, 0);
+
+            PttButton.Width = 32;
+            PttButton.Height = 32;
+            PttButton.Margin = new Thickness(0, 8, 0, 0);
+            SetButtonImageSize(PttButton, 30, 30);
+
+            Grid.SetColumn(VolumeSliderBackground, 0);
+            Grid.SetColumnSpan(VolumeSliderBackground, 3);
+            VolumeSliderBackground.Visibility = Visibility.Collapsed;
+            VolumeSliderBackground.Width = 0;
+            VolumeSliderBackground.Height = 0;
+            VolumeSliderBackground.Margin = new Thickness(0);
+            Grid.SetColumn(VolumeSlider, 0);
+            Grid.SetColumnSpan(VolumeSlider, 3);
+            VolumeSlider.Margin = new Thickness(18, -4, 18, 0);
+            VolumeSlider.Height = 16;
+            BottomButtonsPanel.Visibility = Visibility.Collapsed;
+        }
+
+        private void ApplyLargeCardLayout()
+        {
+            Width = LARGE_CARD_WIDTH;
+            Height = LARGE_CARD_HEIGHT;
+            LeftColumn.Width = new GridLength(78);
+            RightColumn.Width = new GridLength(44);
+            TopSpacerRow.Height = new GridLength(3, GridUnitType.Star);
+            InfoRow.Height = new GridLength(70, GridUnitType.Star);
+            ControlsRow.Height = new GridLength(46);
+            BottomSpacerRow.Height = new GridLength(8);
+
+            VolumeMeter.Width = 372;
+            VolumeMeter.Height = 12;
+            VolumeMeter.Margin = new Thickness(0, -88, 0, 0);
+
+            InfoPanel.Width = 210;
+            InfoPanel.Margin = new Thickness(8, 8, 0, 6);
+            SetInfoFontSizes(16, 12);
+            SystemTextBlock.Visibility = Visibility.Visible;
+
+            PatchMemberIcon.Width = 38;
+            PatchMemberIcon.Height = 38;
+            PatchMemberIcon.Margin = new Thickness(0, 9, 8, 0);
+
+            PttButton.Width = 60;
+            PttButton.Height = 60;
+            PttButton.Margin = new Thickness(0, 12, 0, 0);
+            SetButtonImageSize(PttButton, 56, 58);
+
+            Grid.SetColumn(VolumeSliderBackground, 0);
+            Grid.SetColumnSpan(VolumeSliderBackground, 2);
+            VolumeSliderBackground.HorizontalAlignment = HorizontalAlignment.Left;
+            VolumeSliderBackground.Width = 166;
+            VolumeSliderBackground.Height = 54;
+            VolumeSliderBackground.Margin = new Thickness(10, -6, 0, 0);
+            Grid.SetColumn(VolumeSlider, 0);
+            Grid.SetColumnSpan(VolumeSlider, 2);
+            VolumeSlider.Margin = new Thickness(20, 0, 158, 0);
+            VolumeSlider.Height = 30;
+
+            BottomButtonsPanel.Margin = new Thickness(104, -10, -2, 0);
+            SetButtonSize(PageSelectButton, 58, 54, 50, 52);
+            SetButtonSize(ChannelMarkerBtn, 58, 54, 50, 52);
+            SetButtonSize(ChannelCallHistoryBtn, 58, 54, 46, 52);
+            ChannelMarkerBtn.Margin = new Thickness(6, 0, 0, 0);
+            ChannelCallHistoryBtn.Margin = new Thickness(6, 0, 0, 0);
+        }
+
+        private void SetInfoFontSizes(double channelFontSize, double metadataFontSize)
+        {
+            ChannelTextBlock.FontSize = channelFontSize;
+            LastSrcIdTextBlock.FontSize = metadataFontSize;
+            SystemTextBlock.FontSize = metadataFontSize;
+            TarTextBlock.FontSize = metadataFontSize;
+        }
+
+        private static void SetButtonSize(Button button, double width, double height, double imageWidth, double imageHeight)
+        {
+            button.Width = width;
+            button.Height = height;
+            SetButtonImageSize(button, imageWidth, imageHeight);
+        }
+
+        private static void SetButtonImageSize(Button button, double imageWidth, double imageHeight)
+        {
+            if (button.Content is Image image)
+            {
+                image.Width = imageWidth;
+                image.Height = imageHeight;
+            }
         }
 
         /// <summary>
@@ -770,10 +1017,18 @@ namespace dvmconsole.Controls
             if (PttButton == null || PageSelectButton == null || ChannelMarkerBtn == null)
                 return;
 
-            Visibility txControlVisibility = IsRxOnly ? Visibility.Collapsed : Visibility.Visible;
-            PttButton.Visibility = txControlVisibility;
+            bool smallCard = CardSize == ResourceCardSize.Small;
+            Visibility pttVisibility = (IsRxOnly || forceHidePttButton) ? Visibility.Collapsed : Visibility.Visible;
+            Visibility txControlVisibility = (IsRxOnly || smallCard) ? Visibility.Collapsed : Visibility.Visible;
+            Visibility secondaryButtonVisibility = smallCard ? Visibility.Collapsed : Visibility.Visible;
+
+            PttButton.Visibility = pttVisibility;
             PageSelectButton.Visibility = txControlVisibility;
             ChannelMarkerBtn.Visibility = txControlVisibility;
+            ChannelCallHistoryBtn.Visibility = secondaryButtonVisibility;
+            BottomButtonsPanel.Visibility = secondaryButtonVisibility;
+            VolumeSliderBackground.Visibility = smallCard ? Visibility.Collapsed : Visibility.Visible;
+            VolumeSlider.Visibility = Visibility.Visible;
 
             if (IsRxOnly)
             {
@@ -842,22 +1097,21 @@ namespace dvmconsole.Controls
         {
             if (SystemName == MainWindow.PLAYBACKSYS || ChannelName == MainWindow.PLAYBACKCHNAME || DstId == MainWindow.PLAYBACKTG)
             {
-                ControlBorder.Background = IsSelected ? RED_GRADIENT : DARK_GRAY_GRADIENT;
-                SetVolumeMeterBg(ControlBorder.Background);
+                SetCardBackground(IsSelected ? RED_GRADIENT : DARK_GRAY_GRADIENT);
                 return;
             }
 
             if (IsReceivingEncrypted)
             {
-                ControlBorder.Background = ORANGE_GRADIENT;
+                SetCardBackground(ORANGE_GRADIENT);
             }
             else if (IsReceiving)
             {
-                ControlBorder.Background = GREEN_GRADIENT;
+                SetCardBackground(GREEN_GRADIENT);
             }
             else
             {
-                ControlBorder.Background = IsSelected ? ConfiguredIdleBackground : DARK_GRAY_GRADIENT;
+                SetCardBackground(IsSelected ? ConfiguredIdleBackground : DARK_GRAY_GRADIENT);
             }
 
             if (IsSelected)
@@ -871,6 +1125,19 @@ namespace dvmconsole.Controls
             {
                 ControlBorder.BorderBrush = BORDER_DEFAULT.BorderBrush;
             }
+
+        }
+
+        /// <summary>
+        /// Applies the card background, flattening gradients on small cards where the split is visually cramped.
+        /// </summary>
+        /// <param name="background"></param>
+        private void SetCardBackground(Brush background)
+        {
+            if (CardSize == ResourceCardSize.Small && background is LinearGradientBrush gradient && gradient.GradientStops.Count > 0)
+                ControlBorder.Background = new SolidColorBrush(gradient.GradientStops[0].Color);
+            else
+                ControlBorder.Background = background;
 
             SetVolumeMeterBg(ControlBorder.Background);
         }

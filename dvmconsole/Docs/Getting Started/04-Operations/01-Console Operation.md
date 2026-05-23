@@ -14,6 +14,20 @@ Use **Select All/Unselect All** from the toolbar to quickly toggle selected reso
 
 ---
 
+# Resource Card Sizes
+
+Resource card size is defined in the codeplug with `card_size`.
+
+Supported sizes:
+
+- `small`: compact status/PTT card. Volume, alert tone select, channel marker, and call history buttons are hidden.
+- `normal`: default card size.
+- `large`: larger card with larger text and controls.
+
+If `card_size` is omitted, the console uses `normal`.
+
+---
+
 # PTT
 
 Use a resource card PTT button to transmit on that resource.

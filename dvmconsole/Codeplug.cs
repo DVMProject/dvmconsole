@@ -294,6 +294,11 @@ namespace dvmconsole
             /// </summary>
             [YamlMember(Alias = "rx_only", ApplyNamingConventions = false)]
             public bool RxOnly { get; set; } = false;
+            /// <summary>
+            /// Optional fixed card size: small, normal, or large.
+            /// </summary>
+            [YamlMember(Alias = "card_size", ApplyNamingConventions = false)]
+            public string CardSize { get; set; } = "normal";
 
             /*
             ** Methods

@@ -9,27 +9,27 @@
     </UserControl.Effect>
     <!-- Border wraps the entire Grid -->
     <Border x:Name="ControlBorder" BorderBrush="LightGray" BorderThickness="2,2,2,2" CornerRadius="8">
-        <Grid Margin="0">
+        <Grid x:Name="CardGrid" Margin="0" ClipToBounds="True">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="41"/>
-                <ColumnDefinition/>
-                <ColumnDefinition Width="30"/>
+                <ColumnDefinition x:Name="LeftColumn" Width="41"/>
+                <ColumnDefinition x:Name="CenterColumn"/>
+                <ColumnDefinition x:Name="RightColumn" Width="30"/>
             </Grid.ColumnDefinitions>
 
             <Grid.RowDefinitions>
-                <RowDefinition Height="2*"/>
-                <RowDefinition Height="51*"/>
-                <RowDefinition Height="32.25"/>
-                <RowDefinition Height="7.75"/>
+                <RowDefinition x:Name="TopSpacerRow" Height="2*"/>
+                <RowDefinition x:Name="InfoRow" Height="51*"/>
+                <RowDefinition x:Name="ControlsRow" Height="32.25"/>
+                <RowDefinition x:Name="BottomSpacerRow" Height="7.75"/>
             </Grid.RowDefinitions>
 
             <!-- Volume Meter -->
-            <local:VuMeterControl x:Name="VolumeMeter" HorizontalAlignment="Center" Width="260" Height="10" Grid.RowSpan="2" Grid.ColumnSpan="3" Margin="0,-56,0,0" />
+            <local:VuMeterControl x:Name="VolumeMeter" HorizontalAlignment="Center" Width="260" Height="10" Grid.RowSpan="2" Grid.ColumnSpan="3" Margin="0,-56,0,0" Visibility="Collapsed" />
 
             <!-- TAR Recording Indicator -->
             <!-- Main Info Section -->
-            <StackPanel Grid.Column="1" HorizontalAlignment="Left" Width="147" Margin="22,5,0,4" Grid.ColumnSpan="2" Grid.Row="1">
-                <TextBlock x:Name="ChannelTextBlock" FontWeight="Bold" Foreground="White" FontSize="12">
+            <StackPanel x:Name="InfoPanel" Grid.Column="1" HorizontalAlignment="Left" Width="147" Margin="22,5,0,4" Grid.ColumnSpan="2" Grid.Row="1">
+                <TextBlock x:Name="ChannelTextBlock" FontWeight="Bold" Foreground="White" FontSize="12" TextTrimming="CharacterEllipsis">
                     <TextBlock.Text>
                         <MultiBinding StringFormat="{}{0} ({1})">
                             <Binding Path="ChannelName" />
@@ -37,12 +37,19 @@
                         </MultiBinding>
                     </TextBlock.Text>
                 </TextBlock>
-                <TextBlock Text="{Binding LastSrcId}" Foreground="Gold" FontSize="10"/>
-                <TextBlock Text="{Binding SystemName}" FontStyle="Italic" Foreground="Gold" FontSize="10"/>
-                <TextBlock Text="TAR"
+                <TextBlock x:Name="LastSrcIdTextBlock"
+                           Text="{Binding LastSrcId}"
+                           Foreground="Gold"
+                           FontSize="10"
+                           TextTrimming="CharacterEllipsis"
+                           ToolTip="{Binding LastSrcId}" />
+                <TextBlock x:Name="SystemTextBlock" Text="{Binding SystemName}" FontStyle="Italic" Foreground="Gold" FontSize="10" TextTrimming="CharacterEllipsis"/>
+                <TextBlock x:Name="TarTextBlock"
+                           Text="TAR"
                            FontSize="10"
                            FontWeight="SemiBold"
                            Foreground="#D7B2FF"
+                           TextTrimming="CharacterEllipsis"
                            Visibility="{Binding TarIndicatorVisibility}"
                            ToolTip="{Binding TarIndicatorToolTip}" />
             </StackPanel>
@@ -62,7 +69,7 @@
                    ToolTip="{Binding IndicatorIconToolTip}" />
 
             <!-- PTT Button -->
-            <Button x:Name="PttButton" Width="42" Height="42" HorizontalAlignment="Left" Margin="12,5,0,4" Grid.ColumnSpan="2" BorderThickness="0,0,0,0" BorderBrush="#FFC1C1C1" UseLayoutRounding="False" Grid.RowSpan="2" Background="#FFEEA400"
+            <Button x:Name="PttButton" Width="42" Height="42" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0" Grid.Column="0" Grid.Row="1" BorderThickness="0,0,0,0" BorderBrush="#FFC1C1C1" UseLayoutRounding="False" Background="#FFEEA400"
                     ToolTip="Push To Talk" Padding="0">
                 <Button.Resources>
                     <Style TargetType="{x:Type Border}">
@@ -73,7 +80,7 @@
             </Button>
 
             <!-- Volume Slider Background -->
-            <Rectangle Grid.ColumnSpan="2" HorizontalAlignment="Left" Height="40" Margin="6,-4,0,0" 
+            <Rectangle x:Name="VolumeSliderBackground" Grid.ColumnSpan="2" HorizontalAlignment="Left" Height="40" Margin="6,-4,0,0"
                 Grid.RowSpan="2" Grid.Row="2" VerticalAlignment="Top" Width="116" StrokeThickness="0"
                 RadiusX="4" RadiusY="4"
                 PreviewMouseWheel="VolumeBox_PreviewMouseWheel">
@@ -102,10 +109,6 @@
                             <Setter.Value>
                                 <ControlTemplate TargetType="Slider">
                                     <Grid>
-                                        <!-- Background Track -->
-                                        <Rectangle Name="PART_TrackBackground" Height="4" Fill="Gray" 
-                                       VerticalAlignment="Center" Margin="4"/>
-
                                         <!-- Standard volume marker (positioned from code-behind for template sizing). -->
                                         <Border x:Name="PART_DefaultVolumeMarker"
                                                 Width="2"
@@ -114,7 +117,11 @@
                                                 VerticalAlignment="Center"
                                                 Background="#AA303030"
                                                 IsHitTestVisible="False"
-                                                Panel.ZIndex="1" />
+                                                Panel.ZIndex="0" />
+
+                                        <!-- Background Track -->
+                                        <Rectangle Name="PART_TrackBackground" Height="4" Fill="Gray"
+                                                   VerticalAlignment="Center" Margin="4" Panel.ZIndex="1"/>
 
                                         <!-- Track with Functional Movement -->
                                         <Track Name="PART_Track" VerticalAlignment="Center" Panel.ZIndex="2">
@@ -139,7 +146,7 @@
             </Slider>
 
             <!-- Bottom Buttons -->
-            <StackPanel Grid.Column="1" Grid.Row="2" Orientation="Horizontal" Margin="87,-8,-2,0" Grid.RowSpan="2" Grid.ColumnSpan="2">
+            <StackPanel x:Name="BottomButtonsPanel" Grid.Column="1" Grid.Row="2" Orientation="Horizontal" Margin="87,-8,-2,0" Grid.RowSpan="2" Grid.ColumnSpan="2">
                 <Button x:Name="PageSelectButton" Width="38" Height="40" Click="PageSelectButton_Click" ToolTip="Select for Alert Tone" Padding="0"
                         Style="{StaticResource MaterialDesignPaperDarkButton}">
                     <Image Source="/dvmconsole;component/Assets/pageselect.png" Width="36" Height="40" Margin="1.5,2,0,0"/>
