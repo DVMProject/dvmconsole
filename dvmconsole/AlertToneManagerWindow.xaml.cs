@@ -120,27 +120,50 @@ namespace dvmconsole
             OpenFileDialog openFileDialog = new OpenFileDialog
             {
                 Filter = "WAV Files (*.wav)|*.wav|All Files (*.*)|*.*",
-                Title = "Select Alert Tone"
+                Title = "Select Alert Tone(s)",
+                Multiselect = true
             };
 
             if (openFileDialog.ShowDialog() != true)
                 return;
 
-            string alertFilePath = openFileDialog.FileName;
-            if (AlertTones.Any(item => string.Equals(item.FilePath, alertFilePath, StringComparison.OrdinalIgnoreCase)))
-                return;
+            AlertToneManagerItem lastAddedItem = null;
+            int addedCount = 0;
+            HashSet<string> existingPaths = new HashSet<string>(
+                AlertTones
+                    .Where(item => !string.IsNullOrWhiteSpace(item.FilePath))
+                    .Select(item => item.FilePath),
+                StringComparer.OrdinalIgnoreCase);
 
-            AlertToneManagerItem item = new AlertToneManagerItem
+            foreach (string alertFilePath in openFileDialog.FileNames.Where(path => !string.IsNullOrWhiteSpace(path)))
             {
-                Id = Guid.NewGuid().ToString("N"),
-                DisplayName = Path.GetFileNameWithoutExtension(alertFilePath),
-                FilePath = alertFilePath,
-                TabName = AvailableTabs[0]
-            };
+                if (!existingPaths.Add(alertFilePath))
+                    continue;
 
-            AlertTones.Add(item);
-            AlertToneGrid.SelectedItem = item;
-            AlertToneGrid.ScrollIntoView(item);
+                AlertToneManagerItem item = new AlertToneManagerItem
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    DisplayName = Path.GetFileNameWithoutExtension(alertFilePath),
+                    FilePath = alertFilePath,
+                    TabName = AvailableTabs[0]
+                };
+
+                AlertTones.Add(item);
+                lastAddedItem = item;
+                addedCount++;
+            }
+
+            if (lastAddedItem != null)
+            {
+                AlertToneGrid.SelectedItem = lastAddedItem;
+                AlertToneGrid.ScrollIntoView(lastAddedItem);
+            }
+
+            if (addedCount > 1)
+            {
+                StatusTextBlock.Text = $"Added {addedCount} alert tones.";
+                StatusTextBlock.Visibility = Visibility.Visible;
+            }
         }
 
         private void Delete_Click(object sender, RoutedEventArgs e)
