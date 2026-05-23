@@ -314,14 +314,33 @@ namespace dvmconsole
             Dispatcher.Invoke(() =>
             {
                 foreach (var entry in ViewModel.CallHistory.Where(c => c.Channel == channel && c.SrcId == srcId))
-                {
-                    if (settingsManager.DarkMode)
-                        entry.ForegroundColor = Brushes.White;
-                    else
-                        entry.ForegroundColor = Brushes.Black;
-                    entry.BackgroundColor = Brushes.Transparent;
-                }
+                    ResetEntryColors(entry);
             });
+        }
+
+        /// <summary>
+        /// Clears any active call highlighting for a channel, regardless of source RID.
+        /// </summary>
+        /// <param name="channel"></param>
+        public void ClearChannelActivity(string channel)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                foreach (var entry in ViewModel.CallHistory.Where(c => c.Channel == channel))
+                    ResetEntryColors(entry);
+            });
+        }
+
+        private void ResetEntryColors(CallEntry entry)
+        {
+            if (entry == null)
+                return;
+
+            if (settingsManager.DarkMode)
+                entry.ForegroundColor = Brushes.White;
+            else
+                entry.ForegroundColor = Brushes.Black;
+            entry.BackgroundColor = Brushes.Transparent;
         }
     } // public partial class CallHistoryWindow : Window
 } // namespace dvmconsole

@@ -1177,6 +1177,14 @@ namespace dvmconsole.Controls
             callHistoryWindow.AddCall(channel, srcId, dstId, ridAlias, timestamp);
         }
 
+        /// <summary>
+        /// Clears active highlighting from this channel's local call history.
+        /// </summary>
+        public void ClearCallHistoryActivity()
+        {
+            callHistoryWindow.ClearChannelActivity(ChannelName);
+        }
+
         /** WPF Events */
 
         /// <summary>
