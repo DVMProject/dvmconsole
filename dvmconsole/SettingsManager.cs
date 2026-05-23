@@ -115,13 +115,25 @@ namespace dvmconsole
         /// </summary>
         public Dictionary<string, int> ChannelOutputDevices { get; set; } = new Dictionary<string, int>();
         /// <summary>
+        /// Stable per-resource output device identities keyed by talkgroup ID or stream name.
+        /// </summary>
+        public Dictionary<string, string> ChannelOutputDeviceKeys { get; set; } = new Dictionary<string, string>();
+        /// <summary>
         /// Global input device override. -1 follows the current Windows default device.
         /// </summary>
         public int AudioInputDevice { get; set; } = WINDOWS_DEFAULT_AUDIO_DEVICE;
         /// <summary>
+        /// Stable global input device identity. Empty or windows-default follows Windows default.
+        /// </summary>
+        public string AudioInputDeviceKey { get; set; } = AudioDeviceResolver.WINDOWS_DEFAULT_DEVICE_KEY;
+        /// <summary>
         /// Master output device used by resources without a per-TG override. -1 follows Windows default.
         /// </summary>
         public int MasterOutputDevice { get; set; } = WINDOWS_DEFAULT_AUDIO_DEVICE;
+        /// <summary>
+        /// Stable master output device identity. Empty or windows-default follows Windows default.
+        /// </summary>
+        public string MasterOutputDeviceKey { get; set; } = AudioDeviceResolver.WINDOWS_DEFAULT_DEVICE_KEY;
         /// <summary>
         /// Enables simple console microphone automatic gain control.
         /// </summary>
@@ -379,8 +391,11 @@ namespace dvmconsole
                     AlertToneTabs = loadedSettings.AlertToneTabs ?? new Dictionary<string, string>();
                     AlertTones = loadedSettings.AlertTones ?? new List<AlertToneConfig>();
                     ChannelOutputDevices = loadedSettings.ChannelOutputDevices ?? new Dictionary<string, int>();
+                    ChannelOutputDeviceKeys = loadedSettings.ChannelOutputDeviceKeys ?? new Dictionary<string, string>();
                     AudioInputDevice = NormalizeAudioDeviceIndex(loadedSettings.AudioInputDevice);
+                    AudioInputDeviceKey = NormalizeAudioDeviceKey(loadedSettings.AudioInputDeviceKey);
                     MasterOutputDevice = NormalizeAudioDeviceIndex(loadedSettings.MasterOutputDevice);
+                    MasterOutputDeviceKey = NormalizeAudioDeviceKey(loadedSettings.MasterOutputDeviceKey);
                     AudioInputAgcEnabled = loadedSettings.AudioInputAgcEnabled;
                     MuteRxAudioWhileTransmitting = loadedSettings.MuteRxAudioWhileTransmitting;
                     MigrateLegacyAudioSettings();
@@ -910,12 +925,16 @@ namespace dvmconsole
         /// </summary>
         /// <param name="channelName"></param>
         /// <param name="deviceIndex"></param>
-        public void UpdateChannelOutputDevice(string channelName, int deviceIndex)
+        public void UpdateChannelOutputDevice(string channelName, int deviceIndex, string deviceKey = null)
         {
             if (string.IsNullOrWhiteSpace(channelName))
                 return;
 
             ChannelOutputDevices[channelName] = NormalizeAudioDeviceIndex(deviceIndex);
+            ChannelOutputDeviceKeys[channelName] = NormalizeAudioDeviceKey(
+                string.IsNullOrWhiteSpace(deviceKey)
+                    ? AudioDeviceResolver.GetOutputDeviceKey(deviceIndex)
+                    : deviceKey);
             SaveSettings();
         }
 
@@ -924,19 +943,29 @@ namespace dvmconsole
             if (string.IsNullOrWhiteSpace(channelName))
                 return;
 
-            if (ChannelOutputDevices.Remove(channelName))
+            bool removed = ChannelOutputDevices.Remove(channelName);
+            removed |= ChannelOutputDeviceKeys.Remove(channelName);
+            if (removed)
                 SaveSettings();
         }
 
-        public void UpdateAudioInputDevice(int deviceIndex)
+        public void UpdateAudioInputDevice(int deviceIndex, string deviceKey = null)
         {
             AudioInputDevice = NormalizeAudioDeviceIndex(deviceIndex);
+            AudioInputDeviceKey = NormalizeAudioDeviceKey(
+                string.IsNullOrWhiteSpace(deviceKey)
+                    ? AudioDeviceResolver.GetInputDeviceKey(deviceIndex)
+                    : deviceKey);
             SaveSettings();
         }
 
-        public void UpdateMasterOutputDevice(int deviceIndex)
+        public void UpdateMasterOutputDevice(int deviceIndex, string deviceKey = null)
         {
             MasterOutputDevice = NormalizeAudioDeviceIndex(deviceIndex);
+            MasterOutputDeviceKey = NormalizeAudioDeviceKey(
+                string.IsNullOrWhiteSpace(deviceKey)
+                    ? AudioDeviceResolver.GetOutputDeviceKey(deviceIndex)
+                    : deviceKey);
             SaveSettings();
         }
 
@@ -945,14 +974,40 @@ namespace dvmconsole
             return deviceIndex < WINDOWS_DEFAULT_AUDIO_DEVICE ? WINDOWS_DEFAULT_AUDIO_DEVICE : deviceIndex;
         }
 
+        public static string NormalizeAudioDeviceKey(string deviceKey)
+        {
+            return string.IsNullOrWhiteSpace(deviceKey)
+                ? AudioDeviceResolver.WINDOWS_DEFAULT_DEVICE_KEY
+                : deviceKey.Trim();
+        }
+
         private void MigrateLegacyAudioSettings()
         {
             if (ChannelOutputDevices == null)
                 ChannelOutputDevices = new Dictionary<string, int>();
+            if (ChannelOutputDeviceKeys == null)
+                ChannelOutputDeviceKeys = new Dictionary<string, string>();
+
+            if (AudioDeviceResolver.IsWindowsDefault(AudioInputDeviceKey) && AudioInputDevice != WINDOWS_DEFAULT_AUDIO_DEVICE)
+                AudioInputDeviceKey = NormalizeAudioDeviceKey(AudioDeviceResolver.GetInputDeviceKey(AudioInputDevice));
+
+            if (AudioDeviceResolver.IsWindowsDefault(MasterOutputDeviceKey) && MasterOutputDevice != WINDOWS_DEFAULT_AUDIO_DEVICE)
+                MasterOutputDeviceKey = NormalizeAudioDeviceKey(AudioDeviceResolver.GetOutputDeviceKey(MasterOutputDevice));
+
+            foreach (KeyValuePair<string, int> kvp in ChannelOutputDevices.ToList())
+            {
+                if (string.IsNullOrWhiteSpace(kvp.Key) || ChannelOutputDeviceKeys.ContainsKey(kvp.Key))
+                    continue;
+
+                string deviceKey = AudioDeviceResolver.GetOutputDeviceKey(kvp.Value);
+                if (!string.IsNullOrWhiteSpace(deviceKey))
+                    ChannelOutputDeviceKeys[kvp.Key] = NormalizeAudioDeviceKey(deviceKey);
+            }
 
             if (ChannelOutputDevices.TryGetValue(LEGACY_GLOBAL_INPUT_DEVICE_KEY, out int legacyInputDevice))
             {
                 AudioInputDevice = NormalizeAudioDeviceIndex(legacyInputDevice);
+                AudioInputDeviceKey = NormalizeAudioDeviceKey(AudioDeviceResolver.GetInputDeviceKey(AudioInputDevice));
                 ChannelOutputDevices.Remove(LEGACY_GLOBAL_INPUT_DEVICE_KEY);
             }
         }
@@ -1084,6 +1139,7 @@ namespace dvmconsole
 
             changed |= PruneDictionary(TarChannelConfigs, validTarKeys);
             changed |= PruneDictionary(ChannelOutputDevices, validAudioOutputKeys);
+            changed |= PruneDictionary(ChannelOutputDeviceKeys, validAudioOutputKeys);
             changed |= PruneDictionary(SystemStatusPositions, systemNames);
             changed |= PruneDictionary(WebStreamPositions, webStreamNames);
             changed |= PruneDictionary(WebStreamVolumes, webStreamNames);

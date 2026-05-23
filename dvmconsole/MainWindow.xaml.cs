@@ -2614,10 +2614,7 @@ namespace dvmconsole
 
         private void ApplyConfiguredInputDeviceToWaveIn()
         {
-            int deviceNumber = SettingsManager.NormalizeAudioDeviceIndex(settingsManager.AudioInputDevice);
-            if (deviceNumber >= WaveIn.DeviceCount)
-                deviceNumber = SettingsManager.WINDOWS_DEFAULT_AUDIO_DEVICE;
-
+            int deviceNumber = AudioDeviceResolver.ResolveInputDeviceNumber(settingsManager.AudioInputDeviceKey, settingsManager.AudioInputDevice);
             waveIn.DeviceNumber = deviceNumber;
         }
 

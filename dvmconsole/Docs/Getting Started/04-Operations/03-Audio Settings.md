@@ -27,6 +27,16 @@ If a saved device is missing, the console falls back to Windows default.
 
 ---
 
+# Device Persistence
+
+Audio device selections are saved by device identity, not just by Windows device number.
+
+This helps prevent routing from jumping to the wrong microphone or speaker when USB audio devices are plugged in, unplugged, or reordered by Windows.
+
+If a saved device is temporarily unavailable, the console uses Windows Default until that device returns.
+
+---
+
 # Master Output Device
 
 The master output device is the default speaker/output device for resources.

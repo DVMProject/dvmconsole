@@ -231,14 +231,14 @@ namespace dvmconsole
         /// </summary>
         /// <param name="talkgroupId"></param>
         /// <param name="deviceIndex"></param>
-        public void SetTalkgroupOutputDevice(string talkgroupId, int deviceIndex)
+        public void SetTalkgroupOutputDevice(string talkgroupId, int deviceIndex, string deviceKey = null)
         {
             lock (talkgroupProvidersSync)
             {
                 bool wasActive = talkgroupProviders.ContainsKey(talkgroupId);
                 RemoveTalkgroupProvider(talkgroupId);
 
-                settingsManager.UpdateChannelOutputDevice(talkgroupId, deviceIndex);
+                settingsManager.UpdateChannelOutputDevice(talkgroupId, deviceIndex, deviceKey);
                 if (wasActive)
                     AddTalkgroupStream(talkgroupId);
             }
@@ -256,11 +256,11 @@ namespace dvmconsole
             }
         }
 
-        public void SetMasterOutputDevice(int deviceIndex)
+        public void SetMasterOutputDevice(int deviceIndex, string deviceKey = null)
         {
             lock (talkgroupProvidersSync)
             {
-                settingsManager.UpdateMasterOutputDevice(deviceIndex);
+                settingsManager.UpdateMasterOutputDevice(deviceIndex, deviceKey);
                 ReloadOutputDevices();
             }
         }
@@ -280,14 +280,18 @@ namespace dvmconsole
 
         private int ResolveTalkgroupOutputDevice(string talkgroupId)
         {
-            int deviceIndex;
             if (!string.IsNullOrWhiteSpace(talkgroupId) &&
-                settingsManager.ChannelOutputDevices.TryGetValue(talkgroupId, out int overrideDevice))
-                deviceIndex = SettingsManager.NormalizeAudioDeviceIndex(overrideDevice);
-            else
-                deviceIndex = SettingsManager.NormalizeAudioDeviceIndex(settingsManager.MasterOutputDevice);
+                settingsManager.ChannelOutputDeviceKeys.TryGetValue(talkgroupId, out string overrideDeviceKey))
+            {
+                settingsManager.ChannelOutputDevices.TryGetValue(talkgroupId, out int legacyOverrideDevice);
+                return AudioDeviceResolver.ResolveOutputDeviceNumber(overrideDeviceKey, legacyOverrideDevice);
+            }
 
-            return deviceIndex >= WaveOut.DeviceCount ? SettingsManager.WINDOWS_DEFAULT_AUDIO_DEVICE : deviceIndex;
+            if (!string.IsNullOrWhiteSpace(talkgroupId) &&
+                settingsManager.ChannelOutputDevices.TryGetValue(talkgroupId, out int legacyOnlyOverrideDevice))
+                return AudioDeviceResolver.ResolveOutputDeviceNumber(null, legacyOnlyOverrideDevice);
+
+            return AudioDeviceResolver.ResolveOutputDeviceNumber(settingsManager.MasterOutputDeviceKey, settingsManager.MasterOutputDevice);
         }
 
         private float ResolveTalkgroupVolume(string talkgroupId)

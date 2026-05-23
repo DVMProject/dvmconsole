@@ -59,7 +59,7 @@
             <StackPanel Grid.Column="0">
                 <TextBlock Text="Global Input Device" FontWeight="Bold" Margin="0,0,0,4"/>
                 <ComboBox x:Name="InputDeviceComboBox"
-                          SelectedValuePath="DeviceNumber"
+                          SelectedValuePath="DeviceKey"
                           DisplayMemberPath="DisplayName"/>
                 <TextBlock Text="Use Windows Default unless this console should always use a specific mic."
                            Opacity="0.72" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
@@ -68,7 +68,7 @@
             <StackPanel Grid.Column="2">
                 <TextBlock Text="Master Output Device" FontWeight="Bold" Margin="0,0,0,4"/>
                 <ComboBox x:Name="MasterOutputComboBox"
-                          SelectedValuePath="DeviceNumber"
+                          SelectedValuePath="DeviceKey"
                           DisplayMemberPath="DisplayName"/>
                 <TextBlock Text="Resources use this output unless an override is selected below."
                            Opacity="0.72" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
