@@ -10,7 +10,7 @@
         mc:Ignorable="d" Icon="/dvmconsole;component/Assets/history.png"
         Title="Call History" Height="450" Width="551" WindowStartupLocation="CenterOwner">
     <Grid>
-        <DataGrid ItemsSource="{Binding CallHistory}" AutoGenerateColumns="False" IsReadOnly="True" Margin="10">
+        <DataGrid x:Name="CallHistoryGrid" ItemsSource="{Binding CallHistory}" AutoGenerateColumns="False" IsReadOnly="True" Margin="10">
             <DataGrid.RowStyle>
                 <Style TargetType="DataGridRow">
                     <Setter Property="Background" Value="{Binding BackgroundColor}" />
@@ -18,11 +18,11 @@
                 </Style>
             </DataGrid.RowStyle>
             <DataGrid.Columns>
-                <DataGridTextColumn Header="Channel" Binding="{Binding Channel}" Width="150" />
-                <DataGridTextColumn Header="TGID" Binding="{Binding DstId}" Width="80" />
-                <DataGridTextColumn Header="RID Alias" Binding="{Binding RidAlias}" Width="160" />
-                <DataGridTextColumn Header="RID" Binding="{Binding SrcId}" Width="90" />
-                <DataGridTextColumn Header="Timestamp" Binding="{Binding Timestamp}" Width="150" />
+                <DataGridTextColumn x:Name="TimestampColumn" Header="Timestamp" Binding="{Binding Timestamp}" Width="120" />
+                <DataGridTextColumn x:Name="ChannelColumn" Header="Channel" Binding="{Binding Channel}" Width="150" />
+                <DataGridTextColumn x:Name="RidAliasColumn" Header="RID Alias" Binding="{Binding RidAlias}" Width="160" />
+                <DataGridTextColumn x:Name="RidColumn" Header="RID" Binding="{Binding SrcId}" Width="90" />
+                <DataGridTextColumn x:Name="TgidColumn" Header="TGID" Binding="{Binding DstId}" Width="80" />
             </DataGrid.Columns>
         </DataGrid>
     </Grid>

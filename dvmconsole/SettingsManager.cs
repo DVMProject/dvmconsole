@@ -35,6 +35,8 @@ namespace dvmconsole
         public const string LEGACY_GLOBAL_INPUT_DEVICE_KEY = "GLOBAL_INPUT";
         public const int MAX_TOOLBAR_CLOCKS = 8;
         public const string DEFAULT_TOOLBAR_CLOCK_COLOR = "#3A3A3A";
+        public const double DEFAULT_CALL_HISTORY_WINDOW_WIDTH = 551;
+        public const double DEFAULT_CALL_HISTORY_WINDOW_HEIGHT = 450;
 
         public static readonly string UserAppData = Environment.GetFolderPath(
             Environment.SpecialFolder.ApplicationData);
@@ -287,9 +289,43 @@ namespace dvmconsole
         /// Saved list of active web stream names to restore on startup.
         /// </summary>
         public List<string> SelectedWebStreams { get; set; } = new List<string>();
+        /// <summary>
+        /// Saved call history window position and size.
+        /// </summary>
+        public WindowPlacementConfig CallHistoryWindowPlacement { get; set; } = new WindowPlacementConfig
+        {
+            Width = DEFAULT_CALL_HISTORY_WINDOW_WIDTH,
+            Height = DEFAULT_CALL_HISTORY_WINDOW_HEIGHT
+        };
+        /// <summary>
+        /// Saved call history column order, visibility, and widths.
+        /// </summary>
+        public List<GridColumnConfig> CallHistoryColumns { get; set; } = CreateDefaultCallHistoryColumns();
         /*
         ** Methods
         */
+
+        /// <summary>
+        /// Persisted floating window position and size.
+        /// </summary>
+        public class WindowPlacementConfig
+        {
+            public double? Left { get; set; }
+            public double? Top { get; set; }
+            public double Width { get; set; } = DEFAULT_CALL_HISTORY_WINDOW_WIDTH;
+            public double Height { get; set; } = DEFAULT_CALL_HISTORY_WINDOW_HEIGHT;
+        }
+
+        /// <summary>
+        /// Persisted data grid column display preferences.
+        /// </summary>
+        public class GridColumnConfig
+        {
+            public string Key { get; set; } = string.Empty;
+            public int DisplayIndex { get; set; }
+            public double Width { get; set; }
+            public bool Visible { get; set; } = true;
+        }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="SettingsManager"/> class.
@@ -392,6 +428,11 @@ namespace dvmconsole
                     RestoreSelectedChannelsOnStartup = loadedSettings.RestoreSelectedChannelsOnStartup;
                     SelectedChannels = loadedSettings.SelectedChannels ?? new List<string>();
                     SelectedWebStreams = loadedSettings.SelectedWebStreams ?? new List<string>();
+                    CallHistoryWindowPlacement = NormalizeWindowPlacement(
+                        loadedSettings.CallHistoryWindowPlacement,
+                        DEFAULT_CALL_HISTORY_WINDOW_WIDTH,
+                        DEFAULT_CALL_HISTORY_WINDOW_HEIGHT);
+                    CallHistoryColumns = NormalizeCallHistoryColumns(loadedSettings.CallHistoryColumns);
 
                     if (AlertTones == null || AlertTones.Count == 0)
                         AlertTones = MigrateLegacyAlertTones();
@@ -447,6 +488,92 @@ namespace dvmconsole
                 Log.WriteLine($"Error saving settings: {ex.Message}");
                 Log.StackTrace(ex, false);
             }
+        }
+
+        /// <summary>
+        /// Saves call history window geometry and column preferences.
+        /// </summary>
+        /// <param name="placement"></param>
+        /// <param name="columns"></param>
+        public void SaveCallHistoryWindowSettings(WindowPlacementConfig placement, IEnumerable<GridColumnConfig> columns)
+        {
+            CallHistoryWindowPlacement = NormalizeWindowPlacement(
+                placement,
+                DEFAULT_CALL_HISTORY_WINDOW_WIDTH,
+                DEFAULT_CALL_HISTORY_WINDOW_HEIGHT);
+            CallHistoryColumns = NormalizeCallHistoryColumns(columns);
+            SaveSettings();
+        }
+
+        private static WindowPlacementConfig NormalizeWindowPlacement(WindowPlacementConfig placement, double defaultWidth, double defaultHeight)
+        {
+            double width = placement?.Width ?? defaultWidth;
+            double height = placement?.Height ?? defaultHeight;
+
+            return new WindowPlacementConfig
+            {
+                Left = IsFinite(placement?.Left) ? placement.Left : null,
+                Top = IsFinite(placement?.Top) ? placement.Top : null,
+                Width = width > 0 ? width : defaultWidth,
+                Height = height > 0 ? height : defaultHeight
+            };
+        }
+
+        private static List<GridColumnConfig> CreateDefaultCallHistoryColumns()
+        {
+            return new List<GridColumnConfig>
+            {
+                new GridColumnConfig { Key = "Timestamp", DisplayIndex = 0, Width = 120, Visible = true },
+                new GridColumnConfig { Key = "Channel", DisplayIndex = 1, Width = 150, Visible = true },
+                new GridColumnConfig { Key = "RidAlias", DisplayIndex = 2, Width = 160, Visible = true },
+                new GridColumnConfig { Key = "Rid", DisplayIndex = 3, Width = 90, Visible = true },
+                new GridColumnConfig { Key = "Tgid", DisplayIndex = 4, Width = 80, Visible = true }
+            };
+        }
+
+        private static List<GridColumnConfig> NormalizeCallHistoryColumns(IEnumerable<GridColumnConfig> columns)
+        {
+            Dictionary<string, GridColumnConfig> savedColumns = (columns ?? Enumerable.Empty<GridColumnConfig>())
+                .Where(column => !string.IsNullOrWhiteSpace(column?.Key))
+                .GroupBy(column => column.Key.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.Last(), StringComparer.OrdinalIgnoreCase);
+
+            List<GridColumnConfig> defaults = CreateDefaultCallHistoryColumns();
+            List<GridColumnConfig> normalized = new List<GridColumnConfig>();
+            foreach (GridColumnConfig defaultColumn in defaults)
+            {
+                if (!savedColumns.TryGetValue(defaultColumn.Key, out GridColumnConfig savedColumn))
+                {
+                    normalized.Add(defaultColumn);
+                    continue;
+                }
+
+                normalized.Add(new GridColumnConfig
+                {
+                    Key = defaultColumn.Key,
+                    DisplayIndex = savedColumn.DisplayIndex,
+                    Width = savedColumn.Width > 0 ? savedColumn.Width : defaultColumn.Width,
+                    Visible = savedColumn.Visible
+                });
+            }
+
+            normalized = normalized
+                .OrderBy(column => column.DisplayIndex)
+                .Select((column, index) => new GridColumnConfig
+                {
+                    Key = column.Key,
+                    DisplayIndex = index,
+                    Width = column.Width,
+                    Visible = column.Visible
+                })
+                .ToList();
+
+            return normalized;
+        }
+
+        private static bool IsFinite(double? value)
+        {
+            return value.HasValue && !double.IsNaN(value.Value) && !double.IsInfinity(value.Value);
         }
 
         /// <summary>

@@ -13,7 +13,10 @@
 */
 
 using System.Collections.ObjectModel;
+using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 
 namespace dvmconsole
@@ -109,6 +112,7 @@ namespace dvmconsole
         public const int MAX_CALL_HISTORY = 100;
         private int maxCallHistory = MAX_CALL_HISTORY;
         private SettingsManager settingsManager;
+        private Dictionary<string, DataGridColumn> columnsByKey;
 
         /*
         ** Properties
@@ -133,6 +137,14 @@ namespace dvmconsole
             InitializeComponent();
             this.settingsManager = settingsManager;
             this.maxCallHistory = maxCallHistory;
+            columnsByKey = new Dictionary<string, DataGridColumn>
+            {
+                { "Timestamp", TimestampColumn },
+                { "Channel", ChannelColumn },
+                { "RidAlias", RidAliasColumn },
+                { "Rid", RidColumn },
+                { "Tgid", TgidColumn }
+            };
 
             // clamp max call history count
             if (this.maxCallHistory > MAX_CALL_HISTORY)
@@ -142,6 +154,9 @@ namespace dvmconsole
 
             ViewModel = new CallHistoryViewModel();
             DataContext = ViewModel;
+
+            ApplyWindowPlacement();
+            ApplyColumnSettings();
         }
 
         /// <summary>
@@ -150,8 +165,95 @@ namespace dvmconsole
         /// <param name="e"></param>
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
+            SaveWindowSettings();
             e.Cancel = true;
             this.Hide();
+        }
+
+        private void ApplyWindowPlacement()
+        {
+            SettingsManager.WindowPlacementConfig placement = settingsManager?.CallHistoryWindowPlacement;
+            if (placement == null)
+                return;
+
+            Width = placement.Width > 0 ? placement.Width : SettingsManager.DEFAULT_CALL_HISTORY_WINDOW_WIDTH;
+            Height = placement.Height > 0 ? placement.Height : SettingsManager.DEFAULT_CALL_HISTORY_WINDOW_HEIGHT;
+
+            if (placement.Left.HasValue && placement.Top.HasValue)
+            {
+                WindowStartupLocation = WindowStartupLocation.Manual;
+                Left = ClampToVirtualScreen(placement.Left.Value, SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenWidth, Width);
+                Top = ClampToVirtualScreen(placement.Top.Value, SystemParameters.VirtualScreenTop, SystemParameters.VirtualScreenHeight, Height);
+            }
+        }
+
+        private void ApplyColumnSettings()
+        {
+            List<SettingsManager.GridColumnConfig> columnSettings = settingsManager?.CallHistoryColumns;
+            if (columnSettings == null || columnSettings.Count == 0)
+                return;
+
+            foreach (SettingsManager.GridColumnConfig columnSetting in columnSettings)
+            {
+                if (!columnsByKey.TryGetValue(columnSetting.Key, out DataGridColumn column))
+                    continue;
+
+                if (columnSetting.Width > 0)
+                    column.Width = new DataGridLength(columnSetting.Width);
+
+                column.Visibility = columnSetting.Visible ? Visibility.Visible : Visibility.Collapsed;
+            }
+
+            foreach (SettingsManager.GridColumnConfig columnSetting in columnSettings.OrderBy(c => c.DisplayIndex))
+            {
+                if (!columnsByKey.TryGetValue(columnSetting.Key, out DataGridColumn column))
+                    continue;
+
+                int displayIndex = Math.Max(0, Math.Min(CallHistoryGrid.Columns.Count - 1, columnSetting.DisplayIndex));
+                if (column.DisplayIndex != displayIndex)
+                    column.DisplayIndex = displayIndex;
+            }
+        }
+
+        private void SaveWindowSettings()
+        {
+            if (settingsManager == null)
+                return;
+
+            Rect bounds = WindowState == WindowState.Normal
+                ? new Rect(Left, Top, Width, Height)
+                : RestoreBounds;
+
+            settingsManager.SaveCallHistoryWindowSettings(
+                new SettingsManager.WindowPlacementConfig
+                {
+                    Left = bounds.Left,
+                    Top = bounds.Top,
+                    Width = bounds.Width,
+                    Height = bounds.Height
+                },
+                GetColumnSettings());
+        }
+
+        private IEnumerable<SettingsManager.GridColumnConfig> GetColumnSettings()
+        {
+            return columnsByKey
+                .Select(kvp => new SettingsManager.GridColumnConfig
+                {
+                    Key = kvp.Key,
+                    DisplayIndex = kvp.Value.DisplayIndex,
+                    Width = kvp.Value.ActualWidth > 0 ? kvp.Value.ActualWidth : kvp.Value.Width.Value,
+                    Visible = kvp.Value.Visibility == Visibility.Visible
+                })
+                .OrderBy(column => column.DisplayIndex)
+                .ToList();
+        }
+
+        private static double ClampToVirtualScreen(double coordinate, double screenStart, double screenSize, double windowSize)
+        {
+            double min = screenStart;
+            double max = screenStart + Math.Max(0, screenSize - windowSize);
+            return Math.Max(min, Math.Min(max, coordinate));
         }
 
         /// <summary>
