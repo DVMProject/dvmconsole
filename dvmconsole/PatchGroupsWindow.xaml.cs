@@ -10,7 +10,7 @@
 *   Copyright (C) 2025 Caleb, K4PHP
 *   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
 *   Copyright (C) 2026 Lorenzo L. Romero, K2LLR
-*   Copyright (C) 2026 C. Lovell, K7CBL
+*   Copyright (C) 2026 C. Lovell, Dev_Ranger
 *
 */
 

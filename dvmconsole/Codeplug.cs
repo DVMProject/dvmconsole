@@ -11,7 +11,7 @@
 *   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
 *   Copyright (C) 2025 Steven Jennison, KD8RHO
 *   Copyright (C) 2025 Lorenzo L Romero, K2LLR
-*   Copyright (C) 2026 C. Lovell, K7CBL
+*   Copyright (C) 2026 C. Lovell, Dev_Ranger
 *
 */
 

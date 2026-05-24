@@ -9,7 +9,7 @@
 *
 *   Copyright (C) 2023 Bryan Biedenkapp, N2PLL
 *   Copyright (C) 2024-2025 Caleb, K4PHP
-*   Copyright (C) 2026 C. Lovell, K7CBL
+*   Copyright (C) 2026 C. Lovell, Dev_Ranger
 *
 */
 

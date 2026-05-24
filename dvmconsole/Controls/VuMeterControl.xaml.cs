@@ -8,7 +8,7 @@
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
 *   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
-*   Copyright (C) 2026 C. Lovell, K7CBL
+*   Copyright (C) 2026 C. Lovell, Dev_Ranger
 *
 */
 

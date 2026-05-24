@@ -9,7 +9,7 @@
 *
 *   Copyright (C) 2024 Caleb, K4PHP
 *   Copyright (C) 2025 Steven Jennison, KD8RHO
-*   Copyright (C) 2026 C. Lovell, K7CBL
+*   Copyright (C) 2026 C. Lovell, Dev_Ranger
 *
 */
 
