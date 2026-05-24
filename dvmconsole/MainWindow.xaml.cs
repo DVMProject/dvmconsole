@@ -3233,6 +3233,40 @@ namespace dvmconsole
             audioSettingsWindow.ShowDialog();
         }
 
+        private void SettingsTransfer_Click(object sender, RoutedEventArgs e)
+        {
+            SettingsTransferWindow settingsTransferWindow = new SettingsTransferWindow(settingsManager, ApplyImportedSettingsToRuntime)
+            {
+                Owner = this
+            };
+
+            settingsTransferWindow.ShowDialog();
+        }
+
+        private void ApplyImportedSettingsToRuntime()
+        {
+            menuToggleLockWidgets.IsChecked = settingsManager.LockWidgets;
+            menuSnapCallHistory.IsChecked = settingsManager.SnapCallHistoryToWindow;
+            menuTogglePTTMode.IsChecked = settingsManager.TogglePTTMode;
+            menuTalkPermitTone.IsChecked = settingsManager.TalkPermitTone;
+            menuMuteRxAudioWhileTransmitting.IsChecked = settingsManager.MuteRxAudioWhileTransmitting;
+            menuRetainPatchStateOnStartup.IsChecked = settingsManager.RetainPatchStateOnStartup;
+            menuRestoreSelectedChannels.IsChecked = settingsManager.RestoreSelectedChannelsOnStartup;
+            menuKeepWindowOnTop.IsChecked = settingsManager.KeepWindowOnTop;
+            menuDarkMode.IsChecked = settingsManager.DarkMode;
+
+            Topmost = settingsManager.KeepWindowOnTop;
+            UpdateBackground();
+            RefreshToolbarClocks();
+            audioManager.ReloadOutputDevices();
+            ApplyConfiguredInputDevice();
+
+            if (!string.IsNullOrWhiteSpace(settingsManager.LastCodeplugPath) && File.Exists(settingsManager.LastCodeplugPath))
+                LoadCodeplug(settingsManager.LastCodeplugPath);
+            else
+                GenerateChannelWidgets();
+        }
+
         /// <summary>
         /// 
         /// </summary>

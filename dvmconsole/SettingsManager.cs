@@ -21,6 +21,7 @@ using System.Reflection;
 
 using System.Windows.Forms;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 using fnecore.Utility;
 
@@ -49,6 +50,7 @@ namespace dvmconsole
         public static string UserAppDataPath = UserAppData + Path.DirectorySeparatorChar + RootAppDataPath;
 
         private static string SettingsFilePath = UserAppDataPath + Path.DirectorySeparatorChar + "UserSettings.json";
+        private const string SETTINGS_TRANSFER_FORMAT = "dvmconsole-settings-transfer";
 
         private static SettingsManager _instance = null;
 
@@ -344,6 +346,173 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// Import/export category shown in the settings transfer window.
+        /// </summary>
+        public class SettingsTransferCategoryDefinition
+        {
+            public string Id { get; set; } = string.Empty;
+            public string DisplayName { get; set; } = string.Empty;
+            public string Description { get; set; } = string.Empty;
+            public List<string> PropertyNames { get; set; } = new List<string>();
+        }
+
+        private class SettingsTransferFile
+        {
+            public string Format { get; set; } = SETTINGS_TRANSFER_FORMAT;
+            public int Version { get; set; } = 1;
+            public DateTime ExportedUtc { get; set; } = DateTime.UtcNow;
+            public List<string> Categories { get; set; } = new List<string>();
+            public JObject Settings { get; set; } = new JObject();
+        }
+
+        private static readonly List<SettingsTransferCategoryDefinition> SETTINGS_TRANSFER_CATEGORIES = new List<SettingsTransferCategoryDefinition>
+        {
+            new SettingsTransferCategoryDefinition
+            {
+                Id = "layout",
+                DisplayName = "Console Layout",
+                Description = "Resource, system status, alert tone, web stream, window, canvas, and background placement.",
+                PropertyNames = new List<string>
+                {
+                    nameof(ChannelPositions),
+                    nameof(SystemStatusPositions),
+                    nameof(AlertTonePositions),
+                    nameof(WebStreamPositions),
+                    nameof(WindowWidth),
+                    nameof(WindowHeight),
+                    nameof(CanvasWidth),
+                    nameof(CanvasHeight),
+                    nameof(Maximized),
+                    nameof(UserBackgroundImage)
+                }
+            },
+            new SettingsTransferCategoryDefinition
+            {
+                Id = "audio",
+                DisplayName = "Audio Routing",
+                Description = "Input device, master output, per-resource output overrides, AGC, RX mute, and saved volumes.",
+                PropertyNames = new List<string>
+                {
+                    nameof(ChannelOutputDevices),
+                    nameof(ChannelOutputDeviceKeys),
+                    nameof(AudioInputDevice),
+                    nameof(AudioInputDeviceKey),
+                    nameof(MasterOutputDevice),
+                    nameof(MasterOutputDeviceKey),
+                    nameof(AudioInputAgcEnabled),
+                    nameof(MuteRxAudioWhileTransmitting),
+                    nameof(ChannelVolumes),
+                    nameof(WebStreamVolumes)
+                }
+            },
+            new SettingsTransferCategoryDefinition
+            {
+                Id = "tar",
+                DisplayName = "Talkgroup Audio Recorder",
+                Description = "TAR recording folder, enabled TGs, retention, and ignored RID lists.",
+                PropertyNames = new List<string>
+                {
+                    nameof(TarRecordingsRootPath),
+                    nameof(TarChannelConfigs)
+                }
+            },
+            new SettingsTransferCategoryDefinition
+            {
+                Id = "groups",
+                DisplayName = "Groups and Patches",
+                Description = "Patch/multi-select memberships, one-way patch modes, and retained patch enabled state.",
+                PropertyNames = new List<string>
+                {
+                    nameof(PatchGroupMemberships),
+                    nameof(PatchGroupModes),
+                    nameof(PatchGroupEnabledStates)
+                }
+            },
+            new SettingsTransferCategoryDefinition
+            {
+                Id = "alerts",
+                DisplayName = "Custom Alert Tones",
+                Description = "Custom tone list, labels, file paths, tab assignments, and tone positions.",
+                PropertyNames = new List<string>
+                {
+                    nameof(AlertTones),
+                    nameof(AlertToneFilePaths),
+                    nameof(AlertToneTabs),
+                    nameof(AlertTonePositions)
+                }
+            },
+            new SettingsTransferCategoryDefinition
+            {
+                Id = "clocks",
+                DisplayName = "Toolbar Clocks",
+                Description = "Enabled clocks, UTC offsets, colors, 12/24-hour mode, and seconds display.",
+                PropertyNames = new List<string>
+                {
+                    nameof(ToolbarClockConfigs),
+                    nameof(ToolbarClockConfigSlots),
+                    nameof(ClockUse24HourTime),
+                    nameof(ClockShowSeconds)
+                }
+            },
+            new SettingsTransferCategoryDefinition
+            {
+                Id = "startup",
+                DisplayName = "Startup and Sticky State",
+                Description = "Last codeplug path, restored selected channels/web streams, patch state retention, and startup toggles.",
+                PropertyNames = new List<string>
+                {
+                    nameof(LastCodeplugPath),
+                    nameof(RestoreSelectedChannelsOnStartup),
+                    nameof(SelectedChannels),
+                    nameof(SelectedWebStreams),
+                    nameof(RetainPatchStateOnStartup)
+                }
+            },
+            new SettingsTransferCategoryDefinition
+            {
+                Id = "preferences",
+                DisplayName = "Operator Preferences",
+                Description = "Theme, widget visibility, PTT mode, lock widgets, talk permit tone, always-on-top, and trace logging.",
+                PropertyNames = new List<string>
+                {
+                    nameof(ShowSystemStatus),
+                    nameof(ShowChannels),
+                    nameof(ShowAlertTones),
+                    nameof(TogglePTTMode),
+                    nameof(LockWidgets),
+                    nameof(SnapCallHistoryToWindow),
+                    nameof(KeepWindowOnTop),
+                    nameof(DarkMode),
+                    nameof(TalkPermitTone),
+                    nameof(SaveTraceLog)
+                }
+            },
+            new SettingsTransferCategoryDefinition
+            {
+                Id = "call-history",
+                DisplayName = "Call History Window",
+                Description = "Call history window size, position, column order, and visible columns.",
+                PropertyNames = new List<string>
+                {
+                    nameof(CallHistoryWindowPlacement),
+                    nameof(CallHistoryColumns),
+                    nameof(SnapCallHistoryToWindow)
+                }
+            },
+            new SettingsTransferCategoryDefinition
+            {
+                Id = "keys-security",
+                DisplayName = "Keybinds and Selectable Encryption",
+                Description = "Global PTT keybind and per-resource selectable encryption state.",
+                PropertyNames = new List<string>
+                {
+                    nameof(GlobalPTTShortcut),
+                    nameof(SelectableEncryptionStates)
+                }
+            }
+        };
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="SettingsManager"/> class.
         /// </summary>
         public SettingsManager()
@@ -594,6 +763,162 @@ namespace dvmconsole
         private static bool IsFinite(double? value)
         {
             return value.HasValue && !double.IsNaN(value.Value) && !double.IsInfinity(value.Value);
+        }
+
+        public static IReadOnlyList<SettingsTransferCategoryDefinition> GetSettingsTransferCategories()
+        {
+            return SETTINGS_TRANSFER_CATEGORIES;
+        }
+
+        public void ExportSettingsTransfer(string filePath, IEnumerable<string> categoryIds)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                throw new ArgumentException("Export path is required.", nameof(filePath));
+
+            List<SettingsTransferCategoryDefinition> selectedCategories = ResolveTransferCategories(categoryIds).ToList();
+            if (selectedCategories.Count == 0)
+                throw new InvalidOperationException("Select at least one settings category to export.");
+
+            JObject settingsPayload = new JObject();
+            foreach (string propertyName in selectedCategories.SelectMany(c => c.PropertyNames).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                PropertyInfo property = typeof(SettingsManager).GetProperty(propertyName);
+                if (property == null || !property.CanRead)
+                    continue;
+
+                object value = property.GetValue(this);
+                settingsPayload[propertyName] = value == null
+                    ? JValue.CreateNull()
+                    : JToken.FromObject(value);
+            }
+
+            SettingsTransferFile transferFile = new SettingsTransferFile
+            {
+                ExportedUtc = DateTime.UtcNow,
+                Categories = selectedCategories.Select(c => c.Id).ToList(),
+                Settings = settingsPayload
+            };
+
+            string directory = Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrWhiteSpace(directory) && !Directory.Exists(directory))
+                Directory.CreateDirectory(directory);
+
+            File.WriteAllText(filePath, JsonConvert.SerializeObject(transferFile, Formatting.Indented));
+        }
+
+        public List<string> ImportSettingsTransfer(string filePath, IEnumerable<string> categoryIds)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                throw new ArgumentException("Import path is required.", nameof(filePath));
+            if (!File.Exists(filePath))
+                throw new FileNotFoundException("Settings transfer file was not found.", filePath);
+
+            SettingsTransferFile transferFile = JsonConvert.DeserializeObject<SettingsTransferFile>(File.ReadAllText(filePath));
+            if (transferFile == null || transferFile.Settings == null)
+                throw new InvalidOperationException("The selected file is not a valid settings transfer file.");
+            if (!string.Equals(transferFile.Format, SETTINGS_TRANSFER_FORMAT, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("The selected file is not a dvmconsole settings transfer file.");
+
+            HashSet<string> exportedCategories = new HashSet<string>(
+                transferFile.Categories ?? Enumerable.Empty<string>(),
+                StringComparer.OrdinalIgnoreCase);
+
+            List<SettingsTransferCategoryDefinition> selectedCategories = ResolveTransferCategories(categoryIds)
+                .Where(category => exportedCategories.Count == 0 || exportedCategories.Contains(category.Id))
+                .ToList();
+
+            if (selectedCategories.Count == 0)
+                throw new InvalidOperationException("None of the selected categories exist in this transfer file.");
+
+            foreach (string propertyName in selectedCategories.SelectMany(c => c.PropertyNames).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                if (!transferFile.Settings.TryGetValue(propertyName, StringComparison.OrdinalIgnoreCase, out JToken token))
+                    continue;
+
+                PropertyInfo property = typeof(SettingsManager).GetProperty(propertyName);
+                if (property == null || !property.CanWrite)
+                    continue;
+
+                object value = ConvertSettingsTransferToken(token, property.PropertyType);
+                property.SetValue(this, value);
+            }
+
+            NormalizeImportedSettings();
+            SaveSettings();
+            return selectedCategories.Select(c => c.DisplayName).ToList();
+        }
+
+        private static IEnumerable<SettingsTransferCategoryDefinition> ResolveTransferCategories(IEnumerable<string> categoryIds)
+        {
+            HashSet<string> selectedIds = new HashSet<string>(
+                categoryIds?.Where(id => !string.IsNullOrWhiteSpace(id)).Select(id => id.Trim()) ?? Enumerable.Empty<string>(),
+                StringComparer.OrdinalIgnoreCase);
+
+            if (selectedIds.Count == 0)
+                yield break;
+
+            foreach (SettingsTransferCategoryDefinition category in SETTINGS_TRANSFER_CATEGORIES)
+            {
+                if (selectedIds.Contains(category.Id))
+                    yield return category;
+            }
+        }
+
+        private static object ConvertSettingsTransferToken(JToken token, Type targetType)
+        {
+            if (token == null || token.Type == JTokenType.Null)
+            {
+                Type nullableType = Nullable.GetUnderlyingType(targetType);
+                if (!targetType.IsValueType || nullableType != null)
+                    return null;
+
+                return Activator.CreateInstance(targetType);
+            }
+
+            return token.ToObject(targetType);
+        }
+
+        private void NormalizeImportedSettings()
+        {
+            ChannelPositions ??= new Dictionary<string, ChannelPosition>();
+            SystemStatusPositions ??= new Dictionary<string, ChannelPosition>();
+            AlertToneFilePaths ??= new List<string>();
+            AlertTonePositions ??= new Dictionary<string, ChannelPosition>();
+            WebStreamPositions ??= new Dictionary<string, ChannelPosition>();
+            AlertToneTabs ??= new Dictionary<string, string>();
+            AlertTones ??= new List<AlertToneConfig>();
+            ChannelOutputDevices ??= new Dictionary<string, int>();
+            ChannelOutputDeviceKeys ??= new Dictionary<string, string>();
+            ChannelVolumes ??= new Dictionary<string, double>();
+            SelectableEncryptionStates ??= new Dictionary<string, bool>();
+            WebStreamVolumes ??= new Dictionary<string, double>();
+            TarChannelConfigs ??= new Dictionary<string, TarChannelConfig>();
+            PatchGroupMemberships ??= new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>();
+            PatchGroupModes ??= new Dictionary<string, Dictionary<string, bool>>();
+            PatchGroupEnabledStates ??= new Dictionary<string, Dictionary<string, bool>>();
+            SelectedChannels ??= new List<string>();
+            SelectedWebStreams ??= new List<string>();
+
+            AudioInputDevice = NormalizeAudioDeviceIndex(AudioInputDevice);
+            AudioInputDeviceKey = NormalizeAudioDeviceKey(AudioInputDeviceKey);
+            MasterOutputDevice = NormalizeAudioDeviceIndex(MasterOutputDevice);
+            MasterOutputDeviceKey = NormalizeAudioDeviceKey(MasterOutputDeviceKey);
+            MigrateLegacyAudioSettings();
+
+            TarRecordingsRootPath = string.IsNullOrWhiteSpace(TarRecordingsRootPath)
+                ? DefaultTarRecordingsPath
+                : TarRecordingsRootPath.Trim();
+            ToolbarClockConfigSlots = NormalizeToolbarClockConfigSlots(ToolbarClockConfigSlots, ToolbarClockConfigs);
+            ToolbarClockConfigs = ToolbarClockConfigSlotsToList(ToolbarClockConfigSlots);
+            CallHistoryWindowPlacement = NormalizeWindowPlacement(
+                CallHistoryWindowPlacement,
+                DEFAULT_CALL_HISTORY_WINDOW_WIDTH,
+                DEFAULT_CALL_HISTORY_WINDOW_HEIGHT);
+            CallHistoryColumns = NormalizeCallHistoryColumns(CallHistoryColumns);
+
+            if (AlertTones.Count == 0)
+                AlertTones = MigrateLegacyAlertTones();
+            SyncLegacyAlertToneState();
         }
 
         /// <summary>

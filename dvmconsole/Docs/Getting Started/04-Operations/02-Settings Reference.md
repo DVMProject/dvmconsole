@@ -79,6 +79,29 @@ Opens the Audio Settings window.
 
 See **Audio Settings** for details.
 
+## Import / Export Settings
+
+Opens the Settings Transfer window.
+
+Use this to move console preferences between machines without manually copying `UserSettings.json`.
+
+The transfer file is a portable JSON file. You can choose which categories to export or import, including:
+
+- console layout and widget positions
+- audio routing and volumes
+- TAR configuration
+- patch and multi-select group state
+- custom alert tones
+- toolbar clocks
+- startup restore state
+- operator preferences
+- call history window preferences
+- keybinds and selectable encryption state
+
+Press `Ctrl+A` in the transfer window to select all categories.
+
+On import, only the selected categories are replaced. The console reloads the current codeplug/widgets after import so layout and routing changes take effect immediately.
+
 ## Reset Settings
 
 Clears saved user settings.
