@@ -46,7 +46,7 @@ namespace dvmconsole
 
         private sealed class AudioOutputSelectorContext
         {
-            public string TalkgroupId { get; init; } = string.Empty;
+            public string ResourceKey { get; init; } = string.Empty;
             public StackPanel ZonePanel { get; init; }
         }
 
@@ -179,17 +179,22 @@ namespace dvmconsole
                 ToolTip = $"{channel.Name} ({channel.System}) TG {channel.Tgid}"
             };
 
+            string resourceKey = ResourceIdentity.Build(channel.System, channel.Tgid);
+            string selectedDeviceKey = null;
+            if (!settingsManager.ChannelOutputDeviceKeys.TryGetValue(resourceKey, out selectedDeviceKey))
+                settingsManager.ChannelOutputDeviceKeys.TryGetValue(channel.Tgid, out selectedDeviceKey);
+
             ComboBox selector = new ComboBox
             {
                 ItemsSource = outputDevices,
                 SelectedValuePath = nameof(AudioDeviceOption.DeviceKey),
                 DisplayMemberPath = nameof(AudioDeviceOption.DisplayName),
-                SelectedValue = settingsManager.ChannelOutputDeviceKeys.TryGetValue(channel.Tgid, out string selectedDeviceKey)
+                SelectedValue = !string.IsNullOrWhiteSpace(selectedDeviceKey)
                     ? ResolveSavedDeviceKey(selectedDeviceKey)
                     : AudioDeviceResolver.INHERIT_MASTER_OUTPUT_KEY,
                 Tag = new AudioOutputSelectorContext
                 {
-                    TalkgroupId = channel.Tgid,
+                    ResourceKey = resourceKey,
                     ZonePanel = panel
                 },
                 MinWidth = 240
@@ -202,7 +207,7 @@ namespace dvmconsole
             row.Children.Add(selector);
             panel.Children.Add(row);
 
-            outputSelectorsByTalkgroup[channel.Tgid] = selector;
+            outputSelectorsByTalkgroup[resourceKey] = selector;
         }
 
         private void AddWebStreamOutputRow(StackPanel panel, Codeplug.WebStream stream, List<AudioDeviceOption> outputDevices)
@@ -234,7 +239,7 @@ namespace dvmconsole
                     : AudioDeviceResolver.INHERIT_MASTER_OUTPUT_KEY,
                 Tag = new AudioOutputSelectorContext
                 {
-                    TalkgroupId = streamKey,
+                    ResourceKey = streamKey,
                     ZonePanel = panel
                 },
                 MinWidth = 240

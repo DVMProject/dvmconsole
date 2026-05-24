@@ -1103,7 +1103,9 @@ namespace dvmconsole
                             }
                         }
 
-                        systemStatuses.Add(channel.Name, new SlotStatus());
+                        string statusKey = ResourceIdentity.Build(channel.System, channel.Tgid);
+                        if (!systemStatuses.ContainsKey(statusKey))
+                            systemStatuses.Add(statusKey, new SlotStatus());
 
                         if (settingsManager.ChannelPositions.TryGetValue(channel.Name, out var position))
                         {
@@ -1750,7 +1752,7 @@ namespace dvmconsole
 
             Codeplug.Channel cpgChannel = Codeplug?.GetChannelByName(channel.ChannelName);
             ClearReceiveState(channel, FindActiveReceiveStatus(channel, cpgChannel));
-            audioManager.StopTalkgroupStream(channel.DstId);
+            audioManager.StopTalkgroupStream(channel.AudioOutputKey);
             callHistoryWindow.ClearChannelActivity(channel.ChannelName);
             channel.ClearCallHistoryActivity();
             UpdateTabAudioIndicatorForChannel(channel);
@@ -1775,7 +1777,8 @@ namespace dvmconsole
             if (channel == null || cpgChannel == null)
                 return null;
 
-            if (systemStatuses.TryGetValue(cpgChannel.Name, out SlotStatus exactStatus) &&
+            string exactStatusKey = ResourceIdentity.Build(cpgChannel.System, cpgChannel.Tgid);
+            if (systemStatuses.TryGetValue(exactStatusKey, out SlotStatus exactStatus) &&
                 (channel.RxStreamId == 0 || exactStatus.RxStreamId == channel.RxStreamId))
             {
                 return exactStatus;
@@ -1786,9 +1789,12 @@ namespace dvmconsole
 
             uint.TryParse(cpgChannel.Tgid, out uint talkgroupId);
 
-            return systemStatuses.Values.FirstOrDefault(status =>
-                status.RxStreamId == channel.RxStreamId &&
-                (talkgroupId == 0 || status.RxTGId == talkgroupId));
+            string resourcePrefix = ResourceIdentity.Build(cpgChannel.System, cpgChannel.Tgid);
+            return systemStatuses.FirstOrDefault(kvp =>
+                (string.Equals(kvp.Key, resourcePrefix, StringComparison.OrdinalIgnoreCase) ||
+                 kvp.Key.StartsWith(resourcePrefix + "|slot:", StringComparison.OrdinalIgnoreCase)) &&
+                kvp.Value.RxStreamId == channel.RxStreamId &&
+                (talkgroupId == 0 || kvp.Value.RxTGId == talkgroupId)).Value;
         }
 
         /// <summary>
@@ -2554,7 +2560,7 @@ namespace dvmconsole
                               Dispatcher.Invoke(() =>
                               {
                                   ClearReceiveState(channel, FindActiveReceiveStatus(channel, cpgChannel));
-                                  audioManager.ReleaseTalkgroupStream(cpgChannel.Tgid);
+                                  audioManager.ReleaseTalkgroupStream(channel.AudioOutputKey);
                                   
                                   // Update tab audio indicator
                                   UpdateTabAudioIndicatorForChannel(channel);
@@ -4076,24 +4082,25 @@ namespace dvmconsole
         /// </summary>
         private static string BuildSelectableEncryptionStateKey(string systemName, string tgid)
         {
-            string normalizedSystem = (systemName ?? string.Empty).Trim().ToLowerInvariant();
-            string normalizedTgid = (tgid ?? string.Empty).Trim();
-            return $"{normalizedSystem}|{normalizedTgid}";
+            return ResourceIdentity.Build(systemName, tgid);
         }
 
         private void PruneSettingsForLoadedCodeplug()
         {
             IEnumerable<Codeplug.Channel> channels = GetConfiguredChannels().ToList();
             IEnumerable<Codeplug.WebStream> webStreams = GetConfiguredWebStreams().ToList();
+            settingsManager.MigrateResourceScopedSettings(channels);
+
             IEnumerable<string> validChannelNames = channels.Select(c => c.Name);
             IEnumerable<string> validTalkgroupIds = channels.Select(c => c.Tgid);
+            IEnumerable<string> validResourceKeys = channels.Select(c => ResourceIdentity.Build(c.System, c.Tgid));
             IEnumerable<string> validSystemNames = Codeplug?.Systems?.Select(s => s.Name) ?? Enumerable.Empty<string>();
             IEnumerable<string> validWebStreamNames = webStreams.Select(s => s.Name);
             IEnumerable<string> validSelectableEncryptionKeys = channels
                 .Where(c => c.SelectableEncryption && c.GetChannelMode() == Codeplug.ChannelMode.P25 && c.HasEncryptionConfig())
                 .Select(c => BuildSelectableEncryptionStateKey(c.System, c.Tgid));
 
-            settingsManager.PruneResourceSettings(validChannelNames, validTalkgroupIds, validSystemNames, validWebStreamNames, validSelectableEncryptionKeys);
+            settingsManager.PruneResourceSettings(validChannelNames, validTalkgroupIds, validSystemNames, validWebStreamNames, validSelectableEncryptionKeys, validResourceKeys);
         }
 
         /// <summary>

@@ -115,7 +115,7 @@ namespace dvmconsole
             byte bits = e.Data[15];
 
             if (e.CallType == CallType.GROUP)
-                mainWindow.DMRDataReceived(e, pktTime);
+                mainWindow.DMRDataReceived((this as PeerSystem)?.ConfiguredSystemName, e, pktTime);
 
             return;
         }

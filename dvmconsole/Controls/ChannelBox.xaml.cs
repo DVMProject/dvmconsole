@@ -234,6 +234,10 @@ namespace dvmconsole.Controls
         /// Destination ID.
         /// </summary>
         public string DstId { get; set; }
+        /// <summary>
+        /// Stable audio/settings key for this resource.
+        /// </summary>
+        public string AudioOutputKey { get; private set; }
 
         /// <summary>
         /// Gets or sets the <see cref="Brush"/> that fills the area between the bounds of the control border.
@@ -637,7 +641,7 @@ namespace dvmconsole.Controls
                 {
                     volume = steppedValue;
                     OnPropertyChanged(nameof(Volume));
-                    audioManager.SetTalkgroupVolume(DstId, (float)steppedValue);
+                    audioManager.SetTalkgroupVolume(AudioOutputKey, (float)steppedValue);
                     SettingsManager.Instance?.UpdateChannelVolume(ChannelName, steppedValue);
                 }
             }
@@ -657,7 +661,7 @@ namespace dvmconsole.Controls
         /// </summary>
         public void ApplyCurrentVolume()
         {
-            audioManager.SetTalkgroupVolume(DstId, (float)volume);
+            audioManager.SetTalkgroupVolume(AudioOutputKey, (float)volume);
         }
 
         /// <summary>
@@ -800,6 +804,7 @@ namespace dvmconsole.Controls
             ChannelName = channelName;
             ChannelMode = "P25";
             DstId = dstId;
+            AudioOutputKey = ResourceIdentity.Build(systemName, dstId);
             SystemName = $"System: {systemName}";
             LastSrcId = $"Last ID: {LastSrcId}";
 

@@ -1066,17 +1066,22 @@ namespace dvmconsole
         }
 
         /// <summary>
-        /// Gets TAR settings for a talkgroup, returning defaults if no saved entry exists.
+        /// Gets TAR settings for a resource key, returning defaults if no saved entry exists.
         /// </summary>
-        public TarChannelConfig GetTarChannelConfig(string talkgroupId, string legacyChannelName = null)
+        public TarChannelConfig GetTarChannelConfig(string configKey, string legacyChannelName = null, string legacyTalkgroupId = null)
         {
-            if (string.IsNullOrWhiteSpace(talkgroupId) && string.IsNullOrWhiteSpace(legacyChannelName))
+            if (string.IsNullOrWhiteSpace(configKey) && string.IsNullOrWhiteSpace(legacyChannelName) && string.IsNullOrWhiteSpace(legacyTalkgroupId))
                 return NormalizeTarChannelConfig(null);
 
             if (TarChannelConfigs != null &&
-                !string.IsNullOrWhiteSpace(talkgroupId) &&
-                TarChannelConfigs.TryGetValue(talkgroupId, out TarChannelConfig config))
+                !string.IsNullOrWhiteSpace(configKey) &&
+                TarChannelConfigs.TryGetValue(configKey, out TarChannelConfig config))
                 return NormalizeTarChannelConfig(config);
+
+            if (TarChannelConfigs != null &&
+                !string.IsNullOrWhiteSpace(legacyTalkgroupId) &&
+                TarChannelConfigs.TryGetValue(legacyTalkgroupId, out TarChannelConfig legacyTalkgroupConfig))
+                return NormalizeTarChannelConfig(legacyTalkgroupConfig);
 
             if (TarChannelConfigs != null &&
                 !string.IsNullOrWhiteSpace(legacyChannelName) &&
@@ -1109,7 +1114,60 @@ namespace dvmconsole
             SaveSettings();
         }
 
-        public void PruneResourceSettings(IEnumerable<string> validChannelNames, IEnumerable<string> validTalkgroupIds, IEnumerable<string> validSystemNames, IEnumerable<string> validWebStreamNames = null, IEnumerable<string> validSelectableEncryptionKeys = null)
+        public void MigrateResourceScopedSettings(IEnumerable<Codeplug.Channel> channels)
+        {
+            if (channels == null)
+                return;
+
+            ChannelOutputDevices ??= new Dictionary<string, int>();
+            ChannelOutputDeviceKeys ??= new Dictionary<string, string>();
+            TarChannelConfigs ??= new Dictionary<string, TarChannelConfig>();
+
+            bool changed = false;
+            foreach (Codeplug.Channel channel in channels)
+            {
+                if (channel == null || string.IsNullOrWhiteSpace(channel.Tgid))
+                    continue;
+
+                string resourceKey = ResourceIdentity.Build(channel.System, channel.Tgid);
+                if (string.IsNullOrWhiteSpace(resourceKey))
+                    continue;
+
+                if (!ChannelOutputDeviceKeys.ContainsKey(resourceKey) &&
+                    ChannelOutputDeviceKeys.TryGetValue(channel.Tgid, out string legacyDeviceKey))
+                {
+                    ChannelOutputDeviceKeys[resourceKey] = NormalizeAudioDeviceKey(legacyDeviceKey);
+                    changed = true;
+                }
+
+                if (!ChannelOutputDevices.ContainsKey(resourceKey) &&
+                    ChannelOutputDevices.TryGetValue(channel.Tgid, out int legacyDevice))
+                {
+                    ChannelOutputDevices[resourceKey] = NormalizeAudioDeviceIndex(legacyDevice);
+                    changed = true;
+                }
+
+                if (!TarChannelConfigs.ContainsKey(resourceKey))
+                {
+                    TarChannelConfig legacyConfig = null;
+                    if (!string.IsNullOrWhiteSpace(channel.Tgid))
+                        TarChannelConfigs.TryGetValue(channel.Tgid, out legacyConfig);
+                    if (legacyConfig == null && !string.IsNullOrWhiteSpace(channel.Name))
+                        TarChannelConfigs.TryGetValue(channel.Name, out legacyConfig);
+
+                    if (legacyConfig != null)
+                    {
+                        TarChannelConfigs[resourceKey] = NormalizeTarChannelConfig(legacyConfig);
+                        changed = true;
+                    }
+                }
+            }
+
+            if (changed)
+                SaveSettings();
+        }
+
+        public void PruneResourceSettings(IEnumerable<string> validChannelNames, IEnumerable<string> validTalkgroupIds, IEnumerable<string> validSystemNames, IEnumerable<string> validWebStreamNames = null, IEnumerable<string> validSelectableEncryptionKeys = null, IEnumerable<string> validResourceKeys = null)
         {
             HashSet<string> channelNames = new HashSet<string>(
                 validChannelNames?.Where(v => !string.IsNullOrWhiteSpace(v)) ?? Enumerable.Empty<string>(),
@@ -1123,19 +1181,21 @@ namespace dvmconsole
             HashSet<string> webStreamNames = new HashSet<string>(
                 validWebStreamNames?.Where(v => !string.IsNullOrWhiteSpace(v)) ?? Enumerable.Empty<string>(),
                 StringComparer.OrdinalIgnoreCase);
+            HashSet<string> resourceKeys = new HashSet<string>(
+                validResourceKeys?.Where(v => !string.IsNullOrWhiteSpace(v)) ?? Enumerable.Empty<string>(),
+                StringComparer.OrdinalIgnoreCase);
 
             channelNames.Add(MainWindow.PLAYBACKCHNAME);
             talkgroupIds.Add(MainWindow.PLAYBACKTG);
-            HashSet<string> validAudioOutputKeys = new HashSet<string>(talkgroupIds, StringComparer.OrdinalIgnoreCase);
+            HashSet<string> validAudioOutputKeys = new HashSet<string>(resourceKeys, StringComparer.OrdinalIgnoreCase);
+            validAudioOutputKeys.Add(MainWindow.PLAYBACKTG);
             foreach (string webStreamName in webStreamNames)
                 validAudioOutputKeys.Add(webStreamName);
 
             bool changed = false;
             changed |= PruneDictionary(ChannelPositions, channelNames);
             changed |= PruneDictionary(ChannelVolumes, channelNames);
-            HashSet<string> validTarKeys = new HashSet<string>(talkgroupIds, StringComparer.OrdinalIgnoreCase);
-            foreach (string channelName in channelNames)
-                validTarKeys.Add(channelName);
+            HashSet<string> validTarKeys = new HashSet<string>(resourceKeys, StringComparer.OrdinalIgnoreCase);
 
             changed |= PruneDictionary(TarChannelConfigs, validTarKeys);
             changed |= PruneDictionary(ChannelOutputDevices, validAudioOutputKeys);

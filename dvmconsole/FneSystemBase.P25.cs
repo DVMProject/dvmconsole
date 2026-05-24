@@ -477,7 +477,7 @@ namespace dvmconsole
                 if (e.SrcId == 0)
                     return;
 
-                mainWindow.P25DataReceived(e, pktTime);
+                mainWindow.P25DataReceived((this as PeerSystem)?.ConfiguredSystemName, e, pktTime);
             }
         }
     } // public abstract partial class FneSystemBase : fnecore.FneSystemBase

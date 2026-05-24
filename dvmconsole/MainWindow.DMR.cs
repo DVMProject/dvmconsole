@@ -220,7 +220,7 @@ namespace dvmconsole
 
                         //Log.WriteLine($"PCM BYTE BUFFER {FneUtils.HexDump(pcm)}");
                         if (!ShouldMuteRxPlayback())
-                            audioManager.AddTalkgroupStream(e.DstId.ToString(), pcm);
+                            audioManager.AddTalkgroupStream(channel.AudioOutputKey, pcm);
                         AppendTarRxAudio(sourceSystemName, channel.DstId, e.StreamId, pcm);
                         patchManager.HandleAudio(sourceSystemName, e.DstId.ToString(), e.StreamId, e.SrcId, pcm);
                     }
@@ -238,7 +238,7 @@ namespace dvmconsole
         /// </summary>
         /// <param name="e"></param>
         /// <param name="pktTime"></param>
-        public void DMRDataReceived(DMRDataReceivedEvent e, DateTime pktTime)
+        public void DMRDataReceived(string sourceSystemName, DMRDataReceivedEvent e, DateTime pktTime)
         {
             Dispatcher.Invoke(() =>
             {
@@ -249,6 +249,10 @@ namespace dvmconsole
 
                     Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
                     Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
+
+                    if (!string.IsNullOrWhiteSpace(sourceSystemName) &&
+                        !ResourceIdentity.SystemMatches(system?.Name, sourceSystemName))
+                        continue;
 
                     if (cpgChannel.GetChannelMode() != Codeplug.ChannelMode.DMR)
                         continue;
@@ -267,7 +271,7 @@ namespace dvmconsole
                     if (channel.PttState)
                         continue;
 
-                    string statusKey = cpgChannel.Name + e.Slot;
+                    string statusKey = ResourceIdentity.Build(system.Name, cpgChannel.Tgid) + $"|slot:{e.Slot}";
                     if (!systemStatuses.ContainsKey(statusKey))
                         systemStatuses[statusKey] = new SlotStatus();
 
@@ -401,7 +405,7 @@ namespace dvmconsole
                             pktTime);
 
                         ClearReceiveState(channel, slotStatus);
-                        audioManager.ReleaseTalkgroupStream(cpgChannel.Tgid);
+                        audioManager.ReleaseTalkgroupStream(channel.AudioOutputKey);
                         
                         // Update tab audio indicator
                         Dispatcher.Invoke(() => UpdateTabAudioIndicatorForChannel(channel));

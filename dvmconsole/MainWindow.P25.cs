@@ -365,7 +365,7 @@ namespace dvmconsole
                         }
 
                         if (!ShouldMuteRxPlayback())
-                            audioManager.AddTalkgroupStream(e.DstId.ToString(), pcmData);
+                            audioManager.AddTalkgroupStream(channel.AudioOutputKey, pcmData);
                         AppendTarRxAudio(sourceSystemName, channel.DstId, e.StreamId, pcmData);
                         patchManager.HandleAudio(sourceSystemName, e.DstId.ToString(), e.StreamId, e.SrcId, pcmData);
                     }
@@ -383,7 +383,7 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        public void P25DataReceived(P25DataReceivedEvent e, DateTime pktTime)
+        public void P25DataReceived(string sourceSystemName, P25DataReceivedEvent e, DateTime pktTime)
         {
             uint sysId = (uint)((e.Data[11U] << 8) | (e.Data[12U] << 0));
             uint netId = FneUtils.Bytes3ToUInt32(e.Data, 16);
@@ -403,6 +403,10 @@ namespace dvmconsole
 
                     Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
                     Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
+
+                    if (!string.IsNullOrWhiteSpace(sourceSystemName) &&
+                        !ResourceIdentity.SystemMatches(system?.Name, sourceSystemName))
+                        continue;
 
                     if (cpgChannel.GetChannelMode() != Codeplug.ChannelMode.P25)
                         continue;
@@ -426,13 +430,14 @@ namespace dvmconsole
                     if (e.DUID == P25DUID.TSDU || e.DUID == P25DUID.PDU)
                         continue;
 
-                    if (!systemStatuses.ContainsKey(cpgChannel.Name))
-                        systemStatuses[cpgChannel.Name] = new SlotStatus();
+                    string statusKey = ResourceIdentity.Build(system.Name, cpgChannel.Tgid);
+                    if (!systemStatuses.ContainsKey(statusKey))
+                        systemStatuses[statusKey] = new SlotStatus();
 
                     if (channel.Decoder == null)
                         channel.Decoder = new MBEDecoder(MBE_MODE.IMBE_88BIT);
 
-                    SlotStatus slot = systemStatuses[cpgChannel.Name];
+                    SlotStatus slot = systemStatuses[statusKey];
                     channel.LastPktTime = pktTime;
 
                     // if this is an LDU1 see if this is the first LDU with HDU encryption data
@@ -557,7 +562,7 @@ namespace dvmconsole
                             pktTime);
 
                         ClearReceiveState(channel, slot);
-                        audioManager.ReleaseTalkgroupStream(cpgChannel.Tgid);
+                        audioManager.ReleaseTalkgroupStream(channel.AudioOutputKey);
                         
                         // Update tab audio indicator
                         Dispatcher.Invoke(() => UpdateTabAudioIndicatorForChannel(channel));

@@ -38,6 +38,7 @@ namespace dvmconsole
             public string SystemName { get; set; } = string.Empty;
             public string ChannelName { get; set; } = string.Empty;
             public string TalkgroupId { get; set; } = string.Empty;
+            public string ResourceKey { get; set; } = string.Empty;
             public string Mode { get; set; } = string.Empty;
 
             public bool Enabled
@@ -92,7 +93,7 @@ namespace dvmconsole
 
         private readonly SettingsManager settingsManager;
         private readonly Action savedCallback;
-        private readonly Dictionary<string, List<TarChannelConfigItem>> itemsByTalkgroup = new Dictionary<string, List<TarChannelConfigItem>>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, List<TarChannelConfigItem>> itemsByResource = new Dictionary<string, List<TarChannelConfigItem>>(StringComparer.OrdinalIgnoreCase);
 
         private ScrollViewer tabHeaderScrollViewer;
         private Button scrollTabsLeftButton;
@@ -162,12 +163,14 @@ namespace dvmconsole
                     if (channel == null || string.IsNullOrWhiteSpace(channel.Name) || string.IsNullOrWhiteSpace(channel.Tgid))
                         continue;
 
-                    TarChannelConfig config = settingsManager?.GetTarChannelConfig(channel.Tgid, channel.Name) ?? new TarChannelConfig();
+                    string resourceKey = ResourceIdentity.Build(channel.System, channel.Tgid);
+                    TarChannelConfig config = settingsManager?.GetTarChannelConfig(resourceKey, channel.Name, channel.Tgid) ?? new TarChannelConfig();
                     TarChannelConfigItem item = new TarChannelConfigItem
                     {
                         SystemName = channel.System ?? string.Empty,
                         ChannelName = channel.Name ?? string.Empty,
                         TalkgroupId = channel.Tgid ?? string.Empty,
+                        ResourceKey = resourceKey,
                         Mode = (channel.Mode ?? string.Empty).ToUpperInvariant(),
                         Enabled = config.Enabled,
                         RetentionDays = config.RetentionDays,
@@ -175,7 +178,7 @@ namespace dvmconsole
                     };
 
                     item.PropertyChanged += TarChannelConfigItem_PropertyChanged;
-                    RegisterTalkgroupItem(item);
+                    RegisterResourceItem(item);
                     group.Channels.Add(item);
                 }
 
@@ -183,15 +186,15 @@ namespace dvmconsole
             }
         }
 
-        private void RegisterTalkgroupItem(TarChannelConfigItem item)
+        private void RegisterResourceItem(TarChannelConfigItem item)
         {
-            if (item == null || string.IsNullOrWhiteSpace(item.TalkgroupId))
+            if (item == null || string.IsNullOrWhiteSpace(item.ResourceKey))
                 return;
 
-            if (!itemsByTalkgroup.TryGetValue(item.TalkgroupId, out List<TarChannelConfigItem> groupedItems))
+            if (!itemsByResource.TryGetValue(item.ResourceKey, out List<TarChannelConfigItem> groupedItems))
             {
                 groupedItems = new List<TarChannelConfigItem>();
-                itemsByTalkgroup[item.TalkgroupId] = groupedItems;
+                itemsByResource[item.ResourceKey] = groupedItems;
             }
 
             groupedItems.Add(item);
@@ -298,8 +301,8 @@ namespace dvmconsole
 
             if (synchronizingTalkgroupItems ||
                 sender is not TarChannelConfigItem changedItem ||
-                string.IsNullOrWhiteSpace(changedItem.TalkgroupId) ||
-                !itemsByTalkgroup.TryGetValue(changedItem.TalkgroupId, out List<TarChannelConfigItem> groupedItems) ||
+                string.IsNullOrWhiteSpace(changedItem.ResourceKey) ||
+                !itemsByResource.TryGetValue(changedItem.ResourceKey, out List<TarChannelConfigItem> groupedItems) ||
                 groupedItems.Count <= 1)
                 return;
 
@@ -375,10 +378,10 @@ namespace dvmconsole
                     return;
                 }
 
-                if (string.IsNullOrWhiteSpace(item.TalkgroupId))
+                if (string.IsNullOrWhiteSpace(item.ResourceKey))
                     continue;
 
-                configs[item.TalkgroupId] = new TarChannelConfig
+                configs[item.ResourceKey] = new TarChannelConfig
                 {
                     Enabled = item.Enabled,
                     RetentionDays = Math.Max(0, item.RetentionDays),

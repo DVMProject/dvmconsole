@@ -79,14 +79,24 @@ namespace dvmconsole
             return settingsManager.GetTarChannelConfigs();
         }
 
-        public TarChannelConfig GetChannelConfig(string talkgroupId, string legacyChannelName = null)
+        public TarChannelConfig GetChannelConfig(string resourceKey, string legacyChannelName = null, string legacyTalkgroupId = null)
         {
-            return settingsManager.GetTarChannelConfig(talkgroupId, legacyChannelName);
+            return settingsManager.GetTarChannelConfig(resourceKey, legacyChannelName, legacyTalkgroupId);
         }
 
-        public bool IsChannelEnabled(string talkgroupId, string legacyChannelName = null)
+        public TarChannelConfig GetChannelConfig(Codeplug.System system, Codeplug.Channel channel)
         {
-            return GetChannelConfig(talkgroupId, legacyChannelName).Enabled;
+            if (channel == null)
+                return settingsManager.GetTarChannelConfig(null);
+
+            string resourceKey = ResourceIdentity.Build(system?.Name ?? channel.System, channel.Tgid);
+            return GetChannelConfig(resourceKey, channel.Name, channel.Tgid);
+        }
+
+        public bool IsChannelEnabled(string systemName, string talkgroupId, string legacyChannelName = null)
+        {
+            string resourceKey = ResourceIdentity.Build(systemName, talkgroupId);
+            return GetChannelConfig(resourceKey, legacyChannelName, talkgroupId).Enabled;
         }
 
         public void StartRxRecording(
@@ -143,7 +153,7 @@ namespace dvmconsole
             if (system == null || channel == null || streamId == 0)
                 return;
 
-            TarChannelConfig config = GetChannelConfig(channel.Tgid, channel.Name);
+            TarChannelConfig config = GetChannelConfig(system, channel);
             if (!config.Enabled)
                 return;
 
@@ -261,7 +271,7 @@ namespace dvmconsole
                 if (metadata == null || string.IsNullOrWhiteSpace(metadata.ChannelName))
                     continue;
 
-                string configKey = metadata.TalkgroupId?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
+                string configKey = ResourceIdentity.Build(metadata.SystemName, metadata.TalkgroupId?.ToString(CultureInfo.InvariantCulture));
                 if (string.IsNullOrWhiteSpace(configKey) || !configs.TryGetValue(configKey, out TarChannelConfig config))
                     continue;
 
@@ -398,7 +408,7 @@ namespace dvmconsole
             if (system == null || channel == null || streamId == 0)
                 return false;
 
-            TarChannelConfig config = GetChannelConfig(channel.Tgid, channel.Name);
+            TarChannelConfig config = GetChannelConfig(system, channel);
             if (!config.Enabled)
                 return false;
 

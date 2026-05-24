@@ -69,10 +69,12 @@ namespace dvmconsole
             {
                 foreach (ChannelBox channel in canvas.Children.OfType<ChannelBox>())
                 {
+                    Codeplug.Channel cpgChannel = Codeplug?.GetChannelByName(channel.ChannelName);
                     bool enabled = channel.SystemName != PLAYBACKSYS &&
                         channel.ChannelName != PLAYBACKCHNAME &&
                         channel.DstId != PLAYBACKTG &&
-                        tarManager.IsChannelEnabled(channel.DstId, channel.ChannelName);
+                        cpgChannel != null &&
+                        tarManager.IsChannelEnabled(cpgChannel.System, cpgChannel.Tgid, cpgChannel.Name);
                     channel.SetTarRecordingIndicator(enabled);
                 }
             }

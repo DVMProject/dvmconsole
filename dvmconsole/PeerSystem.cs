@@ -30,6 +30,7 @@ namespace dvmconsole
     public class PeerSystem : FneSystemBase
     {
         public FnePeer peer;
+        public string ConfiguredSystemName { get; }
 
         /*
         ** Methods
@@ -41,6 +42,7 @@ namespace dvmconsole
         public PeerSystem(MainWindow mainWindow, Codeplug.System system) : base(Create(system), mainWindow)
         {
             peer = (FnePeer)fne;
+            ConfiguredSystemName = system?.Name ?? string.Empty;
         }
 
         /// <summary>
