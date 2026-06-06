@@ -114,8 +114,8 @@ namespace dvmconsole
                     if (GetFneConnectionEntry(systemName)?.IsConnected != true)
                         return;
 
-                    fne.peer.SendMasterKeyRequest(algId, keyId);
-                    Log.WriteLine($"({systemName}) Sent deferred startup key request ALGID {algId} KID {keyId}");
+                    if (!TrySendMasterKeyRequest(fne, systemName, algId, keyId))
+                        continue;
 
                     await Task.Delay(KEY_REQUEST_SPACING_MS, cts.Token);
                 }
@@ -166,6 +166,35 @@ namespace dvmconsole
                 return false;
 
             return byte.TryParse(parts[0], out algId) && ushort.TryParse(parts[1], out keyId);
+        }
+
+        private bool TrySendMasterKeyRequest(PeerSystem fne, Codeplug.System system, byte algId, ushort keyId)
+        {
+            if (system == null)
+                return false;
+
+            return TrySendMasterKeyRequest(fne, system.Name, algId, keyId);
+        }
+
+        private bool TrySendMasterKeyRequest(PeerSystem fne, string systemName, byte algId, ushort keyId)
+        {
+            if (fne?.peer == null || string.IsNullOrWhiteSpace(systemName))
+                return false;
+
+            Codeplug.System system = Codeplug?.Systems?.FirstOrDefault(s =>
+                string.Equals(s.Name, systemName, StringComparison.OrdinalIgnoreCase));
+            if (system == null)
+                return false;
+
+            if (!uint.TryParse(system.Rid, out uint consoleRid) || consoleRid == 0)
+            {
+                Log.WriteWarning($"({system.Name}) Cannot request key ALGID {algId} KID {keyId}; console RID is missing or invalid.");
+                return false;
+            }
+
+            fne.peer.SendMasterKeyRequest(algId, keyId, consoleRid);
+            Log.WriteLine($"({system.Name}) Sent key request RID {consoleRid} ALGID {algId} KID {keyId}");
+            return true;
         }
 
         private void LoadConfiguredKeyFileKeys()

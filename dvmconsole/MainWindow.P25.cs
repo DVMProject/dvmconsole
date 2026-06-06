@@ -252,7 +252,7 @@ namespace dvmconsole
                 fne.CreateP25MessageHdr((byte)P25DUID.LDU1, callData, ref payload, cryptoParams);
                 fne.CreateP25LDU1Message(channel.netLDU1, ref payload, srcId, dstId);
 
-                peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_P25), payload, channel.pktSeq, channel.TxStreamId);
+                peer.SendMasterTraffic(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_P25), payload, channel.pktSeq, channel.TxStreamId);
             }
 
             // send P25 LDU2
@@ -278,7 +278,7 @@ namespace dvmconsole
                 fne.CreateP25MessageHdr((byte)P25DUID.LDU2, callData, ref payload, cryptoParams);
                 fne.CreateP25LDU2Message(channel.netLDU2, ref payload, cryptoParams);
 
-                peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_P25), payload, channel.pktSeq, channel.TxStreamId);
+                peer.SendMasterTraffic(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_P25), payload, channel.pktSeq, channel.TxStreamId);
             }
 
             channel.p25SeqNo++;

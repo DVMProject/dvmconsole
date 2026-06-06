@@ -1579,7 +1579,7 @@ namespace dvmconsole
                           }
                           else if (GetFneConnectionEntry(system.Name)?.IsConnected == true)
                           {
-                              fne.peer.SendMasterKeyRequest(cpgChannel.GetAlgoId(), cpgChannel.GetKeyId());
+                              TrySendMasterKeyRequest(fne, system, cpgChannel.GetAlgoId(), cpgChannel.GetKeyId());
                           }
                           else
                           {
