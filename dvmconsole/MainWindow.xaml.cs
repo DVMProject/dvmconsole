@@ -105,6 +105,7 @@ namespace dvmconsole
         private const double ALERT_TONE_MIN_RMS = 0.0001;
 
         private bool isShuttingDown = false;
+        private bool suppressSelectedResourcePersistence = false;
         private bool globalPttState = false;
 
         private const int GridSize = 5;
@@ -1107,7 +1108,8 @@ namespace dvmconsole
                         if (!systemStatuses.ContainsKey(statusKey))
                             systemStatuses.Add(statusKey, new SlotStatus());
 
-                        if (settingsManager.ChannelPositions.TryGetValue(channel.Name, out var position))
+                        string channelResourceKey = ResourceIdentity.Build(channel.System, channel.Tgid);
+                        if (settingsManager.TryGetChannelPosition(channelResourceKey, channel.Name, out var position))
                         {
                             Canvas.SetLeft(channelBox, position.X);
                             Canvas.SetTop(channelBox, position.Y);
@@ -1526,7 +1528,7 @@ namespace dvmconsole
         private void SelectedChannelsChanged()
         {
             bool loadedConfiguredKeys = false;
-            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
+            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels().ToList())
             {
                 if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
                     continue;
@@ -1588,8 +1590,12 @@ namespace dvmconsole
                           }
                       }
                   }
-              }
-          }
+            }
+
+            if (!isRestoringSelectedChannelsOnStartup && !suppressSelectedResourcePersistence)
+                PersistSelectedResourceState();
+        }
+
         private void RestoreSelectedChannels()
         {
             if (!settingsManager.RestoreSelectedChannelsOnStartup)
@@ -1608,9 +1614,11 @@ namespace dvmconsole
                         if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
                             continue;
 
-                        if (settingsManager.SelectedChannels.Contains(channel.ChannelName))
+                        string resourceKey = BuildChannelSelectionKey(channel);
+                        if (settingsManager.SelectedChannels.Contains(resourceKey, StringComparer.OrdinalIgnoreCase) ||
+                            settingsManager.SelectedChannels.Contains(channel.ChannelName, StringComparer.OrdinalIgnoreCase))
                         {
-                            if (settingsManager.ChannelVolumes.TryGetValue(channel.ChannelName, out double savedChannelVolume))
+                            if (settingsManager.TryGetChannelVolume(channel.ChannelSettingsKey, channel.ChannelName, out double savedChannelVolume))
                                 channel.SetInitialVolume(savedChannelVolume);
 
                             channel.IsSelected = true;
@@ -1760,13 +1768,20 @@ namespace dvmconsole
 
         private void SelectedChannelsManager_ChannelSelectionChanged(ChannelBox channel, bool isSelected)
         {
-            if (channel == null || isSelected)
+            if (channel == null)
                 return;
 
-            if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+            bool isPlaybackChannel = channel.SystemName == PLAYBACKSYS ||
+                channel.ChannelName == PLAYBACKCHNAME ||
+                channel.DstId == PLAYBACKTG;
+            if (isPlaybackChannel)
                 return;
 
-            StopChannelMonitoring(channel);
+            if (!isSelected)
+                StopChannelMonitoring(channel);
+
+            if (!isRestoringSelectedChannelsOnStartup && !suppressSelectedResourcePersistence)
+                PersistSelectedResourceState();
         }
 
         /// <summary>
@@ -2458,6 +2473,9 @@ namespace dvmconsole
         /// <param name="e"></param>
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
+            if (!noSaveSettingsOnClose)
+                PersistSelectedResourceState(saveSettings: false);
+
             isShuttingDown = true;
             StopAllPatchPttTargets();
             tarManager.StopAllSessions();
@@ -2489,27 +2507,6 @@ namespace dvmconsole
                     settingsManager.Maximized = true;
                     if (settingsManager.SnapCallHistoryToWindow)
                         menuSnapCallHistory.IsChecked = false;
-                }
-
-                if (settingsManager.RestoreSelectedChannelsOnStartup)
-                {
-                    settingsManager.SelectedChannels = selectedChannelsManager
-                        .GetSelectedChannels()
-                        .Where(c => c.SystemName != PLAYBACKSYS && c.ChannelName != PLAYBACKCHNAME && c.DstId != PLAYBACKTG)
-                        .Select(c => c.ChannelName)
-                        .Distinct()
-                        .ToList();
-                    settingsManager.SelectedWebStreams = GetAllWebStreamChips()
-                        .Where(s => s.IsActive)
-                        .Select(s => s.DisplayName)
-                        .Where(name => !string.IsNullOrWhiteSpace(name))
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .ToList();
-                }
-                else
-                {
-                    settingsManager.SelectedChannels = new List<string>();
-                    settingsManager.SelectedWebStreams = new List<string>();
                 }
 
                 settingsManager.SaveSettings();
@@ -3529,7 +3526,7 @@ namespace dvmconsole
 
                 if (element is ChannelBox channelBox)
                 {
-                    settingsManager.UpdateChannelPosition(channelBox.ChannelName, x, y);
+                    settingsManager.UpdateChannelPosition(channelBox.ChannelSettingsKey, x, y);
                 }
                 else if (element is SystemStatusBox systemStatusBox)
                 {
@@ -3943,7 +3940,7 @@ namespace dvmconsole
 
             // Save the new position if it's a ChannelBox
             if (draggedElement is ChannelBox channelBox)
-                settingsManager.UpdateChannelPosition(channelBox.ChannelName, newLeft, newTop);
+                settingsManager.UpdateChannelPosition(channelBox.ChannelSettingsKey, newLeft, newTop);
             else if (draggedElement is WebStreamChip streamChip)
                 settingsManager.UpdateWebStreamPosition(streamChip.DisplayName, newLeft, newTop);
         }
@@ -4117,6 +4114,55 @@ namespace dvmconsole
         private static string BuildSelectableEncryptionStateKey(string systemName, string tgid)
         {
             return ResourceIdentity.Build(systemName, tgid);
+        }
+
+        private static string BuildChannelSelectionKey(ChannelBox channel)
+        {
+            if (channel == null)
+                return string.Empty;
+
+            return ResourceIdentity.Build(NormalizeChannelSystemName(channel.SystemName), channel.DstId);
+        }
+
+        private void PersistSelectedResourceState(bool saveSettings = true)
+        {
+            if (settingsManager.RestoreSelectedChannelsOnStartup)
+            {
+                settingsManager.SelectedChannels = GetSelectedChannelsForPersistence()
+                    .Where(c => c.SystemName != PLAYBACKSYS && c.ChannelName != PLAYBACKCHNAME && c.DstId != PLAYBACKTG)
+                    .Select(BuildChannelSelectionKey)
+                    .Where(key => !string.IsNullOrWhiteSpace(key))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                settingsManager.SelectedWebStreams = GetAllWebStreamChips()
+                    .Where(s => s.IsActive)
+                    .Select(s => s.DisplayName)
+                    .Where(name => !string.IsNullOrWhiteSpace(name))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+            else
+            {
+                settingsManager.SelectedChannels = new List<string>();
+                settingsManager.SelectedWebStreams = new List<string>();
+            }
+
+            if (saveSettings)
+                settingsManager.SaveSettings();
+        }
+
+        private IEnumerable<ChannelBox> GetSelectedChannelsForPersistence()
+        {
+            List<ChannelBox> visualSelections = GetAllCanvases()
+                .SelectMany(canvas => canvas.Children.OfType<ChannelBox>())
+                .Where(channel => channel.IsSelected)
+                .Distinct()
+                .ToList();
+
+            if (visualSelections.Count > 0)
+                return visualSelections;
+
+            return selectedChannelsManager.GetSelectedChannels();
         }
 
         private void PruneSettingsForLoadedCodeplug()
@@ -5106,33 +5152,43 @@ namespace dvmconsole
             selectAll = tabChannels.Any(channel => !channel.IsSelected);
 
             // Scope bulk selection to the currently selected resource tab only.
-            foreach (ChannelBox channel in tabChannels)
+            suppressSelectedResourcePersistence = true;
+            try
             {
-                Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
-                if (system == null)
+                foreach (ChannelBox channel in tabChannels)
                 {
-                    Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}.");
-                    channel.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(channel);
-                    continue;
+                    Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
+                    if (system == null)
+                    {
+                        Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}.");
+                        channel.IsSelected = false;
+                        selectedChannelsManager.RemoveSelectedChannel(channel);
+                        continue;
+                    }
+
+                    Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
+                    if (cpgChannel == null)
+                    {
+                        Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.");
+                        channel.IsSelected = false;
+                        selectedChannelsManager.RemoveSelectedChannel(channel);
+                        continue;
+                    }
+
+                    channel.IsSelected = selectAll;
+
+                    if (channel.IsSelected)
+                        selectedChannelsManager.AddSelectedChannel(channel);
+                    else
+                        selectedChannelsManager.RemoveSelectedChannel(channel);
                 }
-
-                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                if (cpgChannel == null)
-                {
-                    Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.");
-                    channel.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(channel);
-                    continue;
-                }
-
-                channel.IsSelected = selectAll;
-
-                if (channel.IsSelected)
-                    selectedChannelsManager.AddSelectedChannel(channel);
-                else
-                    selectedChannelsManager.RemoveSelectedChannel(channel);
             }
+            finally
+            {
+                suppressSelectedResourcePersistence = false;
+            }
+
+            PersistSelectedResourceState();
         }
 
         /// <summary>
@@ -5171,7 +5227,7 @@ namespace dvmconsole
                 return;
 
             settingsManager.RestoreSelectedChannelsOnStartup = menuRestoreSelectedChannels.IsChecked;
-            settingsManager.SaveSettings();
+            PersistSelectedResourceState();
         }
         private void ToggleRetainPatchStateOnStartup_Click(object sender, RoutedEventArgs e)
         {

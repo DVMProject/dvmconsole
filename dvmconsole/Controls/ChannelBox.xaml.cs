@@ -239,6 +239,11 @@ namespace dvmconsole.Controls
         /// </summary>
         public string AudioOutputKey { get; private set; }
 
+        public string ChannelSettingsKey =>
+            ChannelName == MainWindow.PLAYBACKCHNAME || DstId == MainWindow.PLAYBACKTG
+                ? MainWindow.PLAYBACKCHNAME
+                : AudioOutputKey;
+
         /// <summary>
         /// Gets or sets the <see cref="Brush"/> that fills the area between the bounds of the control border.
         /// </summary>
@@ -642,7 +647,7 @@ namespace dvmconsole.Controls
                     volume = steppedValue;
                     OnPropertyChanged(nameof(Volume));
                     audioManager.SetTalkgroupVolume(AudioOutputKey, (float)steppedValue);
-                    SettingsManager.Instance?.UpdateChannelVolume(ChannelName, steppedValue);
+                    SettingsManager.Instance?.UpdateChannelVolume(ChannelSettingsKey, steppedValue);
                 }
             }
         }

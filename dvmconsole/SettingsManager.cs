@@ -544,6 +544,7 @@ namespace dvmconsole
             {
                 string json = File.ReadAllText(SettingsFilePath);
                 SettingsManager loadedSettings = JsonConvert.DeserializeObject<SettingsManager>(json);
+                _instance = this;
 
                 if (loadedSettings != null)
                 {
@@ -653,6 +654,7 @@ namespace dvmconsole
             }
             catch (Exception ex)
             {
+                _instance = this;
                 Log.WriteLine($"Error loading settings: {ex.Message}");
                 Log.StackTrace(ex, false);
                 return false;
@@ -664,6 +666,8 @@ namespace dvmconsole
         /// </summary>
         public void SaveSettings()
         {
+            _instance = this;
+
             if (!Directory.Exists(UserAppDataPath))
                 Directory.CreateDirectory(UserAppDataPath);
 
@@ -963,7 +967,7 @@ namespace dvmconsole
             if (AlertTones == null || AlertTones.Count == 0)
                 AlertTones = MigrateLegacyAlertTones();
 
-            return AlertTones
+            List<AlertToneConfig> normalized = AlertTones
                 .Where(t => !string.IsNullOrWhiteSpace(t?.FilePath))
                 .Select(t => new AlertToneConfig
                 {
@@ -972,6 +976,29 @@ namespace dvmconsole
                     FilePath = t.FilePath,
                     TabName = t.TabName ?? string.Empty,
                     Position = t.Position ?? new ChannelPosition { X = 20, Y = 20 }
+                })
+                .ToList();
+
+            AlertTones = normalized
+                .Select(t => new AlertToneConfig
+                {
+                    Id = t.Id,
+                    DisplayName = t.DisplayName,
+                    FilePath = t.FilePath,
+                    TabName = t.TabName,
+                    Position = t.Position
+                })
+                .ToList();
+            SyncLegacyAlertToneState();
+
+            return normalized
+                .Select(t => new AlertToneConfig
+                {
+                    Id = t.Id,
+                    DisplayName = t.DisplayName,
+                    FilePath = t.FilePath,
+                    TabName = t.TabName,
+                    Position = t.Position
                 })
                 .ToList();
         }
@@ -1205,8 +1232,32 @@ namespace dvmconsole
         /// <param name="y"></param>
         public void UpdateChannelPosition(string channelName, double x, double y)
         {
+            if (string.IsNullOrWhiteSpace(channelName))
+                return;
+
             ChannelPositions[channelName] = new ChannelPosition { X = x, Y = y };
             SaveSettings();
+        }
+
+        /// <summary>
+        /// Gets a saved channel position by stable resource key with legacy channel-name fallback.
+        /// </summary>
+        public bool TryGetChannelPosition(string resourceKey, string legacyChannelName, out ChannelPosition position)
+        {
+            position = null;
+
+            if (ChannelPositions == null)
+                return false;
+
+            if (!string.IsNullOrWhiteSpace(resourceKey) &&
+                ChannelPositions.TryGetValue(resourceKey, out position))
+                return true;
+
+            if (!string.IsNullOrWhiteSpace(legacyChannelName) &&
+                ChannelPositions.TryGetValue(legacyChannelName, out position))
+                return true;
+
+            return false;
         }
 
         /// <summary>
@@ -1342,8 +1393,32 @@ namespace dvmconsole
         /// </summary>
         public void UpdateChannelVolume(string channelName, double volume)
         {
+            if (string.IsNullOrWhiteSpace(channelName))
+                return;
+
             ChannelVolumes[channelName] = volume;
             SaveSettings();
+        }
+
+        /// <summary>
+        /// Gets a saved channel volume by stable resource key with legacy channel-name fallback.
+        /// </summary>
+        public bool TryGetChannelVolume(string resourceKey, string legacyChannelName, out double volume)
+        {
+            volume = 0;
+
+            if (ChannelVolumes == null)
+                return false;
+
+            if (!string.IsNullOrWhiteSpace(resourceKey) &&
+                ChannelVolumes.TryGetValue(resourceKey, out volume))
+                return true;
+
+            if (!string.IsNullOrWhiteSpace(legacyChannelName) &&
+                ChannelVolumes.TryGetValue(legacyChannelName, out volume))
+                return true;
+
+            return false;
         }
 
         /// <summary>
@@ -1446,9 +1521,13 @@ namespace dvmconsole
 
             ChannelOutputDevices ??= new Dictionary<string, int>();
             ChannelOutputDeviceKeys ??= new Dictionary<string, string>();
+            ChannelPositions ??= new Dictionary<string, ChannelPosition>();
+            ChannelVolumes ??= new Dictionary<string, double>();
             TarChannelConfigs ??= new Dictionary<string, TarChannelConfig>();
+            SelectedChannels ??= new List<string>();
 
             bool changed = false;
+            HashSet<string> selectedChannelKeys = new HashSet<string>(SelectedChannels, StringComparer.OrdinalIgnoreCase);
             foreach (Codeplug.Channel channel in channels)
             {
                 if (channel == null || string.IsNullOrWhiteSpace(channel.Tgid))
@@ -1486,6 +1565,31 @@ namespace dvmconsole
                         changed = true;
                     }
                 }
+
+                if (!ChannelPositions.ContainsKey(resourceKey) &&
+                    !string.IsNullOrWhiteSpace(channel.Name) &&
+                    ChannelPositions.TryGetValue(channel.Name, out ChannelPosition legacyPosition))
+                {
+                    ChannelPositions[resourceKey] = legacyPosition;
+                    changed = true;
+                }
+
+                if (!ChannelVolumes.ContainsKey(resourceKey) &&
+                    !string.IsNullOrWhiteSpace(channel.Name) &&
+                    ChannelVolumes.TryGetValue(channel.Name, out double legacyVolume))
+                {
+                    ChannelVolumes[resourceKey] = legacyVolume;
+                    changed = true;
+                }
+
+                if (!selectedChannelKeys.Contains(resourceKey) &&
+                    ((!string.IsNullOrWhiteSpace(channel.Name) && selectedChannelKeys.Contains(channel.Name)) ||
+                     (!string.IsNullOrWhiteSpace(channel.Tgid) && selectedChannelKeys.Contains(channel.Tgid))))
+                {
+                    SelectedChannels.Add(resourceKey);
+                    selectedChannelKeys.Add(resourceKey);
+                    changed = true;
+                }
             }
 
             if (changed)
@@ -1516,10 +1620,13 @@ namespace dvmconsole
             validAudioOutputKeys.Add(MainWindow.PLAYBACKTG);
             foreach (string webStreamName in webStreamNames)
                 validAudioOutputKeys.Add(webStreamName);
+            HashSet<string> validChannelResourceKeys = new HashSet<string>(resourceKeys, StringComparer.OrdinalIgnoreCase);
+            validChannelResourceKeys.Add(MainWindow.PLAYBACKCHNAME);
 
             bool changed = false;
-            changed |= PruneDictionary(ChannelPositions, channelNames);
-            changed |= PruneDictionary(ChannelVolumes, channelNames);
+            changed |= PruneDictionary(ChannelPositions, validChannelResourceKeys);
+            changed |= PruneDictionary(ChannelVolumes, validChannelResourceKeys);
+            changed |= PruneList(SelectedChannels, resourceKeys);
             HashSet<string> validTarKeys = new HashSet<string>(resourceKeys, StringComparer.OrdinalIgnoreCase);
 
             changed |= PruneDictionary(TarChannelConfigs, validTarKeys);
