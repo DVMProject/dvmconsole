@@ -121,11 +121,20 @@ namespace dvmconsole
         private double offsetX;
         private double offsetY;
         private bool isDragging;
+        private bool isLayoutSelecting;
+        private bool isLayoutGroupDrag;
         private Point channelDragStartPoint;
         private ChannelBox channelDragSource;
         private bool channelDragMoved;
         private bool channelDragSuppressSelection;
         private bool windowLoaded = false;
+        private Canvas layoutSelectionCanvas;
+        private System.Windows.Shapes.Rectangle layoutSelectionRectangle;
+        private Point layoutSelectionStartPoint;
+        private Point layoutGroupDragStartPoint;
+        private readonly HashSet<UIElement> layoutSelectedElements = new HashSet<UIElement>();
+        private readonly Dictionary<UIElement, System.Windows.Media.Effects.Effect> layoutSelectionOriginalEffects = new Dictionary<UIElement, System.Windows.Media.Effects.Effect>();
+        private readonly Dictionary<UIElement, Point> layoutDragStartPositions = new Dictionary<UIElement, Point>();
         
         // Tab management
         private Dictionary<TabItem, ScrollViewer> tabScrollViewers = new Dictionary<TabItem, ScrollViewer>();
@@ -238,6 +247,7 @@ namespace dvmconsole
 
             selectedChannelsManager = new SelectedChannelsManager();
             flashingManager = new FlashingBackgroundManager(null, channelsCanvas, null, this);
+            AttachLayoutSelectionCanvasEvents(channelsCanvas);
 
             channelHoldTimer = new System.Timers.Timer(10000);
             channelHoldTimer.Elapsed += OnHoldTimerElapsed;
@@ -536,6 +546,7 @@ namespace dvmconsole
             {
                 VerticalAlignment = VerticalAlignment.Top,
             };
+            AttachLayoutSelectionCanvasEvents(canvas);
             
             // Set background from original canvas or channelsCanvasBg
             // Use the current background from channelsCanvasBg if available, otherwise use default
@@ -3502,6 +3513,8 @@ namespace dvmconsole
                 return;
 
             settingsManager.LockWidgets = !settingsManager.LockWidgets;
+            if (settingsManager.LockWidgets)
+                ClearLayoutSelection();
         }
 
         /// <summary>
@@ -3652,6 +3665,261 @@ namespace dvmconsole
 
             settingsManager.SaveSettings();
         }
+
+        private void AttachLayoutSelectionCanvasEvents(Canvas canvas)
+        {
+            if (canvas == null)
+                return;
+
+            canvas.PreviewMouseLeftButtonDown -= LayoutCanvas_PreviewMouseLeftButtonDown;
+            canvas.PreviewMouseMove -= LayoutCanvas_PreviewMouseMove;
+            canvas.PreviewMouseLeftButtonUp -= LayoutCanvas_PreviewMouseLeftButtonUp;
+
+            canvas.PreviewMouseLeftButtonDown += LayoutCanvas_PreviewMouseLeftButtonDown;
+            canvas.PreviewMouseMove += LayoutCanvas_PreviewMouseMove;
+            canvas.PreviewMouseLeftButtonUp += LayoutCanvas_PreviewMouseLeftButtonUp;
+        }
+
+        private void LayoutCanvas_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (settingsManager.LockWidgets || sender is not Canvas canvas || e.OriginalSource != canvas)
+                return;
+
+            ClearLayoutSelection();
+            BeginLayoutSelection(canvas, e.GetPosition(canvas));
+            e.Handled = true;
+        }
+
+        private void LayoutCanvas_PreviewMouseMove(object sender, MouseEventArgs e)
+        {
+            if (!isLayoutSelecting || layoutSelectionCanvas == null || layoutSelectionRectangle == null)
+                return;
+
+            if (e.LeftButton != MouseButtonState.Pressed)
+            {
+                CompleteLayoutSelection();
+                return;
+            }
+
+            UpdateLayoutSelectionRectangle(e.GetPosition(layoutSelectionCanvas));
+            e.Handled = true;
+        }
+
+        private void LayoutCanvas_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (!isLayoutSelecting)
+                return;
+
+            CompleteLayoutSelection();
+            e.Handled = true;
+        }
+
+        private void BeginLayoutSelection(Canvas canvas, Point startPoint)
+        {
+            isLayoutSelecting = true;
+            layoutSelectionCanvas = canvas;
+            layoutSelectionStartPoint = startPoint;
+
+            layoutSelectionRectangle = new System.Windows.Shapes.Rectangle
+            {
+                Stroke = Brushes.DeepSkyBlue,
+                StrokeThickness = 1,
+                StrokeDashArray = new DoubleCollection { 3, 2 },
+                Fill = new SolidColorBrush(Color.FromArgb(45, 0, 122, 204)),
+                IsHitTestVisible = false
+            };
+
+            Canvas.SetLeft(layoutSelectionRectangle, startPoint.X);
+            Canvas.SetTop(layoutSelectionRectangle, startPoint.Y);
+            Canvas.SetZIndex(layoutSelectionRectangle, int.MaxValue);
+            canvas.Children.Add(layoutSelectionRectangle);
+            canvas.CaptureMouse();
+        }
+
+        private void UpdateLayoutSelectionRectangle(Point currentPoint)
+        {
+            double left = Math.Min(layoutSelectionStartPoint.X, currentPoint.X);
+            double top = Math.Min(layoutSelectionStartPoint.Y, currentPoint.Y);
+            double width = Math.Abs(currentPoint.X - layoutSelectionStartPoint.X);
+            double height = Math.Abs(currentPoint.Y - layoutSelectionStartPoint.Y);
+
+            Canvas.SetLeft(layoutSelectionRectangle, left);
+            Canvas.SetTop(layoutSelectionRectangle, top);
+            layoutSelectionRectangle.Width = width;
+            layoutSelectionRectangle.Height = height;
+        }
+
+        private void CompleteLayoutSelection()
+        {
+            Canvas canvas = layoutSelectionCanvas;
+            System.Windows.Shapes.Rectangle rectangle = layoutSelectionRectangle;
+
+            if (canvas == null || rectangle == null)
+            {
+                isLayoutSelecting = false;
+                return;
+            }
+
+            Rect selectionBounds = new Rect(
+                Canvas.GetLeft(rectangle),
+                Canvas.GetTop(rectangle),
+                rectangle.Width,
+                rectangle.Height);
+
+            bool isTinySelection =
+                selectionBounds.Width < SystemParameters.MinimumHorizontalDragDistance &&
+                selectionBounds.Height < SystemParameters.MinimumVerticalDragDistance;
+
+            List<UIElement> selected = new List<UIElement>();
+            try
+            {
+                if (!isTinySelection)
+                {
+                    selected = canvas.Children
+                        .OfType<UIElement>()
+                        .Where(element => !ReferenceEquals(element, rectangle))
+                        .Where(IsMovableLayoutWidget)
+                        .Where(element => selectionBounds.IntersectsWith(GetElementBounds(element)))
+                        .ToList();
+                }
+            }
+            finally
+            {
+                if (canvas.Children.Contains(rectangle))
+                    canvas.Children.Remove(rectangle);
+
+                if (canvas.IsMouseCaptured)
+                    canvas.ReleaseMouseCapture();
+
+                layoutSelectionRectangle = null;
+                layoutSelectionCanvas = null;
+                isLayoutSelecting = false;
+            }
+
+            if (isTinySelection)
+                ClearLayoutSelection();
+            else
+                SetLayoutSelection(selected);
+        }
+
+        private void SetLayoutSelection(IEnumerable<UIElement> elements)
+        {
+            ClearLayoutSelection();
+
+            foreach (UIElement element in elements ?? Enumerable.Empty<UIElement>())
+            {
+                if (!layoutSelectedElements.Add(element))
+                    continue;
+
+                layoutSelectionOriginalEffects[element] = element.Effect;
+                element.Effect = new System.Windows.Media.Effects.DropShadowEffect
+                {
+                    Color = Colors.DeepSkyBlue,
+                    BlurRadius = 14,
+                    ShadowDepth = 0,
+                    Opacity = 0.95
+                };
+            }
+        }
+
+        private void ClearLayoutSelection()
+        {
+            foreach (UIElement element in layoutSelectedElements.ToList())
+            {
+                if (layoutSelectionOriginalEffects.TryGetValue(element, out var originalEffect))
+                    element.Effect = originalEffect;
+                else
+                    element.ClearValue(UIElement.EffectProperty);
+            }
+
+            layoutSelectedElements.Clear();
+            layoutSelectionOriginalEffects.Clear();
+            layoutDragStartPositions.Clear();
+            isLayoutGroupDrag = false;
+        }
+
+        private static bool IsMovableLayoutWidget(UIElement element)
+        {
+            return element is ChannelBox ||
+                   element is SystemStatusBox ||
+                   element is AlertTone ||
+                   element is WebStreamChip;
+        }
+
+        private static Rect GetElementBounds(UIElement element)
+        {
+            return new Rect(GetCanvasLeft(element), GetCanvasTop(element), element.RenderSize.Width, element.RenderSize.Height);
+        }
+
+        private static void GetCanvasMovementBounds(Canvas canvas, out double maxWidth, out double maxHeight)
+        {
+            ScrollViewer scrollViewer = canvas.Parent as ScrollViewer;
+            maxWidth = scrollViewer != null ? Math.Max(canvas.ActualWidth, scrollViewer.ViewportWidth) : canvas.ActualWidth;
+            maxHeight = scrollViewer != null ? Math.Max(canvas.ActualHeight, scrollViewer.ViewportHeight) : canvas.ActualHeight;
+
+            if (maxHeight < 100)
+                maxHeight = 10000;
+            if (maxWidth < 100)
+                maxWidth = 10000;
+        }
+
+        private static double GetCanvasLeft(UIElement element)
+        {
+            double left = Canvas.GetLeft(element);
+            return double.IsNaN(left) ? 0 : left;
+        }
+
+        private static double GetCanvasTop(UIElement element)
+        {
+            double top = Canvas.GetTop(element);
+            return double.IsNaN(top) ? 0 : top;
+        }
+
+        private void PersistWidgetPositions(IEnumerable<UIElement> elements)
+        {
+            bool changed = false;
+            bool alertToneChanged = false;
+            List<SettingsManager.AlertToneConfig> alertToneConfigs = null;
+
+            foreach (UIElement element in elements ?? Enumerable.Empty<UIElement>())
+            {
+                double left = GetCanvasLeft(element);
+                double top = GetCanvasTop(element);
+
+                if (element is ChannelBox channelBox)
+                {
+                    settingsManager.ChannelPositions[channelBox.ChannelSettingsKey] = new ChannelPosition { X = left, Y = top };
+                    changed = true;
+                }
+                else if (element is WebStreamChip streamChip)
+                {
+                    settingsManager.WebStreamPositions[streamChip.DisplayName] = new ChannelPosition { X = left, Y = top };
+                    changed = true;
+                }
+                else if (element is SystemStatusBox systemStatusBox)
+                {
+                    settingsManager.SystemStatusPositions[systemStatusBox.SystemName] = new ChannelPosition { X = left, Y = top };
+                    changed = true;
+                }
+                else if (element is AlertTone alertTone && !string.IsNullOrWhiteSpace(alertTone.AlertToneId))
+                {
+                    alertToneConfigs ??= settingsManager.GetAlertToneConfigs();
+                    SettingsManager.AlertToneConfig config = alertToneConfigs
+                        .FirstOrDefault(t => string.Equals(t.Id, alertTone.AlertToneId, StringComparison.OrdinalIgnoreCase));
+                    if (config != null)
+                    {
+                        config.Position = new ChannelPosition { X = left, Y = top };
+                        alertToneChanged = true;
+                    }
+                }
+            }
+
+            if (alertToneChanged)
+                settingsManager.SaveAlertToneConfigs(alertToneConfigs);
+            else if (changed)
+                settingsManager.SaveSettings();
+        }
+
         /** Widget Controls */
 
         /// <summary>
@@ -3962,12 +4230,30 @@ namespace dvmconsole
             if (settingsManager.LockWidgets || !(sender is UIElement element))
                 return;
 
-            draggedElement = element;
             Canvas targetCanvas = GetCanvasForElement(element);
+            if (targetCanvas == null)
+                return;
+
+            if (!layoutSelectedElements.Contains(element))
+                ClearLayoutSelection();
+
+            draggedElement = element;
             startPoint = e.GetPosition(targetCanvas);
-            offsetX = startPoint.X - Canvas.GetLeft(draggedElement);
-            offsetY = startPoint.Y - Canvas.GetTop(draggedElement);
+            offsetX = startPoint.X - GetCanvasLeft(draggedElement);
+            offsetY = startPoint.Y - GetCanvasTop(draggedElement);
             isDragging = true;
+            isLayoutGroupDrag = layoutSelectedElements.Count > 1 && layoutSelectedElements.Contains(element);
+
+            layoutDragStartPositions.Clear();
+            if (isLayoutGroupDrag)
+            {
+                layoutGroupDragStartPoint = startPoint;
+                foreach (UIElement selectedElement in layoutSelectedElements)
+                {
+                    if (GetCanvasForElement(selectedElement) == targetCanvas)
+                        layoutDragStartPositions[selectedElement] = new Point(GetCanvasLeft(selectedElement), GetCanvasTop(selectedElement));
+                }
+            }
 
             Cursor = Cursors.ScrollAll;
 
@@ -3987,6 +4273,13 @@ namespace dvmconsole
             Cursor = Cursors.Arrow;
 
             isDragging = false;
+            if (isLayoutGroupDrag)
+            {
+                PersistWidgetPositions(layoutSelectedElements);
+                layoutDragStartPositions.Clear();
+                isLayoutGroupDrag = false;
+            }
+
             if (draggedElement != null)
             {
                 draggedElement.ReleaseMouseCapture();
@@ -4011,24 +4304,38 @@ namespace dvmconsole
 
             Point currentPosition = e.GetPosition(targetCanvas);
 
+            // Move the current marquee selection as a block when the dragged widget is selected.
+            if (isLayoutGroupDrag && layoutDragStartPositions.Count > 0 && layoutDragStartPositions.ContainsKey(draggedElement))
+            {
+                double deltaX = Math.Round((currentPosition.X - layoutGroupDragStartPoint.X) / GridSize) * GridSize;
+                double deltaY = Math.Round((currentPosition.Y - layoutGroupDragStartPoint.Y) / GridSize) * GridSize;
+
+                GetCanvasMovementBounds(targetCanvas, out double groupMaxWidth, out double groupMaxHeight);
+
+                foreach (KeyValuePair<UIElement, Point> kvp in layoutDragStartPositions)
+                {
+                    UIElement element = kvp.Key;
+                    Point originalPosition = kvp.Value;
+                    deltaX = Math.Max(deltaX, -originalPosition.X);
+                    deltaY = Math.Max(deltaY, -originalPosition.Y);
+                    deltaX = Math.Min(deltaX, groupMaxWidth - element.RenderSize.Width - originalPosition.X);
+                    deltaY = Math.Min(deltaY, groupMaxHeight - element.RenderSize.Height - originalPosition.Y);
+                }
+
+                foreach (KeyValuePair<UIElement, Point> kvp in layoutDragStartPositions)
+                {
+                    Canvas.SetLeft(kvp.Key, kvp.Value.X + deltaX);
+                    Canvas.SetTop(kvp.Key, kvp.Value.Y + deltaY);
+                }
+
+                return;
+            }
+
             // Calculate the new position with snapping to the grid
             double newLeft = Math.Round((currentPosition.X - offsetX) / GridSize) * GridSize;
             double newTop = Math.Round((currentPosition.Y - offsetY) / GridSize) * GridSize;
 
-            // Get the ScrollViewer parent to get proper viewport dimensions
-            ScrollViewer scrollViewer = targetCanvas.Parent as ScrollViewer;
-            double maxWidth = scrollViewer != null ? Math.Max(targetCanvas.ActualWidth, scrollViewer.ViewportWidth) : targetCanvas.ActualWidth;
-            double maxHeight = scrollViewer != null ? Math.Max(targetCanvas.ActualHeight, scrollViewer.ViewportHeight) : targetCanvas.ActualHeight;
-            
-            // If canvas height is 0 or very small, use a large default to allow free vertical movement
-            if (maxHeight < 100)
-            {
-                maxHeight = 10000; // Allow free vertical movement
-            }
-            if (maxWidth < 100)
-            {
-                maxWidth = 10000; // Allow free horizontal movement
-            }
+            GetCanvasMovementBounds(targetCanvas, out double maxWidth, out double maxHeight);
 
             // Ensure the box stays within canvas bounds (but allow free movement if canvas is small)
             newLeft = Math.Max(0, Math.Min(newLeft, maxWidth - draggedElement.RenderSize.Width));
