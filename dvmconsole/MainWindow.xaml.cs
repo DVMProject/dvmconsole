@@ -3011,6 +3011,18 @@ namespace dvmconsole
             aboutWindow.Owner = this;
             aboutWindow.ShowDialog();
         }
+
+        private void DebugLogs_Click(object sender, RoutedEventArgs e)
+        {
+            DebugLogWindow debugLogWindow = new DebugLogWindow
+            {
+                Owner = this
+            };
+
+            debugLogWindow.Show();
+            debugLogWindow.Activate();
+        }
+
         private void Documentation_Click(object sender, RoutedEventArgs e)
         {
             DocumentationWindow documentationWindow = new DocumentationWindow();

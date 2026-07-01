@@ -22,6 +22,7 @@
         <Menu materialDesign:MenuAssist.TopLevelMenuItemHeight="24" Grid.ColumnSpan="2" Background="{DynamicResource MaterialDesignPaper}">
             <MenuItem Header="_File">
                 <MenuItem Header="_Open Codeplug..." Click="OpenCodeplug_Click" />
+                <MenuItem Header="_Import / Export Settings" Click="SettingsTransfer_Click" />
                 <Separator />
                 <MenuItem Header="_Exit" Click="Exit_Click" />
             </MenuItem>
@@ -44,7 +45,6 @@
                 <MenuItem Header="_Clock Manager" Click="ClockManager_Click" />
                 <Separator />
                 <MenuItem Header="_Audio Settings" Click="AudioSettings_Click" />
-                <MenuItem Header="_Import / Export Settings" Click="SettingsTransfer_Click" />
                 <MenuItem Header="_Reset Settings" Click="ResetSettings_Click" />
                 <Separator />
                 <MenuItem Header="_Select Widgets to Display" Click="SelectWidgets_Click" />
@@ -79,6 +79,7 @@
                 <MenuItem Header="_FNE Connection Manager" Click="FneConnectionManager_Click" />
             </MenuItem>
             <MenuItem Header="_Help">
+                <MenuItem Header="_Debug Logs" Click="DebugLogs_Click" />
                 <MenuItem Header="_Documentation" Click="Documentation_Click" />
                 <MenuItem Header="_About" Click="About_Click" />
             </MenuItem>

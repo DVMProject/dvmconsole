@@ -108,17 +108,6 @@ namespace dvmconsole
             });
         }
 
-        private void ViewDebugLogs_Click(object sender, RoutedEventArgs e)
-        {
-            DebugLogWindow debugLogWindow = new DebugLogWindow
-            {
-                Owner = Owner ?? Application.Current.MainWindow
-            };
-
-            debugLogWindow.Show();
-            debugLogWindow.Activate();
-        }
-
         private void LicenseLink_Click(object sender, RequestNavigateEventArgs e)
         {
             Process.Start(new ProcessStartInfo

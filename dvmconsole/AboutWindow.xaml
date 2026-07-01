@@ -77,13 +77,6 @@
         <StackPanel Grid.Row="4"
             Orientation="Horizontal"
             HorizontalAlignment="Right">
-            <Button Content="View Debug Logs"
-            Width="140"
-            Height="32"
-            Margin="0,0,8,0"
-            Click="ViewDebugLogs_Click"
-            Style="{StaticResource MaterialDesignRaisedButton}" />
-
             <Button Content="Repository"
             Width="100"
             Height="32"
