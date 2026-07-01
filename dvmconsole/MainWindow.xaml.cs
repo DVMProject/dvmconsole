@@ -18,6 +18,7 @@
 
 using System.Net.Sockets;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Timers;
 using System.Windows;
 using System.Windows.Controls;
@@ -106,10 +107,12 @@ namespace dvmconsole
         private static readonly TimeSpan WaveInStaleRestartThreshold = TimeSpan.FromSeconds(5);
         private static readonly TimeSpan WaveInRestartThrottle = TimeSpan.FromSeconds(10);
         private static readonly TimeSpan WaveInIntentionalStopGrace = TimeSpan.FromSeconds(2);
+        private static readonly TimeSpan KeyboardPttWatchdogInterval = TimeSpan.FromMilliseconds(250);
 
         private bool isShuttingDown = false;
         private bool suppressSelectedResourcePersistence = false;
         private bool globalPttState = false;
+        private bool keyboardPttShortcutDown = false;
 
         private const int GridSize = 5;
 
@@ -174,6 +177,10 @@ namespace dvmconsole
 
         private CancellationTokenSource maintainenceCancelToken = new CancellationTokenSource();
         private Task maintainenceTask = null;
+        private CancellationTokenSource keyboardPttWatchdogCancelToken = null;
+
+        [DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int vKey);
 
         /*
         ** Properties
@@ -2476,6 +2483,7 @@ namespace dvmconsole
                 PersistSelectedResourceState(saveSettings: false);
 
             isShuttingDown = true;
+            CancelKeyboardPttWatchdog();
             StopAllPatchPttTargets();
             tarManager.StopAllSessions();
 
@@ -5479,6 +5487,9 @@ namespace dvmconsole
         /// </summary>
         private void InitializeKeyboardShortcuts()
         {
+            CancelKeyboardPttWatchdog();
+            keyboardPttShortcutDown = false;
+
             var listeningKeys = new List<Keys> { settingsManager.GlobalPTTShortcut };
             keyboardManager.SetListenKeys(listeningKeys);
             // Clear event listener
@@ -5494,36 +5505,113 @@ namespace dvmconsole
         /// <param name="state"></param>
         private void KeyboardManagerOnKeyEvent(Keys pressedKey, GlobalKeyboardHook.KeyboardState state)
         {
-            if (pressedKey != settingsManager.GlobalPTTShortcut)
+            if (settingsManager.GlobalPTTShortcut == Keys.None || pressedKey != settingsManager.GlobalPTTShortcut)
                 return;
+
+            bool keyDown = state is GlobalKeyboardHook.KeyboardState.KeyDown or GlobalKeyboardHook.KeyboardState.SysKeyDown;
+            bool keyUp = state is GlobalKeyboardHook.KeyboardState.KeyUp or GlobalKeyboardHook.KeyboardState.SysKeyUp;
 
             if (settingsManager.TogglePTTMode)
             {
-                if (state is GlobalKeyboardHook.KeyboardState.KeyDown or GlobalKeyboardHook.KeyboardState.SysKeyDown)
+                if (keyDown)
                 {
+                    if (keyboardPttShortcutDown)
+                        return;
+
+                    keyboardPttShortcutDown = true;
                     globalPttState = !globalPttState;
                     GlobalPTTActivate(null, null);
+                    StartKeyboardPttWatchdog(pressedKey, releasePttWhenKeyReleased: false);
+                }
+                else if (keyUp)
+                {
+                    keyboardPttShortcutDown = false;
+                    CancelKeyboardPttWatchdog();
                 }
 
                 return;
             }
 
-            if (state is GlobalKeyboardHook.KeyboardState.KeyDown or GlobalKeyboardHook.KeyboardState.SysKeyDown)
+            if (keyDown)
             {
-                if (globalPttState)
+                if (keyboardPttShortcutDown)
                     return;
 
+                keyboardPttShortcutDown = true;
                 globalPttState = true;
                 GlobalPTTActivate(null, null);
+                StartKeyboardPttWatchdog(pressedKey, releasePttWhenKeyReleased: true);
             }
-            else if (state is GlobalKeyboardHook.KeyboardState.KeyUp or GlobalKeyboardHook.KeyboardState.SysKeyUp)
+            else if (keyUp)
             {
-                if (!globalPttState)
-                    return;
-
-                globalPttState = false;
-                GlobalPTTActivate(null, null);
+                ReleaseKeyboardPtt(force: false);
             }
+        }
+
+        private void StartKeyboardPttWatchdog(Keys shortcutKey, bool releasePttWhenKeyReleased)
+        {
+            CancelKeyboardPttWatchdog();
+
+            CancellationTokenSource cancelToken = new CancellationTokenSource();
+            keyboardPttWatchdogCancelToken = cancelToken;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    while (!cancelToken.IsCancellationRequested)
+                    {
+                        await Task.Delay(KeyboardPttWatchdogInterval, cancelToken.Token).ConfigureAwait(false);
+
+                        if (IsShortcutKeyPhysicallyDown(shortcutKey))
+                            continue;
+
+                        Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            if (releasePttWhenKeyReleased)
+                            {
+                                Log.WriteWarning("Global PTT shortcut key-up was missed; forcing PTT release.");
+                                ReleaseKeyboardPtt(force: true);
+                            }
+                            else
+                            {
+                                keyboardPttShortcutDown = false;
+                                CancelKeyboardPttWatchdog();
+                            }
+                        }));
+
+                        return;
+                    }
+                }
+                catch (TaskCanceledException)
+                {
+                    /* expected when key-up is observed normally */
+                }
+            });
+        }
+
+        private void ReleaseKeyboardPtt(bool force)
+        {
+            keyboardPttShortcutDown = false;
+            CancelKeyboardPttWatchdog();
+
+            if (!globalPttState && !force)
+                return;
+
+            globalPttState = false;
+            GlobalPTTActivate(null, null);
+        }
+
+        private void CancelKeyboardPttWatchdog()
+        {
+            CancellationTokenSource cancelToken = keyboardPttWatchdogCancelToken;
+            keyboardPttWatchdogCancelToken = null;
+            cancelToken?.Cancel();
+        }
+
+        private static bool IsShortcutKeyPhysicallyDown(Keys shortcutKey)
+        {
+            return (GetAsyncKeyState((int)shortcutKey) & 0x8000) != 0;
         }
 
         /// <summary>
