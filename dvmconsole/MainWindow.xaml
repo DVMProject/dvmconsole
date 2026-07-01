@@ -33,7 +33,11 @@
                 <MenuItem Header="_Inhibit Subscriber" Click="InhibitRID_Click" x:Name="menuInhibitSubscriber" />
                 <MenuItem Header="_Uninhibit Subscriber" Click="UninhibitRID_Click" x:Name="menuUninhibitSubscriber" />
                 <Separator />
-                <MenuItem Header="_QuickCall II" Click="ManualPage_Click" x:Name="menuQuickCall2" />
+                <MenuItem Header="_Tones">
+                    <MenuItem Header="_QCII" Click="TonePresets_Click" x:Name="menuTonePresets" />
+                    <MenuItem Header="_DTMF" Click="DtmfPresets_Click" x:Name="menuDtmfPresets" />
+                    <MenuItem Header="_Manage Custom Alert Tones" Click="ManageAlertTones_Click" />
+                </MenuItem>
             </MenuItem>
             <MenuItem Header="_Settings">
                 <MenuItem Header="_Toggle Push To Talk Mode" IsCheckable="True" Checked="TogglePTTMode_Click" Unchecked="TogglePTTMode_Click" x:Name="menuTogglePTTMode" />
@@ -48,10 +52,6 @@
                 <MenuItem Header="_Reset Settings" Click="ResetSettings_Click" />
                 <Separator />
                 <MenuItem Header="_Select Widgets to Display" Click="SelectWidgets_Click" />
-                <Separator />
-                <MenuItem Header="Alerts">
-                    <MenuItem Header="Manage Alert Tones" Click="ManageAlertTones_Click" />
-                </MenuItem>
                 <Separator />
                 <MenuItem Header="Keyboard Shortcuts">
                     <MenuItem Header="Set Global PTT Keybind" Click="SetGlobalPTTKeybind"></MenuItem>

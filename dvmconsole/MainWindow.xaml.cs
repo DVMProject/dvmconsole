@@ -101,6 +101,8 @@ namespace dvmconsole
         private const int ALERT_TONE_PCM_BYTES_PER_MS = 16; // 8 kHz, mono, 16-bit PCM.
         private const int ALERT_TONE_LEAD_IN_MS = 750;
         private const int ALERT_TONE_TAIL_MS = 750;
+        private const int TONE_STACK_LEAD_IN_MS = 750;
+        private const int TONE_STACK_TAIL_MS = 750;
         private const double ALERT_TONE_TARGET_RMS_DBFS = -18.0;
         private const double ALERT_TONE_PEAK_CEILING_DBFS = -6.0;
         private const double ALERT_TONE_MIN_RMS = 0.0001;
@@ -211,6 +213,14 @@ namespace dvmconsole
             public Codeplug.System CodeplugSystem { get; set; }
             public PeerSystem Fne { get; set; }
             public uint SourceId { get; set; }
+        }
+
+        private sealed class ToneTransmitTarget
+        {
+            public ChannelBox Channel { get; set; }
+            public Codeplug.Channel CodeplugChannel { get; set; }
+            public Codeplug.System CodeplugSystem { get; set; }
+            public PeerSystem Fne { get; set; }
         }
 
         /*
@@ -749,7 +759,8 @@ namespace dvmconsole
             menuRadioCheckSubscriber.IsEnabled = true;
             menuInhibitSubscriber.IsEnabled = true;
             menuUninhibitSubscriber.IsEnabled = true;
-            menuQuickCall2.IsEnabled = true;
+            menuTonePresets.IsEnabled = true;
+            menuDtmfPresets.IsEnabled = true;
         }
 
         /// <summary>
@@ -779,7 +790,8 @@ namespace dvmconsole
             menuRadioCheckSubscriber.IsEnabled = false;
             menuInhibitSubscriber.IsEnabled = false;
             menuUninhibitSubscriber.IsEnabled = false;
-            menuQuickCall2.IsEnabled = false;
+            menuTonePresets.IsEnabled = false;
+            menuDtmfPresets.IsEnabled = false;
         }
 
         /// <summary>
@@ -1681,6 +1693,18 @@ namespace dvmconsole
             return paddedData;
         }
 
+        private static byte[] AddToneStackTransmitPadding(byte[] pcmData)
+        {
+            if (pcmData == null || pcmData.Length == 0)
+                return pcmData;
+
+            int leadInBytes = GetAlertToneFrameAlignedByteCount(TONE_STACK_LEAD_IN_MS);
+            int tailBytes = GetAlertToneFrameAlignedByteCount(TONE_STACK_TAIL_MS);
+            byte[] paddedData = new byte[leadInBytes + pcmData.Length + tailBytes];
+            Buffer.BlockCopy(pcmData, 0, paddedData, leadInBytes, pcmData.Length);
+            return paddedData;
+        }
+
         private static int GetAlertToneFrameAlignedByteCount(int durationMs)
         {
             int byteCount = durationMs * ALERT_TONE_PCM_BYTES_PER_MS;
@@ -2110,6 +2134,380 @@ namespace dvmconsole
             string key = BuildPatchTargetKey(NormalizeChannelSystemName(channel.SystemName), channel.DstId);
             if (!targets.ContainsKey(key))
                 targets[key] = channel;
+        }
+
+        private async Task SendToneStackAsync(
+            IEnumerable<SettingsManager.TonePresetStep> steps,
+            IEnumerable<ChannelBox> requestedChannels,
+            string logLabel,
+            bool clearPageStateAfterSend,
+            bool sendStartSignal)
+        {
+            List<SettingsManager.TonePresetStep> toneSteps = NormalizeToneStackSteps(steps);
+            if (toneSteps.Count == 0)
+            {
+                MessageBox.Show("Tone preset has no valid steps.", "Tone Presets", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            byte[] pcmData = BuildToneStackPcm(toneSteps);
+            await SendGeneratedTonePcmAsync(
+                pcmData,
+                requestedChannels,
+                logLabel,
+                clearPageStateAfterSend,
+                sendStartSignal,
+                "Tone Presets");
+        }
+
+        private async Task SendGeneratedTonePcmAsync(
+            byte[] pcmData,
+            IEnumerable<ChannelBox> requestedChannels,
+            string logLabel,
+            bool clearPageStateAfterSend,
+            bool sendStartSignal,
+            string messageTitle)
+        {
+            if (pcmData == null || pcmData.Length == 0)
+                return;
+
+            List<ChannelBox> requested = (requestedChannels ?? Enumerable.Empty<ChannelBox>())
+                .Where(channel => channel != null)
+                .ToList();
+
+            if (requested.Count == 0)
+            {
+                MessageBox.Show("Select a resource before sending tones.", messageTitle, MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            List<ChannelBox> channelsToProcess = ResolveAlertToneTransmitTargets(requested);
+            patchGroupsWindow.ClearAlertToneTargetStates();
+            activeAlertToneGroupTargets.Clear();
+
+            List<ToneTransmitTarget> targets = new List<ToneTransmitTarget>();
+            foreach (ChannelBox channel in channelsToProcess)
+            {
+                if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                    continue;
+
+                if (!TryResolveChannelEndpoint(channel, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne, out string endpointError))
+                {
+                    Log.WriteLine($"{endpointError} {ERR_SKIPPING_AUDIO}.");
+                    channel.IsSelected = false;
+                    selectedChannelsManager.RemoveSelectedChannel(channel);
+                    continue;
+                }
+
+                if (!ValidateTalkgroupAvailability(fne, cpgChannel, channel, current => current.PageState = false))
+                    continue;
+
+                if (channel.TxStreamId != 0)
+                {
+                    Log.WriteWarning($"{channel.ChannelName} CHANNEL already has active stream {channel.TxStreamId}; skipping tone stack.");
+                    continue;
+                }
+
+                targets.Add(new ToneTransmitTarget
+                {
+                    Channel = channel,
+                    CodeplugChannel = cpgChannel,
+                    CodeplugSystem = system,
+                    Fne = fne
+                });
+            }
+
+            if (targets.Count == 0)
+                return;
+
+            ApplyRxPlaybackMuteForTransmitStart();
+            await Task.WhenAll(targets.Select(target => TransmitTonePcmToTargetAsync(pcmData, target, logLabel, clearPageStateAfterSend, sendStartSignal)));
+        }
+
+        private static List<SettingsManager.TonePresetStep> NormalizeToneStackSteps(IEnumerable<SettingsManager.TonePresetStep> steps)
+        {
+            return (steps ?? Enumerable.Empty<SettingsManager.TonePresetStep>())
+                .Where(step => step != null)
+                .Select(step =>
+                {
+                    bool isHold = IsTonePresetHoldStep(step);
+                    return new SettingsManager.TonePresetStep
+                    {
+                        Kind = isHold ? SettingsManager.TONE_PRESET_STEP_KIND_HOLD : SettingsManager.TONE_PRESET_STEP_KIND_TONE,
+                        FrequencyHz = isHold ? 0 : Math.Clamp(step.FrequencyHz, 1, 4000),
+                        DurationSeconds = Math.Clamp(
+                            step.DurationSeconds,
+                            SettingsManager.TONE_PRESET_MIN_DURATION_SECONDS,
+                            SettingsManager.TONE_PRESET_MAX_DURATION_SECONDS)
+                    };
+                })
+                .ToList();
+        }
+
+        private static bool IsTonePresetHoldStep(SettingsManager.TonePresetStep step)
+        {
+            return string.Equals(step?.Kind, SettingsManager.TONE_PRESET_STEP_KIND_HOLD, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static byte[] BuildToneStackPcm(IEnumerable<SettingsManager.TonePresetStep> steps)
+        {
+            ToneGenerator generator = new ToneGenerator();
+            try
+            {
+                List<byte[]> toneBuffers = steps
+                    .Select(step => BuildToneStackStepPcm(generator, step))
+                    .Where(buffer => buffer?.Length > 0)
+                    .ToList();
+
+                if (toneBuffers.Count == 0)
+                    return Array.Empty<byte>();
+
+                int totalLength = toneBuffers.Sum(buffer => buffer.Length);
+                byte[] combinedAudio = new byte[totalLength];
+                int offset = 0;
+                foreach (byte[] toneBuffer in toneBuffers)
+                {
+                    Buffer.BlockCopy(toneBuffer, 0, combinedAudio, offset, toneBuffer.Length);
+                    offset += toneBuffer.Length;
+                }
+
+                combinedAudio = NormalizeAlertTonePcm(combinedAudio);
+                combinedAudio = AddToneStackTransmitPadding(combinedAudio);
+
+                int totalChunks = (combinedAudio.Length + PCM_SAMPLES_LENGTH - 1) / PCM_SAMPLES_LENGTH;
+                if (combinedAudio.Length % PCM_SAMPLES_LENGTH == 0)
+                    return combinedAudio;
+
+                byte[] paddedAudio = new byte[totalChunks * PCM_SAMPLES_LENGTH];
+                Buffer.BlockCopy(combinedAudio, 0, paddedAudio, 0, combinedAudio.Length);
+                return paddedAudio;
+            }
+            finally
+            {
+                generator.Dispose();
+            }
+        }
+
+        private static byte[] BuildToneStackStepPcm(ToneGenerator generator, SettingsManager.TonePresetStep step)
+        {
+            if (step == null)
+                return Array.Empty<byte>();
+
+            if (!IsTonePresetHoldStep(step))
+                return generator.GenerateTone(step.FrequencyHz, step.DurationSeconds);
+
+            int durationMs = Math.Max(1, (int)Math.Round(step.DurationSeconds * 1000));
+            return new byte[GetAlertToneFrameAlignedByteCount(durationMs)];
+        }
+
+        private async Task SendDtmfStackAsync(
+            IEnumerable<SettingsManager.DtmfPresetStep> steps,
+            IEnumerable<ChannelBox> requestedChannels,
+            string logLabel,
+            bool clearPageStateAfterSend,
+            bool sendStartSignal)
+        {
+            List<SettingsManager.DtmfPresetStep> dtmfSteps = NormalizeDtmfStackSteps(steps);
+            if (dtmfSteps.Count == 0)
+            {
+                MessageBox.Show("DTMF preset has no valid steps.", "DTMF Presets", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            byte[] pcmData = BuildDtmfStackPcm(dtmfSteps);
+            await SendGeneratedTonePcmAsync(
+                pcmData,
+                requestedChannels,
+                logLabel,
+                clearPageStateAfterSend,
+                sendStartSignal,
+                "DTMF Presets");
+        }
+
+        private static List<SettingsManager.DtmfPresetStep> NormalizeDtmfStackSteps(IEnumerable<SettingsManager.DtmfPresetStep> steps)
+        {
+            return (steps ?? Enumerable.Empty<SettingsManager.DtmfPresetStep>())
+                .Where(step => step != null)
+                .Select(step =>
+                {
+                    bool isHold = IsDtmfHoldStep(step);
+                    return new SettingsManager.DtmfPresetStep
+                    {
+                        Kind = isHold ? SettingsManager.TONE_PRESET_STEP_KIND_HOLD : SettingsManager.DTMF_PRESET_STEP_KIND_DIGIT,
+                        Digit = isHold ? string.Empty : NormalizeDtmfDigit(step.Digit),
+                        DurationSeconds = Math.Clamp(
+                            step.DurationSeconds,
+                            SettingsManager.TONE_PRESET_MIN_DURATION_SECONDS,
+                            SettingsManager.TONE_PRESET_MAX_DURATION_SECONDS)
+                    };
+                })
+                .ToList();
+        }
+
+        private static bool IsDtmfHoldStep(SettingsManager.DtmfPresetStep step)
+        {
+            return string.Equals(step?.Kind, SettingsManager.TONE_PRESET_STEP_KIND_HOLD, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static byte[] BuildDtmfStackPcm(IEnumerable<SettingsManager.DtmfPresetStep> steps)
+        {
+            ToneGenerator generator = new ToneGenerator();
+            try
+            {
+                List<byte[]> toneBuffers = steps
+                    .Select(step => BuildDtmfStackStepPcm(generator, step))
+                    .Where(buffer => buffer?.Length > 0)
+                    .ToList();
+
+                if (toneBuffers.Count == 0)
+                    return Array.Empty<byte>();
+
+                int totalLength = toneBuffers.Sum(buffer => buffer.Length);
+                byte[] combinedAudio = new byte[totalLength];
+                int offset = 0;
+                foreach (byte[] toneBuffer in toneBuffers)
+                {
+                    Buffer.BlockCopy(toneBuffer, 0, combinedAudio, offset, toneBuffer.Length);
+                    offset += toneBuffer.Length;
+                }
+
+                combinedAudio = NormalizeAlertTonePcm(combinedAudio);
+                combinedAudio = AddToneStackTransmitPadding(combinedAudio);
+
+                int totalChunks = (combinedAudio.Length + PCM_SAMPLES_LENGTH - 1) / PCM_SAMPLES_LENGTH;
+                if (combinedAudio.Length % PCM_SAMPLES_LENGTH == 0)
+                    return combinedAudio;
+
+                byte[] paddedAudio = new byte[totalChunks * PCM_SAMPLES_LENGTH];
+                Buffer.BlockCopy(combinedAudio, 0, paddedAudio, 0, combinedAudio.Length);
+                return paddedAudio;
+            }
+            finally
+            {
+                generator.Dispose();
+            }
+        }
+
+        private static byte[] BuildDtmfStackStepPcm(ToneGenerator generator, SettingsManager.DtmfPresetStep step)
+        {
+            if (step == null)
+                return Array.Empty<byte>();
+
+            if (IsDtmfHoldStep(step))
+            {
+                int durationMs = Math.Max(1, (int)Math.Round(step.DurationSeconds * 1000));
+                return new byte[GetAlertToneFrameAlignedByteCount(durationMs)];
+            }
+
+            if (!TryGetDtmfFrequencies(NormalizeDtmfDigit(step.Digit), out double lowFrequency, out double highFrequency))
+                return Array.Empty<byte>();
+
+            return generator.GenerateDualTone(lowFrequency, highFrequency, step.DurationSeconds);
+        }
+
+        private static string NormalizeDtmfDigit(string digit)
+        {
+            string normalizedDigit = (digit ?? string.Empty).Trim().ToUpperInvariant();
+            if (normalizedDigit.Length > 1)
+                normalizedDigit = normalizedDigit.Substring(0, 1);
+
+            return normalizedDigit.Length == 1 && "0123456789*#ABCD".Contains(normalizedDigit)
+                ? normalizedDigit
+                : "1";
+        }
+
+        private static bool TryGetDtmfFrequencies(string digit, out double lowFrequency, out double highFrequency)
+        {
+            lowFrequency = 0;
+            highFrequency = 0;
+
+            switch (digit)
+            {
+                case "1": lowFrequency = 697; highFrequency = 1209; return true;
+                case "2": lowFrequency = 697; highFrequency = 1336; return true;
+                case "3": lowFrequency = 697; highFrequency = 1477; return true;
+                case "A": lowFrequency = 697; highFrequency = 1633; return true;
+                case "4": lowFrequency = 770; highFrequency = 1209; return true;
+                case "5": lowFrequency = 770; highFrequency = 1336; return true;
+                case "6": lowFrequency = 770; highFrequency = 1477; return true;
+                case "B": lowFrequency = 770; highFrequency = 1633; return true;
+                case "7": lowFrequency = 852; highFrequency = 1209; return true;
+                case "8": lowFrequency = 852; highFrequency = 1336; return true;
+                case "9": lowFrequency = 852; highFrequency = 1477; return true;
+                case "C": lowFrequency = 852; highFrequency = 1633; return true;
+                case "*": lowFrequency = 941; highFrequency = 1209; return true;
+                case "0": lowFrequency = 941; highFrequency = 1336; return true;
+                case "#": lowFrequency = 941; highFrequency = 1477; return true;
+                case "D": lowFrequency = 941; highFrequency = 1633; return true;
+                default: return false;
+            }
+        }
+
+        private async Task TransmitTonePcmToTargetAsync(
+            byte[] pcmData,
+            ToneTransmitTarget target,
+            string logLabel,
+            bool clearPageStateAfterSend,
+            bool sendStartSignal)
+        {
+            ChannelBox channel = target.Channel;
+            Codeplug.Channel cpgChannel = target.CodeplugChannel;
+            Codeplug.System system = target.CodeplugSystem;
+            PeerSystem fne = target.Fne;
+
+            if (channel == null || cpgChannel == null || system == null || fne == null || pcmData == null || pcmData.Length == 0)
+                return;
+
+            uint srcId = uint.Parse(system.Rid);
+            uint dstId = uint.Parse(cpgChannel.Tgid);
+
+            if (sendStartSignal && cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                fne.SendP25TDU(srcId, dstId, true);
+
+            audioManager.PlayOneShot(channel.AudioOutputKey, pcmData);
+
+            channel.TxStreamId = fne.NewStreamId();
+            Log.WriteLine($"({system.Name}) {channel.ChannelMode.ToUpperInvariant()} Traffic *{logLabel,-14}* TGID {channel.DstId} [STREAM ID {channel.TxStreamId}]");
+            channel.VolumeMeterLevel = 0;
+
+            int totalChunks = pcmData.Length / PCM_SAMPLES_LENGTH;
+            DateTime startTime = DateTime.UtcNow;
+
+            await Task.Run(async () =>
+            {
+                for (int i = 0; i < totalChunks; i++)
+                {
+                    int offset = i * PCM_SAMPLES_LENGTH;
+
+                    byte[] chunk = new byte[PCM_SAMPLES_LENGTH];
+                    Buffer.BlockCopy(pcmData, offset, chunk, 0, PCM_SAMPLES_LENGTH);
+
+                    if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                        P25EncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
+                    else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                        DMREncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
+
+                    DateTime nextPacketTime = startTime.AddMilliseconds((i + 1) * 20);
+                    TimeSpan waitTime = nextPacketTime - DateTime.UtcNow;
+
+                    if (waitTime.TotalMilliseconds > 0)
+                        await Task.Delay(waitTime);
+                }
+            });
+
+            if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                fne.SendP25TDU(srcId, dstId, false);
+            else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                fne.SendDMRTerminator(srcId, dstId, 1, channel.dmrSeqNo, channel.dmrN, channel.embeddedData);
+
+            ResetChannel(channel);
+
+            Dispatcher.Invoke(() =>
+            {
+                channel.VolumeMeterLevel = 0;
+                if (clearPageStateAfterSend)
+                    channel.PageState = false;
+            });
         }
 
         private void PlayTalkPermitTone()
@@ -3198,92 +3596,27 @@ namespace dvmconsole
 
             if (pageWindow.ShowDialog() == true)
             {
-                foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels().Where(channel => channel.PageState).ToList())
+                if (!Double.TryParse(pageWindow.ToneA, out double toneA) ||
+                    !Double.TryParse(pageWindow.ToneB, out double toneB))
                 {
-                    if (!TryResolveChannelEndpoint(channel, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne, out string endpointError))
-                    {
-                        MessageBox.Show($"{endpointError} {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                        channel.IsSelected = false;
-                        selectedChannelsManager.RemoveSelectedChannel(channel);
-                        continue;
-                    }
-
-                    if (!ValidateTalkgroupAvailability(fne, cpgChannel, channel, current => current.PageState = false))
-                        continue;
-
-                    ToneGenerator generator = new ToneGenerator();
-
-                    double toneADuration = 1.0;
-                    double toneBDuration = 3.0;
-
-                    byte[] toneA = generator.GenerateTone(Double.Parse(pageWindow.ToneA), toneADuration);
-                    byte[] toneB = generator.GenerateTone(Double.Parse(pageWindow.ToneB), toneBDuration);
-
-                    byte[] combinedAudio = new byte[toneA.Length + toneB.Length];
-                    Buffer.BlockCopy(toneA, 0, combinedAudio, 0, toneA.Length);
-                    Buffer.BlockCopy(toneB, 0, combinedAudio, toneA.Length, toneB.Length);
-
-                    combinedAudio = NormalizeAlertTonePcm(combinedAudio);
-                    combinedAudio = AddAlertToneTransmitPadding(combinedAudio);
-
-                    int chunkSize = PCM_SAMPLES_LENGTH;
-                    int totalChunks = (combinedAudio.Length + chunkSize - 1) / chunkSize;
-
-                    if (combinedAudio.Length % chunkSize != 0)
-                    {
-                        byte[] paddedAudio = new byte[totalChunks * chunkSize];
-                        Buffer.BlockCopy(combinedAudio, 0, paddedAudio, 0, combinedAudio.Length);
-                        combinedAudio = paddedAudio;
-                    }
-
-                    ApplyRxPlaybackMuteForTransmitStart();
-                    audioManager.PlayOneShot(cpgChannel.Tgid, combinedAudio);
-
-                    if (channel.TxStreamId != 0)
-                        Log.WriteWarning($"{channel.ChannelName} CHANNEL still had a TxStreamId? This shouldn't happen.");
-
-                    channel.TxStreamId = fne.NewStreamId();
-                    Log.WriteLine($"({system.Name}) {channel.ChannelMode.ToUpperInvariant()} Traffic *QCII TONE      * TGID {channel.DstId} [STREAM ID {channel.TxStreamId}]");
-                    channel.VolumeMeterLevel = 0;
-
-                    DateTime startTime = DateTime.UtcNow;
-                    await Task.Run(async () =>
-                    {
-                        for (int i = 0; i < totalChunks; i++)
-                        {
-                            int offset = i * chunkSize;
-
-                            byte[] chunk = new byte[chunkSize];
-                            Buffer.BlockCopy(combinedAudio, offset, chunk, 0, chunkSize);
-
-                            if (chunk.Length == PCM_SAMPLES_LENGTH)
-                            {
-                                if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                                    P25EncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
-                                else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                                    DMREncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
-                            }
-
-                            DateTime nextPacketTime = startTime.AddMilliseconds((i + 1) * 20);
-                            TimeSpan waitTime = nextPacketTime - DateTime.UtcNow;
-
-                            if (waitTime.TotalMilliseconds > 0)
-                                await Task.Delay(waitTime);
-                        }
-                    });
-
-                    if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                        fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
-                    else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                        fne.SendDMRTerminator(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), 1, channel.dmrSeqNo, channel.dmrN, channel.embeddedData);
-
-                    ResetChannel(channel);
-
-                    Dispatcher.Invoke(() =>
-                    {
-                        channel.PageState = false;
-                    });
+                    MessageBox.Show("Enter valid A and B tone frequencies.", "QuickCall II", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
                 }
+
+                List<ChannelBox> pageTargets = selectedChannelsManager.GetSelectedChannels()
+                    .Where(channel => channel.PageState)
+                    .ToList();
+
+                await SendToneStackAsync(
+                    new[]
+                    {
+                        new SettingsManager.TonePresetStep { Kind = SettingsManager.TONE_PRESET_STEP_KIND_TONE, FrequencyHz = toneA, DurationSeconds = 1.0 },
+                        new SettingsManager.TonePresetStep { Kind = SettingsManager.TONE_PRESET_STEP_KIND_TONE, FrequencyHz = toneB, DurationSeconds = 3.0 }
+                    },
+                    pageTargets,
+                    "QCII TONE",
+                    clearPageStateAfterSend: true,
+                    sendStartSignal: true);
             }
         }
 
@@ -3456,6 +3789,202 @@ namespace dvmconsole
             };
 
             managerWindow.ShowDialog();
+        }
+
+        private void TonePresets_Click(object sender, RoutedEventArgs e)
+        {
+            TonePresetManagerWindow managerWindow = new TonePresetManagerWindow(
+                settingsManager.GetTonePresetConfigs(),
+                BuildTonePresetTargetOptions(),
+                SaveTonePresetManagerItems,
+                SendTonePresetManagerItemAsync)
+            {
+                Owner = this
+            };
+
+            managerWindow.ShowDialog();
+        }
+
+        private List<TonePresetManagerWindow.TonePresetTargetItem> BuildTonePresetTargetOptions()
+        {
+            List<TonePresetManagerWindow.TonePresetTargetItem> targets = new List<TonePresetManagerWindow.TonePresetTargetItem>();
+            List<ChannelBox> selectedChannels = selectedChannelsManager.GetSelectedChannels()
+                .Where(IsTonePresetTargetEligible)
+                .ToList();
+
+            List<ChannelBox> pageSelectedChannels = selectedChannels
+                .Where(channel => channel.PageState)
+                .ToList();
+
+            if (pageSelectedChannels.Count > 0)
+            {
+                targets.Add(new TonePresetManagerWindow.TonePresetTargetItem
+                {
+                    DisplayName = $"Page-selected resources ({pageSelectedChannels.Count})",
+                    Key = string.Empty,
+                    Channels = pageSelectedChannels,
+                    ClearPageStateAfterSend = true
+                });
+            }
+
+            foreach (ChannelBox channel in selectedChannels.OrderBy(channel => channel.ChannelName, StringComparer.OrdinalIgnoreCase))
+            {
+                targets.Add(new TonePresetManagerWindow.TonePresetTargetItem
+                {
+                    Key = BuildChannelSelectionKey(channel),
+                    DisplayName = $"{channel.ChannelName} ({NormalizeChannelSystemName(channel.SystemName)} TG {channel.DstId})",
+                    Channels = new List<ChannelBox> { channel },
+                    ClearPageStateAfterSend = false
+                });
+            }
+
+            return targets;
+        }
+
+        private bool IsTonePresetTargetEligible(ChannelBox channel)
+        {
+            return channel != null &&
+                   channel.IsSelected &&
+                   !channel.IsRxOnly &&
+                   channel.SystemName != PLAYBACKSYS &&
+                   channel.ChannelName != PLAYBACKCHNAME &&
+                   channel.DstId != PLAYBACKTG;
+        }
+
+        private void SaveTonePresetManagerItems(IReadOnlyList<TonePresetManagerWindow.TonePresetManagerItem> items)
+        {
+            settingsManager.SaveTonePresetConfigs((items ?? Array.Empty<TonePresetManagerWindow.TonePresetManagerItem>())
+                .Select(ToTonePresetConfig));
+        }
+
+        private async Task SendTonePresetManagerItemAsync(
+            TonePresetManagerWindow.TonePresetManagerItem item,
+            TonePresetManagerWindow.TonePresetTargetItem target)
+        {
+            SettingsManager.TonePresetConfig preset = ToTonePresetConfig(item);
+            await SendToneStackAsync(
+                preset.Steps,
+                target?.Channels ?? Array.Empty<ChannelBox>(),
+                "TONE PRESET",
+                clearPageStateAfterSend: target?.ClearPageStateAfterSend == true,
+                sendStartSignal: true);
+        }
+
+        private static SettingsManager.TonePresetConfig ToTonePresetConfig(TonePresetManagerWindow.TonePresetManagerItem item)
+        {
+            IEnumerable<TonePresetManagerWindow.TonePresetStepItem> steps =
+                item?.Steps ?? Enumerable.Empty<TonePresetManagerWindow.TonePresetStepItem>();
+
+            return new SettingsManager.TonePresetConfig
+            {
+                Id = string.IsNullOrWhiteSpace(item?.Id) ? Guid.NewGuid().ToString("N") : item.Id,
+                DisplayName = string.IsNullOrWhiteSpace(item?.DisplayName) ? "Tone Preset" : item.DisplayName.Trim(),
+                TargetResourceKey = item?.TargetResourceKey ?? string.Empty,
+                Steps = steps
+                    .Where(step => step != null)
+                    .Select(step => new SettingsManager.TonePresetStep
+                    {
+                        Kind = string.Equals(step.Kind, "Hold", StringComparison.OrdinalIgnoreCase)
+                            ? SettingsManager.TONE_PRESET_STEP_KIND_HOLD
+                            : SettingsManager.TONE_PRESET_STEP_KIND_TONE,
+                        FrequencyHz = step.FrequencyHz,
+                        DurationSeconds = step.DurationSeconds
+                    })
+                    .ToList()
+            };
+        }
+
+        private void DtmfPresets_Click(object sender, RoutedEventArgs e)
+        {
+            DtmfPresetManagerWindow managerWindow = new DtmfPresetManagerWindow(
+                settingsManager.GetDtmfPresetConfigs(),
+                BuildDtmfPresetTargetOptions(),
+                SaveDtmfPresetManagerItems,
+                SendDtmfPresetManagerItemAsync)
+            {
+                Owner = this
+            };
+
+            managerWindow.ShowDialog();
+        }
+
+        private List<DtmfPresetManagerWindow.DtmfPresetTargetItem> BuildDtmfPresetTargetOptions()
+        {
+            List<DtmfPresetManagerWindow.DtmfPresetTargetItem> targets = new List<DtmfPresetManagerWindow.DtmfPresetTargetItem>();
+            List<ChannelBox> selectedChannels = selectedChannelsManager.GetSelectedChannels()
+                .Where(IsTonePresetTargetEligible)
+                .ToList();
+
+            List<ChannelBox> pageSelectedChannels = selectedChannels
+                .Where(channel => channel.PageState)
+                .ToList();
+
+            if (pageSelectedChannels.Count > 0)
+            {
+                targets.Add(new DtmfPresetManagerWindow.DtmfPresetTargetItem
+                {
+                    DisplayName = $"Page-selected resources ({pageSelectedChannels.Count})",
+                    Key = string.Empty,
+                    Channels = pageSelectedChannels,
+                    ClearPageStateAfterSend = true
+                });
+            }
+
+            foreach (ChannelBox channel in selectedChannels.OrderBy(channel => channel.ChannelName, StringComparer.OrdinalIgnoreCase))
+            {
+                targets.Add(new DtmfPresetManagerWindow.DtmfPresetTargetItem
+                {
+                    Key = BuildChannelSelectionKey(channel),
+                    DisplayName = $"{channel.ChannelName} ({NormalizeChannelSystemName(channel.SystemName)} TG {channel.DstId})",
+                    Channels = new List<ChannelBox> { channel },
+                    ClearPageStateAfterSend = false
+                });
+            }
+
+            return targets;
+        }
+
+        private void SaveDtmfPresetManagerItems(IReadOnlyList<DtmfPresetManagerWindow.DtmfPresetManagerItem> items)
+        {
+            settingsManager.SaveDtmfPresetConfigs((items ?? Array.Empty<DtmfPresetManagerWindow.DtmfPresetManagerItem>())
+                .Select(ToDtmfPresetConfig));
+        }
+
+        private async Task SendDtmfPresetManagerItemAsync(
+            DtmfPresetManagerWindow.DtmfPresetManagerItem item,
+            DtmfPresetManagerWindow.DtmfPresetTargetItem target)
+        {
+            SettingsManager.DtmfPresetConfig preset = ToDtmfPresetConfig(item);
+            await SendDtmfStackAsync(
+                preset.Steps,
+                target?.Channels ?? Array.Empty<ChannelBox>(),
+                "DTMF TONE",
+                clearPageStateAfterSend: target?.ClearPageStateAfterSend == true,
+                sendStartSignal: true);
+        }
+
+        private static SettingsManager.DtmfPresetConfig ToDtmfPresetConfig(DtmfPresetManagerWindow.DtmfPresetManagerItem item)
+        {
+            IEnumerable<DtmfPresetManagerWindow.DtmfPresetStepItem> steps =
+                item?.Steps ?? Enumerable.Empty<DtmfPresetManagerWindow.DtmfPresetStepItem>();
+
+            return new SettingsManager.DtmfPresetConfig
+            {
+                Id = string.IsNullOrWhiteSpace(item?.Id) ? Guid.NewGuid().ToString("N") : item.Id,
+                DisplayName = string.IsNullOrWhiteSpace(item?.DisplayName) ? "DTMF Preset" : item.DisplayName.Trim(),
+                TargetResourceKey = item?.TargetResourceKey ?? string.Empty,
+                Steps = steps
+                    .Where(step => step != null)
+                    .Select(step => new SettingsManager.DtmfPresetStep
+                    {
+                        Kind = string.Equals(step.Kind, SettingsManager.TONE_PRESET_STEP_KIND_HOLD, StringComparison.OrdinalIgnoreCase)
+                            ? SettingsManager.TONE_PRESET_STEP_KIND_HOLD
+                            : SettingsManager.DTMF_PRESET_STEP_KIND_DIGIT,
+                        Digit = step.Digit,
+                        DurationSeconds = step.DurationSeconds
+                    })
+                    .ToList()
+            };
         }
 
         /// <summary>

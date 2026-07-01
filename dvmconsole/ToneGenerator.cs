@@ -64,6 +64,32 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// Generate two sine waves mixed together at the specified frequencies and duration.
+        /// </summary>
+        /// <param name="lowFrequency">Low group frequency in Hz</param>
+        /// <param name="highFrequency">High group frequency in Hz</param>
+        /// <param name="durationSeconds">Duration in seconds</param>
+        /// <returns>PCM data as a byte array</returns>
+        public byte[] GenerateDualTone(double lowFrequency, double highFrequency, double durationSeconds)
+        {
+            int sampleCount = (int)(sampleRate * durationSeconds);
+            byte[] buffer = new byte[sampleCount * (bitsPerSample / 8)];
+
+            for (int i = 0; i < sampleCount; i++)
+            {
+                double time = (double)i / sampleRate;
+                double low = Math.Sin(2 * Math.PI * lowFrequency * time);
+                double high = Math.Sin(2 * Math.PI * highFrequency * time);
+                short sampleValue = (short)(((low + high) / 2.0) * short.MaxValue);
+
+                buffer[i * 2] = (byte)(sampleValue & 0xFF);
+                buffer[i * 2 + 1] = (byte)((sampleValue >> 8) & 0xFF);
+            }
+
+            return buffer;
+        }
+
+        /// <summary>
         /// Play the generated tone through the speakers.
         /// </summary>
         /// <param name="frequency">Frequency in Hz</param>

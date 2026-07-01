@@ -38,6 +38,11 @@ namespace dvmconsole
         public const string DEFAULT_TOOLBAR_CLOCK_COLOR = "#3A3A3A";
         public const double DEFAULT_CALL_HISTORY_WINDOW_WIDTH = 551;
         public const double DEFAULT_CALL_HISTORY_WINDOW_HEIGHT = 450;
+        public const string TONE_PRESET_STEP_KIND_TONE = "tone";
+        public const string TONE_PRESET_STEP_KIND_HOLD = "hold";
+        public const double TONE_PRESET_MIN_DURATION_SECONDS = 0.25;
+        public const double TONE_PRESET_MAX_DURATION_SECONDS = 10.0;
+        public const string DTMF_PRESET_STEP_KIND_DIGIT = "digit";
 
         public static readonly string UserAppData = Environment.GetFolderPath(
             Environment.SpecialFolder.ApplicationData);
@@ -111,6 +116,14 @@ namespace dvmconsole
         /// Saved alert tone configurations using a stable ID.
         /// </summary>
         public List<AlertToneConfig> AlertTones { get; set; } = new List<AlertToneConfig>();
+        /// <summary>
+        /// Saved generated tone presets using a stable ID.
+        /// </summary>
+        public List<TonePresetConfig> TonePresets { get; set; } = new List<TonePresetConfig>();
+        /// <summary>
+        /// Saved DTMF presets using a stable ID.
+        /// </summary>
+        public List<DtmfPresetConfig> DtmfPresets { get; set; } = new List<DtmfPresetConfig>();
 
         /// <summary>
         /// 
@@ -212,6 +225,48 @@ namespace dvmconsole
             public string FilePath { get; set; } = string.Empty;
             public string TabName { get; set; } = string.Empty;
             public ChannelPosition Position { get; set; } = new ChannelPosition { X = 20, Y = 20 };
+        }
+
+        /// <summary>
+        /// Persisted generated tone preset.
+        /// </summary>
+        public class TonePresetConfig
+        {
+            public string Id { get; set; } = Guid.NewGuid().ToString("N");
+            public string DisplayName { get; set; } = string.Empty;
+            public string TargetResourceKey { get; set; } = string.Empty;
+            public List<TonePresetStep> Steps { get; set; } = new List<TonePresetStep>();
+        }
+
+        /// <summary>
+        /// One generated tone step in a preset stack.
+        /// </summary>
+        public class TonePresetStep
+        {
+            public string Kind { get; set; } = TONE_PRESET_STEP_KIND_TONE;
+            public double FrequencyHz { get; set; } = 1000;
+            public double DurationSeconds { get; set; } = 1;
+        }
+
+        /// <summary>
+        /// Persisted DTMF preset.
+        /// </summary>
+        public class DtmfPresetConfig
+        {
+            public string Id { get; set; } = Guid.NewGuid().ToString("N");
+            public string DisplayName { get; set; } = string.Empty;
+            public string TargetResourceKey { get; set; } = string.Empty;
+            public List<DtmfPresetStep> Steps { get; set; } = new List<DtmfPresetStep>();
+        }
+
+        /// <summary>
+        /// One DTMF digit or hold step in a preset stack.
+        /// </summary>
+        public class DtmfPresetStep
+        {
+            public string Kind { get; set; } = DTMF_PRESET_STEP_KIND_DIGIT;
+            public string Digit { get; set; } = "1";
+            public double DurationSeconds { get; set; } = TONE_PRESET_MIN_DURATION_SECONDS;
         }
 
         /// <summary>
@@ -431,14 +486,16 @@ namespace dvmconsole
             new SettingsTransferCategoryDefinition
             {
                 Id = "alerts",
-                DisplayName = "Custom Alert Tones",
-                Description = "Custom tone list, labels, file paths, tab assignments, and tone positions.",
+                DisplayName = "Alert Tones and Tone Presets",
+                Description = "Custom tone list, labels, file paths, tab assignments, tone positions, generated tone presets, and DTMF presets.",
                 PropertyNames = new List<string>
                 {
                     nameof(AlertTones),
                     nameof(AlertToneFilePaths),
                     nameof(AlertToneTabs),
-                    nameof(AlertTonePositions)
+                    nameof(AlertTonePositions),
+                    nameof(TonePresets),
+                    nameof(DtmfPresets)
                 }
             },
             new SettingsTransferCategoryDefinition
@@ -560,6 +617,8 @@ namespace dvmconsole
                     WebStreamPositions = loadedSettings.WebStreamPositions ?? new Dictionary<string, ChannelPosition>();
                     AlertToneTabs = loadedSettings.AlertToneTabs ?? new Dictionary<string, string>();
                     AlertTones = loadedSettings.AlertTones ?? new List<AlertToneConfig>();
+                    TonePresets = NormalizeTonePresetConfigs(loadedSettings.TonePresets);
+                    DtmfPresets = NormalizeDtmfPresetConfigs(loadedSettings.DtmfPresets);
                     ChannelOutputDevices = loadedSettings.ChannelOutputDevices ?? new Dictionary<string, int>();
                     ChannelOutputDeviceKeys = loadedSettings.ChannelOutputDeviceKeys ?? new Dictionary<string, string>();
                     AudioInputDevice = NormalizeAudioDeviceIndex(loadedSettings.AudioInputDevice);
@@ -891,6 +950,8 @@ namespace dvmconsole
             WebStreamPositions ??= new Dictionary<string, ChannelPosition>();
             AlertToneTabs ??= new Dictionary<string, string>();
             AlertTones ??= new List<AlertToneConfig>();
+            TonePresets = NormalizeTonePresetConfigs(TonePresets);
+            DtmfPresets = NormalizeDtmfPresetConfigs(DtmfPresets);
             ChannelOutputDevices ??= new Dictionary<string, int>();
             ChannelOutputDeviceKeys ??= new Dictionary<string, string>();
             ChannelVolumes ??= new Dictionary<string, double>();
@@ -1083,6 +1144,164 @@ namespace dvmconsole
                     group => group.Key,
                     group => group.Last().TabName ?? string.Empty,
                     StringComparer.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Returns a normalized copy of generated tone presets.
+        /// </summary>
+        public List<TonePresetConfig> GetTonePresetConfigs()
+        {
+            TonePresets = NormalizeTonePresetConfigs(TonePresets);
+            return CopyTonePresetConfigs(TonePresets);
+        }
+
+        /// <summary>
+        /// Saves generated tone presets.
+        /// </summary>
+        public void SaveTonePresetConfigs(IEnumerable<TonePresetConfig> configs)
+        {
+            TonePresets = NormalizeTonePresetConfigs(configs);
+            SaveSettings();
+        }
+
+        private static List<TonePresetConfig> NormalizeTonePresetConfigs(IEnumerable<TonePresetConfig> configs)
+        {
+            return (configs ?? Enumerable.Empty<TonePresetConfig>())
+                .Where(config => config != null)
+                .Select(config => new TonePresetConfig
+                {
+                    Id = string.IsNullOrWhiteSpace(config.Id) ? Guid.NewGuid().ToString("N") : config.Id,
+                    DisplayName = string.IsNullOrWhiteSpace(config.DisplayName) ? "Tone Preset" : config.DisplayName.Trim(),
+                    TargetResourceKey = config.TargetResourceKey?.Trim() ?? string.Empty,
+                    Steps = NormalizeTonePresetSteps(config.Steps)
+                })
+                .Where(config => config.Steps.Count > 0)
+                .ToList();
+        }
+
+        private static List<TonePresetStep> NormalizeTonePresetSteps(IEnumerable<TonePresetStep> steps)
+        {
+            return (steps ?? Enumerable.Empty<TonePresetStep>())
+                .Where(step => step != null)
+                .Select(step =>
+                {
+                    string kind = NormalizeTonePresetStepKind(step.Kind);
+                    return new TonePresetStep
+                    {
+                        Kind = kind,
+                        FrequencyHz = kind == TONE_PRESET_STEP_KIND_HOLD ? 0 : Math.Clamp(step.FrequencyHz, 1, 4000),
+                        DurationSeconds = Math.Clamp(step.DurationSeconds, TONE_PRESET_MIN_DURATION_SECONDS, TONE_PRESET_MAX_DURATION_SECONDS)
+                    };
+                })
+                .ToList();
+        }
+
+        private static string NormalizeTonePresetStepKind(string kind)
+        {
+            return string.Equals(kind, TONE_PRESET_STEP_KIND_HOLD, StringComparison.OrdinalIgnoreCase)
+                ? TONE_PRESET_STEP_KIND_HOLD
+                : TONE_PRESET_STEP_KIND_TONE;
+        }
+
+        private static List<TonePresetConfig> CopyTonePresetConfigs(IEnumerable<TonePresetConfig> configs)
+        {
+            return NormalizeTonePresetConfigs(configs)
+                .Select(config => new TonePresetConfig
+                {
+                    Id = config.Id,
+                    DisplayName = config.DisplayName,
+                    TargetResourceKey = config.TargetResourceKey,
+                    Steps = config.Steps
+                        .Select(step => new TonePresetStep
+                        {
+                            Kind = step.Kind,
+                            FrequencyHz = step.FrequencyHz,
+                            DurationSeconds = step.DurationSeconds
+                        })
+                        .ToList()
+                })
+                .ToList();
+        }
+
+        /// <summary>
+        /// Returns a normalized copy of DTMF presets.
+        /// </summary>
+        public List<DtmfPresetConfig> GetDtmfPresetConfigs()
+        {
+            DtmfPresets = NormalizeDtmfPresetConfigs(DtmfPresets);
+            return CopyDtmfPresetConfigs(DtmfPresets);
+        }
+
+        /// <summary>
+        /// Saves DTMF presets.
+        /// </summary>
+        public void SaveDtmfPresetConfigs(IEnumerable<DtmfPresetConfig> configs)
+        {
+            DtmfPresets = NormalizeDtmfPresetConfigs(configs);
+            SaveSettings();
+        }
+
+        private static List<DtmfPresetConfig> NormalizeDtmfPresetConfigs(IEnumerable<DtmfPresetConfig> configs)
+        {
+            return (configs ?? Enumerable.Empty<DtmfPresetConfig>())
+                .Where(config => config != null)
+                .Select(config => new DtmfPresetConfig
+                {
+                    Id = string.IsNullOrWhiteSpace(config.Id) ? Guid.NewGuid().ToString("N") : config.Id,
+                    DisplayName = string.IsNullOrWhiteSpace(config.DisplayName) ? "DTMF Preset" : config.DisplayName.Trim(),
+                    TargetResourceKey = config.TargetResourceKey?.Trim() ?? string.Empty,
+                    Steps = NormalizeDtmfPresetSteps(config.Steps)
+                })
+                .Where(config => config.Steps.Count > 0)
+                .ToList();
+        }
+
+        private static List<DtmfPresetStep> NormalizeDtmfPresetSteps(IEnumerable<DtmfPresetStep> steps)
+        {
+            return (steps ?? Enumerable.Empty<DtmfPresetStep>())
+                .Where(step => step != null)
+                .Select(step =>
+                {
+                    bool isHold = string.Equals(step.Kind, TONE_PRESET_STEP_KIND_HOLD, StringComparison.OrdinalIgnoreCase);
+                    return new DtmfPresetStep
+                    {
+                        Kind = isHold ? TONE_PRESET_STEP_KIND_HOLD : DTMF_PRESET_STEP_KIND_DIGIT,
+                        Digit = isHold ? string.Empty : NormalizeDtmfDigit(step.Digit),
+                        DurationSeconds = Math.Clamp(step.DurationSeconds, TONE_PRESET_MIN_DURATION_SECONDS, TONE_PRESET_MAX_DURATION_SECONDS)
+                    };
+                })
+                .ToList();
+        }
+
+        private static string NormalizeDtmfDigit(string digit)
+        {
+            string normalizedDigit = (digit ?? string.Empty).Trim().ToUpperInvariant();
+            if (normalizedDigit.Length > 1)
+                normalizedDigit = normalizedDigit.Substring(0, 1);
+
+            return normalizedDigit.Length == 1 && "0123456789*#ABCD".Contains(normalizedDigit)
+                ? normalizedDigit
+                : "1";
+        }
+
+        private static List<DtmfPresetConfig> CopyDtmfPresetConfigs(IEnumerable<DtmfPresetConfig> configs)
+        {
+            return NormalizeDtmfPresetConfigs(configs)
+                .Select(config => new DtmfPresetConfig
+                {
+                    Id = config.Id,
+                    DisplayName = config.DisplayName,
+                    TargetResourceKey = config.TargetResourceKey,
+                    Steps = config.Steps
+                        .Select(step => new DtmfPresetStep
+                        {
+                            Kind = step.Kind,
+                            Digit = step.Digit,
+                            DurationSeconds = step.DurationSeconds
+                        })
+                        .ToList()
+                })
+                .ToList();
         }
 
         /// <summary>
