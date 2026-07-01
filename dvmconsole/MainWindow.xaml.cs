@@ -1890,28 +1890,9 @@ namespace dvmconsole
                         if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
                             return;
 
-                        Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
-                        if (system == null)
+                        if (!TryResolveChannelEndpoint(channel, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne, out string endpointError))
                         {
-                            Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
-                            channel.IsSelected = false;
-                            selectedChannelsManager.RemoveSelectedChannel(channel);
-                            return;
-                        }
-
-                        Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                        if (cpgChannel == null)
-                        {
-                            Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
-                            channel.IsSelected = false;
-                            selectedChannelsManager.RemoveSelectedChannel(channel);
-                            return;
-                        }
-
-                        PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
-                        if (fne == null)
-                        {
-                            Log.WriteLine($"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
+                            Log.WriteLine($"{endpointError} {ERR_SKIPPING_AUDIO}.");
                             channel.IsSelected = false;
                             selectedChannelsManager.RemoveSelectedChannel(channel);
                             return;
@@ -2732,9 +2713,26 @@ namespace dvmconsole
 
             byte[] micBuffer = new byte[e.BytesRecorded];
             Buffer.BlockCopy(e.Buffer, 0, micBuffer, 0, e.BytesRecorded);
-            ApplyInputAgc(micBuffer);
-  
-              foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
+
+            List<ChannelBox> selectedChannels = selectedChannelsManager.GetSelectedChannels().ToList();
+            bool patchPttActive;
+            lock (patchPttSync)
+                patchPttActive = activePatchPttTargets.Count > 0;
+
+            bool micTransmitActive = patchPttActive || selectedChannels.Any(channel =>
+                channel.IsSelected &&
+                channel.PttState &&
+                channel.SystemName != PLAYBACKSYS &&
+                channel.ChannelName != PLAYBACKCHNAME &&
+                channel.DstId != PLAYBACKTG);
+
+            // Avoid letting local speaker playback or QCII tones train the mic AGC while the console is idle.
+            if (micTransmitActive)
+                ApplyInputAgc(micBuffer);
+            else
+                ResetInputAgcGain();
+
+              foreach (ChannelBox channel in selectedChannels)
               {
                 if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
                     continue;
@@ -2790,10 +2788,6 @@ namespace dvmconsole
                     });
                 }
             }
-
-            bool patchPttActive;
-            lock (patchPttSync)
-                patchPttActive = activePatchPttTargets.Count > 0;
 
               if (patchPttActive)
               {
@@ -3204,30 +3198,11 @@ namespace dvmconsole
 
             if (pageWindow.ShowDialog() == true)
             {
-                foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
+                foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels().Where(channel => channel.PageState).ToList())
                 {
-                    Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
-                    if (system == null)
+                    if (!TryResolveChannelEndpoint(channel, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne, out string endpointError))
                     {
-                        Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}.");
-                        channel.IsSelected = false;
-                        selectedChannelsManager.RemoveSelectedChannel(channel);
-                        continue;
-                    }
-
-                    Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                    if (cpgChannel == null)
-                    {
-                        Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.");
-                        channel.IsSelected = false;
-                        selectedChannelsManager.RemoveSelectedChannel(channel);
-                        continue;
-                    }
-
-                    PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
-                    if (fne == null)
-                    {
-                        MessageBox.Show($"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {PLEASE_RESTART_CONSOLE}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                        MessageBox.Show($"{endpointError} {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                         channel.IsSelected = false;
                         selectedChannelsManager.RemoveSelectedChannel(channel);
                         continue;
@@ -3236,58 +3211,78 @@ namespace dvmconsole
                     if (!ValidateTalkgroupAvailability(fne, cpgChannel, channel, current => current.PageState = false))
                         continue;
 
-                    // 
-                    if (channel.PageState)
+                    ToneGenerator generator = new ToneGenerator();
+
+                    double toneADuration = 1.0;
+                    double toneBDuration = 3.0;
+
+                    byte[] toneA = generator.GenerateTone(Double.Parse(pageWindow.ToneA), toneADuration);
+                    byte[] toneB = generator.GenerateTone(Double.Parse(pageWindow.ToneB), toneBDuration);
+
+                    byte[] combinedAudio = new byte[toneA.Length + toneB.Length];
+                    Buffer.BlockCopy(toneA, 0, combinedAudio, 0, toneA.Length);
+                    Buffer.BlockCopy(toneB, 0, combinedAudio, toneA.Length, toneB.Length);
+
+                    combinedAudio = NormalizeAlertTonePcm(combinedAudio);
+                    combinedAudio = AddAlertToneTransmitPadding(combinedAudio);
+
+                    int chunkSize = PCM_SAMPLES_LENGTH;
+                    int totalChunks = (combinedAudio.Length + chunkSize - 1) / chunkSize;
+
+                    if (combinedAudio.Length % chunkSize != 0)
                     {
-                        ToneGenerator generator = new ToneGenerator();
-
-                        double toneADuration = 1.0;
-                        double toneBDuration = 3.0;
-
-                        byte[] toneA = generator.GenerateTone(Double.Parse(pageWindow.ToneA), toneADuration);
-                        byte[] toneB = generator.GenerateTone(Double.Parse(pageWindow.ToneB), toneBDuration);
-
-                        byte[] combinedAudio = new byte[toneA.Length + toneB.Length];
-                        Buffer.BlockCopy(toneA, 0, combinedAudio, 0, toneA.Length);
-                        Buffer.BlockCopy(toneB, 0, combinedAudio, toneA.Length, toneB.Length);
-
-                        int chunkSize = PCM_SAMPLES_LENGTH;
-                        int totalChunks = (combinedAudio.Length + chunkSize - 1) / chunkSize;
-
-                        ApplyRxPlaybackMuteForTransmitStart();
-                        audioManager.PlayOneShot(cpgChannel.Tgid, combinedAudio);
-
-                        await Task.Run(() =>
-                        {
-                            for (int i = 0; i < totalChunks; i++)
-                            {
-                                int offset = i * chunkSize;
-                                int size = Math.Min(chunkSize, combinedAudio.Length - offset);
-
-                                byte[] chunk = new byte[chunkSize];
-                                Buffer.BlockCopy(combinedAudio, offset, chunk, 0, size);
-
-                                if (chunk.Length == 320)
-                                {
-                                    if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                                        P25EncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
-                                    else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                                        DMREncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
-                                }
-                            }
-                        });
-
-                        double totalDurationMs = (toneADuration + toneBDuration) * 1000 + 750;
-                        await Task.Delay((int)totalDurationMs  + 4000);
-
-                        fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
-
-                        Dispatcher.Invoke(() =>
-                        {
-                            //channel.PageState = false; // TODO: Investigate
-                            channel.PageSelectButton.Background = ChannelBox.GRAY_GRADIENT;
-                        });
+                        byte[] paddedAudio = new byte[totalChunks * chunkSize];
+                        Buffer.BlockCopy(combinedAudio, 0, paddedAudio, 0, combinedAudio.Length);
+                        combinedAudio = paddedAudio;
                     }
+
+                    ApplyRxPlaybackMuteForTransmitStart();
+                    audioManager.PlayOneShot(cpgChannel.Tgid, combinedAudio);
+
+                    if (channel.TxStreamId != 0)
+                        Log.WriteWarning($"{channel.ChannelName} CHANNEL still had a TxStreamId? This shouldn't happen.");
+
+                    channel.TxStreamId = fne.NewStreamId();
+                    Log.WriteLine($"({system.Name}) {channel.ChannelMode.ToUpperInvariant()} Traffic *QCII TONE      * TGID {channel.DstId} [STREAM ID {channel.TxStreamId}]");
+                    channel.VolumeMeterLevel = 0;
+
+                    DateTime startTime = DateTime.UtcNow;
+                    await Task.Run(async () =>
+                    {
+                        for (int i = 0; i < totalChunks; i++)
+                        {
+                            int offset = i * chunkSize;
+
+                            byte[] chunk = new byte[chunkSize];
+                            Buffer.BlockCopy(combinedAudio, offset, chunk, 0, chunkSize);
+
+                            if (chunk.Length == PCM_SAMPLES_LENGTH)
+                            {
+                                if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                                    P25EncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
+                                else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                                    DMREncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
+                            }
+
+                            DateTime nextPacketTime = startTime.AddMilliseconds((i + 1) * 20);
+                            TimeSpan waitTime = nextPacketTime - DateTime.UtcNow;
+
+                            if (waitTime.TotalMilliseconds > 0)
+                                await Task.Delay(waitTime);
+                        }
+                    });
+
+                    if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                        fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
+                    else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                        fne.SendDMRTerminator(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), 1, channel.dmrSeqNo, channel.dmrN, channel.embeddedData);
+
+                    ResetChannel(channel);
+
+                    Dispatcher.Invoke(() =>
+                    {
+                        channel.PageState = false;
+                    });
                 }
             }
         }
@@ -3960,29 +3955,9 @@ namespace dvmconsole
             if (e.SystemName == PLAYBACKSYS || e.ChannelName == PLAYBACKCHNAME || e.DstId == PLAYBACKTG)
                 return;
 
-            Codeplug.System system = Codeplug.GetSystemForChannel(e.ChannelName);
-            if (system == null)
+            if (!TryResolveChannelEndpoint(e, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne, out string endpointError))
             {
-                MessageBox.Show($"{e.ChannelName} refers to an {INVALID_SYSTEM} {e.SystemName}. {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                e.IsSelected = false;
-                selectedChannelsManager.RemoveSelectedChannel(e);
-                return;
-            }
-
-            Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(e.ChannelName);
-            if (cpgChannel == null)
-            {
-                // bryanb: this should actually never happen...
-                MessageBox.Show($"{e.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                e.IsSelected = false;
-                selectedChannelsManager.RemoveSelectedChannel(e);
-                return;
-            }
-
-            PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
-            if (fne == null)
-            {
-                MessageBox.Show($"{e.ChannelName} has a {ERR_INVALID_FNE_REF}. {PLEASE_RESTART_CONSOLE}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"{endpointError} {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 e.IsSelected = false;
                 selectedChannelsManager.RemoveSelectedChannel(e);
                 return;
@@ -4513,6 +4488,60 @@ namespace dvmconsole
                 return Enumerable.Empty<Codeplug.WebStream>();
 
             return Codeplug.Zones.SelectMany(z => z.WebStreams ?? new List<Codeplug.WebStream>());
+        }
+
+        private bool TryResolveChannelEndpoint(ChannelBox channel, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne, out string failureMessage)
+        {
+            cpgChannel = null;
+            system = null;
+            fne = null;
+            failureMessage = string.Empty;
+
+            if (channel == null)
+            {
+                failureMessage = $"{INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.";
+                return false;
+            }
+
+            string systemName = NormalizeChannelSystemName(channel.SystemName);
+            string tgid = channel.DstId?.Trim() ?? string.Empty;
+
+            Codeplug.Channel resolvedChannel = GetConfiguredChannels()
+                .FirstOrDefault(c =>
+                    ResourceIdentity.SystemMatches(c.System, systemName) &&
+                    string.Equals(c.Tgid?.Trim() ?? string.Empty, tgid, StringComparison.OrdinalIgnoreCase));
+
+            if (resolvedChannel == null)
+            {
+                resolvedChannel = GetConfiguredChannels()
+                    .FirstOrDefault(c =>
+                        ResourceIdentity.SystemMatches(c.System, systemName) &&
+                        string.Equals(c.Name?.Trim() ?? string.Empty, channel.ChannelName?.Trim() ?? string.Empty, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (resolvedChannel == null)
+            {
+                failureMessage = $"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.";
+                return false;
+            }
+
+            cpgChannel = resolvedChannel;
+            string resolvedSystemName = resolvedChannel.System;
+            system = Codeplug?.Systems?.FirstOrDefault(s => ResourceIdentity.SystemMatches(s.Name, resolvedSystemName));
+            if (system == null)
+            {
+                failureMessage = $"{channel.ChannelName} refers to an {INVALID_SYSTEM} {systemName}. {ERR_INVALID_CODEPLUG}.";
+                return false;
+            }
+
+            fne = fneSystemManager.GetFneSystem(system.Name);
+            if (fne == null)
+            {
+                failureMessage = $"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {ERR_INVALID_CODEPLUG}.";
+                return false;
+            }
+
+            return true;
         }
 
         /// <summary>

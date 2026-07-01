@@ -24,6 +24,11 @@ namespace dvmconsole
 
         private double inputAgcGain = 1.0;
 
+        private void ResetInputAgcGain()
+        {
+            inputAgcGain = 1.0;
+        }
+
         private void ApplyInputAgc(byte[] pcm)
         {
             if (pcm == null || pcm.Length < 2 || !settingsManager.AudioInputAgcEnabled)
