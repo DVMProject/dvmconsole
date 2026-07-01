@@ -177,7 +177,7 @@ namespace dvmconsole
         {
             if (!talkgroupProviders.ContainsKey(talkgroupId))
                 AddTalkgroupStream(talkgroupId);
-            else if (talkgroupProviders[talkgroupId].waveOut.PlaybackState == PlaybackState.Stopped)
+            else if (talkgroupProviders[talkgroupId].waveOut.PlaybackState != PlaybackState.Playing)
             {
                 RemoveTalkgroupProvider(talkgroupId);
                 AddTalkgroupStream(talkgroupId);

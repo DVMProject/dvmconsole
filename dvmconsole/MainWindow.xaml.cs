@@ -103,6 +103,9 @@ namespace dvmconsole
         private const double ALERT_TONE_TARGET_RMS_DBFS = -18.0;
         private const double ALERT_TONE_PEAK_CEILING_DBFS = -6.0;
         private const double ALERT_TONE_MIN_RMS = 0.0001;
+        private static readonly TimeSpan WaveInStaleRestartThreshold = TimeSpan.FromSeconds(5);
+        private static readonly TimeSpan WaveInRestartThrottle = TimeSpan.FromSeconds(10);
+        private static readonly TimeSpan WaveInIntentionalStopGrace = TimeSpan.FromSeconds(2);
 
         private bool isShuttingDown = false;
         private bool suppressSelectedResourcePersistence = false;
@@ -143,6 +146,12 @@ namespace dvmconsole
         public static string PLAYBACKSYS = "Local Playback";
         public static string PLAYBACKCHNAME = "PLAYBACK";
         private readonly WaveInEvent waveIn;
+        private readonly object waveInSync = new object();
+        private DateTime lastWaveInDataUtc = DateTime.MinValue;
+        private DateTime lastWaveInRestartAttemptUtc = DateTime.MinValue;
+        private DateTime ignoreWaveInStoppedUntilUtc = DateTime.MinValue;
+        private bool waveInRecordingActive = false;
+        private bool waveInRestartInProgress = false;
         private readonly AudioManager audioManager;
         private readonly TarManager tarManager;
 
@@ -229,19 +238,9 @@ namespace dvmconsole
             channelHoldTimer.Enabled = true;
 
             waveIn = new WaveInEvent { WaveFormat = new WaveFormat(8000, 16, 1) };
-            ApplyConfiguredInputDeviceToWaveIn();
             waveIn.DataAvailable += WaveIn_DataAvailable;
             waveIn.RecordingStopped += WaveIn_RecordingStopped;
-
-            try
-            {
-                waveIn.StartRecording();
-            }
-            catch (MmException ex)
-            {
-                MessageBox.Show($"Error initializing audio input device, {ex.Message}. This *will* cause console inconsistency, and inability to transmit audio.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                Log.StackTrace(ex, false);
-            }
+            RestartConfiguredInputDevice("startup", showError: true, force: true);
 
             audioManager = new AudioManager(settingsManager);
 
@@ -2524,6 +2523,7 @@ namespace dvmconsole
             CancellationToken ct = maintainenceCancelToken.Token;
             while (!isShuttingDown)
             {
+                EnsureAudioInputCaptureHealthy("maintenance watchdog");
                 patchManager.CleanupStaleSources();
 
                 foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
@@ -2586,32 +2586,104 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void WaveIn_RecordingStopped(object sender, EventArgs e)
+        private void WaveIn_RecordingStopped(object sender, StoppedEventArgs e)
         {
-            /* stub */
+            lock (waveInSync)
+                waveInRecordingActive = false;
+
+            if (isShuttingDown || DateTime.UtcNow <= ignoreWaveInStoppedUntilUtc)
+                return;
+
+            string reason = e?.Exception != null
+                ? $"recording stopped: {e.Exception.Message}"
+                : "recording stopped unexpectedly";
+
+            Log.WriteWarning($"Audio input capture {reason}; attempting restart.");
+            Dispatcher.BeginInvoke(new Action(() => RestartConfiguredInputDevice(reason, force: true)));
         }
 
         private void ApplyConfiguredInputDevice()
         {
-            try
+            RestartConfiguredInputDevice("audio settings", force: true);
+        }
+
+        private void EnsureAudioInputCaptureHealthy(string reason)
+        {
+            if (isShuttingDown)
+                return;
+
+            bool shouldRestart;
+            lock (waveInSync)
             {
-                waveIn.StopRecording();
-            }
-            catch
-            {
-                // The input may already be stopped while settings are being applied.
+                if (waveInRestartInProgress)
+                    return;
+
+                DateTime now = DateTime.UtcNow;
+                bool stale = waveInRecordingActive && lastWaveInDataUtc != DateTime.MinValue && now - lastWaveInDataUtc > WaveInStaleRestartThreshold;
+                bool stopped = !waveInRecordingActive;
+                bool throttled = stale && now - lastWaveInRestartAttemptUtc < WaveInRestartThrottle;
+                shouldRestart = stopped || (stale && !throttled);
             }
 
-            ApplyConfiguredInputDeviceToWaveIn();
+            if (shouldRestart)
+                RestartConfiguredInputDevice(reason, force: true);
+        }
+
+        private void RestartConfiguredInputDevice(string reason, bool showError = false, bool force = false)
+        {
+            if (isShuttingDown)
+                return;
+
+            lock (waveInSync)
+            {
+                if (waveInRestartInProgress)
+                    return;
+
+                DateTime now = DateTime.UtcNow;
+                if (!force && now - lastWaveInRestartAttemptUtc < WaveInRestartThrottle)
+                    return;
+
+                waveInRestartInProgress = true;
+                lastWaveInRestartAttemptUtc = now;
+                ignoreWaveInStoppedUntilUtc = now + WaveInIntentionalStopGrace;
+            }
 
             try
             {
+                try
+                {
+                    waveIn.StopRecording();
+                }
+                catch
+                {
+                    // The input may already be stopped while settings are being applied or recovered.
+                }
+
+                ApplyConfiguredInputDeviceToWaveIn();
                 waveIn.StartRecording();
+
+                lock (waveInSync)
+                {
+                    waveInRecordingActive = true;
+                    lastWaveInDataUtc = DateTime.UtcNow;
+                }
+
+                Log.WriteLine($"Audio input capture started ({reason}) using device {waveIn.DeviceNumber}.");
             }
-            catch (MmException ex)
+            catch (Exception ex)
             {
-                MessageBox.Show($"Error initializing audio input device, {ex.Message}. This *will* cause console inconsistency, and inability to transmit audio.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                lock (waveInSync)
+                    waveInRecordingActive = false;
+
+                if (showError)
+                    MessageBox.Show($"Error initializing audio input device, {ex.Message}. This *will* cause console inconsistency, and inability to transmit audio.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+
                 Log.StackTrace(ex, false);
+            }
+            finally
+            {
+                lock (waveInSync)
+                    waveInRestartInProgress = false;
             }
         }
 
@@ -2632,6 +2704,12 @@ namespace dvmconsole
             HashSet<string> transmittedTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (isShuttingDown)
                 return;
+
+            lock (waveInSync)
+            {
+                waveInRecordingActive = true;
+                lastWaveInDataUtc = DateTime.UtcNow;
+            }
 
             byte[] micBuffer = new byte[e.BytesRecorded];
             Buffer.BlockCopy(e.Buffer, 0, micBuffer, 0, e.BytesRecorded);
@@ -3689,6 +3767,7 @@ namespace dvmconsole
                 }))
                     return;
 
+                EnsureAudioInputCaptureHealthy("channel PTT start");
                 ApplyRxPlaybackMuteForTransmitStart();
 
                 if (e.TxStreamId != 0)
@@ -3773,6 +3852,7 @@ namespace dvmconsole
                 }))
                     return;
 
+                EnsureAudioInputCaptureHealthy("channel PTT start");
                 ApplyRxPlaybackMuteForTransmitStart();
 
                 uint srcId = uint.Parse(system.Rid);
@@ -4531,6 +4611,7 @@ namespace dvmconsole
         private void StartPatchPttGroup(string groupName, List<SettingsManager.PatchTalkgroupMember> members)
         {
             StopPatchPttGroup(groupName);
+            EnsureAudioInputCaptureHealthy("patch PTT start");
             bool clearedRxPlaybackForTransmit = false;
 
             foreach (SettingsManager.PatchTalkgroupMember member in members.Where(m => !string.IsNullOrWhiteSpace(m?.SystemName) && !string.IsNullOrWhiteSpace(m?.Tgid)))
@@ -4951,6 +5032,9 @@ namespace dvmconsole
                 Dispatcher.Invoke(() => btnGlobalPtt.Background = btnGlobalPttDefaultBg);
                 return;
             }
+
+            if (globalPttState)
+                EnsureAudioInputCaptureHealthy("global PTT start");
 
             if (globalPttState)
                 ApplyRxPlaybackMuteForTransmitStart();

@@ -240,8 +240,12 @@ namespace dvmconsole
         /// <param name="pktTime"></param>
         public void DMRDataReceived(string sourceSystemName, DMRDataReceivedEvent e, DateTime pktTime)
         {
+            try
+            {
             Dispatcher.Invoke(() =>
             {
+                try
+                {
                 foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
                 {
                     if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
@@ -249,6 +253,12 @@ namespace dvmconsole
 
                     Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
                     Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
+
+                    if (system == null || cpgChannel == null)
+                    {
+                        Log.WriteWarning($"{channel.ChannelName} could not be resolved while processing DMR RX traffic. {ERR_INVALID_CODEPLUG}.");
+                        continue;
+                    }
 
                     if (!string.IsNullOrWhiteSpace(sourceSystemName) &&
                         !ResourceIdentity.SystemMatches(system?.Name, sourceSystemName))
@@ -440,7 +450,19 @@ namespace dvmconsole
                     slotStatus.RxTime = pktTime;
                     slotStatus.RxStreamId = e.StreamId;
                 }
+                }
+                catch (Exception ex)
+                {
+                    Log.WriteError($"DMR RX dispatch exception: {ex.Message}");
+                    Log.StackTrace(ex, false);
+                }
             });
+            }
+            catch (Exception ex)
+            {
+                Log.WriteError($"DMR RX handler exception: {ex.Message}");
+                Log.StackTrace(ex, false);
+            }
         }
     } // public partial class MainWindow : Window
 } // namespace dvmconsole

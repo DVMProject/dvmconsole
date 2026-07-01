@@ -385,6 +385,8 @@ namespace dvmconsole
         /// <param name="e"></param>
         public void P25DataReceived(string sourceSystemName, P25DataReceivedEvent e, DateTime pktTime)
         {
+            try
+            {
             uint sysId = (uint)((e.Data[11U] << 8) | (e.Data[12U] << 0));
             uint netId = FneUtils.Bytes3ToUInt32(e.Data, 16);
             byte control = e.Data[14U];
@@ -396,6 +398,8 @@ namespace dvmconsole
 
             Dispatcher.Invoke(() =>
             {
+                try
+                {
                 foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
                 {
                     if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
@@ -403,6 +407,12 @@ namespace dvmconsole
 
                     Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
                     Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
+
+                    if (system == null || cpgChannel == null)
+                    {
+                        Log.WriteWarning($"{channel.ChannelName} could not be resolved while processing P25 RX traffic. {ERR_INVALID_CODEPLUG}.");
+                        continue;
+                    }
 
                     if (!string.IsNullOrWhiteSpace(sourceSystemName) &&
                         !ResourceIdentity.SystemMatches(system?.Name, sourceSystemName))
@@ -718,7 +728,19 @@ namespace dvmconsole
                     slot.RxStreamId = e.StreamId;
 
                 }
+                }
+                catch (Exception ex)
+                {
+                    Log.WriteError($"P25 RX dispatch exception: {ex.Message}");
+                    Log.StackTrace(ex, false);
+                }
             });
+            }
+            catch (Exception ex)
+            {
+                Log.WriteError($"P25 RX handler exception: {ex.Message}");
+                Log.StackTrace(ex, false);
+            }
         }
     } // public partial class MainWindow : Window
 } // namespace dvmconsole
