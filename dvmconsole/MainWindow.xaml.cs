@@ -1323,6 +1323,7 @@ namespace dvmconsole
             UpdatePatchMemberIndicators(FilterPatchMemberships(currentPatchMemberships), patchGroupEnabledStates);
             UpdateMultiSelectIndicators(FilterMultiSelectMemberships(currentPatchMemberships));
             UpdateTarIndicators();
+            RefreshAllChannelConnectionVisuals();
 
             RestoreSelectedChannels();
             RestoreSelectedWebStreams();
@@ -1926,6 +1927,9 @@ namespace dvmconsole
                             ? current => current.HoldState = false
                             : current => current.PageState = false;
 
+                        if (!ValidateFneConnectionAvailable(system.Name, channel, rollback))
+                            return;
+
                         if (!ValidateTalkgroupAvailability(fne, cpgChannel, channel, rollback))
                             return;
 
@@ -2199,6 +2203,9 @@ namespace dvmconsole
                     continue;
                 }
 
+                if (!ValidateFneConnectionAvailable(system.Name, channel, current => current.PageState = false))
+                    continue;
+
                 if (!ValidateTalkgroupAvailability(fne, cpgChannel, channel, current => current.PageState = false))
                     continue;
 
@@ -2456,6 +2463,9 @@ namespace dvmconsole
             PeerSystem fne = target.Fne;
 
             if (channel == null || cpgChannel == null || system == null || fne == null || pcmData == null || pcmData.Length == 0)
+                return;
+
+            if (!ValidateFneConnectionAvailable(system.Name, channel, clearPageStateAfterSend ? current => current.PageState = false : null))
                 return;
 
             uint srcId = uint.Parse(system.Rid);
@@ -2848,10 +2858,18 @@ namespace dvmconsole
 
                 Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
                 Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
+                if (system == null || cpgChannel == null)
+                    continue;
+
                 PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
+                if (handler == null)
+                    continue;
 
                 if (channel.HoldState && !channel.IsReceiving && !channel.PttState && !channel.PageState)
                 {
+                    if (!ValidateFneConnectionAvailable(system.Name, channel, current => current.HoldState = false))
+                        continue;
+
                     if (!ValidateTalkgroupAvailability(handler, cpgChannel, channel, current => current.HoldState = false))
                         continue;
 
@@ -2922,6 +2940,7 @@ namespace dvmconsole
             while (!isShuttingDown)
             {
                 EnsureAudioInputCaptureHealthy("maintenance watchdog");
+                CheckFneConnectionHealth();
                 patchManager.CleanupStaleSources();
 
                 foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
@@ -3165,6 +3184,20 @@ namespace dvmconsole
                 // is the channel selected and in a PTT state?
                   if (channel.IsSelected && channel.PttState)
                   {
+                      if (!IsFneSystemConnected(system.Name))
+                      {
+                          Log.WriteWarning($"Skipping TX audio for {channel.ChannelName}; FNE system '{system.Name}' is disconnected.");
+                          Dispatcher.BeginInvoke(new Action(() =>
+                          {
+                              EndTarTxRecording(channel, system, cpgChannel);
+                              channel.PttState = false;
+                              channel.VolumeMeterLevel = 0;
+                              ResetChannel(channel);
+                              UpdateChannelConnectionVisual(channel);
+                          }));
+                          continue;
+                      }
+
                       isAnyTgOn = true;
                       transmittedTargets.Add(BuildPatchTargetKey(system.Name, cpgChannel.Tgid));
                       AppendTarTxAudio(system.Name, channel.DstId, channel.TxStreamId, micBuffer);
@@ -3453,6 +3486,9 @@ namespace dvmconsole
                 }
 
                 PeerSystem fne = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
+                if (!ValidateFneConnectionAvailable(pageWindow.RadioSystem.Name) || fne == null)
+                    return;
+
                 IOSP_CALL_ALRT callAlert = new IOSP_CALL_ALRT(uint.Parse(pageWindow.DstId), uint.Parse(pageWindow.RadioSystem.Rid));
 
                 RemoteCallData callData = new RemoteCallData
@@ -3491,6 +3527,9 @@ namespace dvmconsole
                 }
 
                 PeerSystem fne = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
+                if (!ValidateFneConnectionAvailable(pageWindow.RadioSystem.Name) || fne == null)
+                    return;
+
                 IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.CHECK, uint.Parse(pageWindow.RadioSystem.Rid), uint.Parse(pageWindow.DstId));
 
                 RemoteCallData callData = new RemoteCallData
@@ -3529,6 +3568,9 @@ namespace dvmconsole
                 }
 
                 PeerSystem fne = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
+                if (!ValidateFneConnectionAvailable(pageWindow.RadioSystem.Name) || fne == null)
+                    return;
+
                 IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.INHIBIT, P25Defines.WUID_FNE, uint.Parse(pageWindow.DstId));
 
                 RemoteCallData callData = new RemoteCallData
@@ -3567,6 +3609,9 @@ namespace dvmconsole
                 }
 
                 PeerSystem fne = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
+                if (!ValidateFneConnectionAvailable(pageWindow.RadioSystem.Name) || fne == null)
+                    return;
+
                 IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.UNINHIBIT, P25Defines.WUID_FNE, uint.Parse(pageWindow.DstId));
 
                 RemoteCallData callData = new RemoteCallData
@@ -4494,13 +4539,22 @@ namespace dvmconsole
 
             if (e.PageState)
             {
+                if (!ValidateFneConnectionAvailable(system.Name, e, current => current.PageState = false))
+                    return;
+
                 if (!ValidateTalkgroupAvailability(fne, cpgChannel, e, current => current.PageState = false))
                     return;
 
                 fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
             }
-            else
+            else if (IsFneSystemConnected(system.Name))
+            {
                 fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
+            }
+            else
+            {
+                Log.WriteWarning($"Page TDU end skipped for {e.ChannelName}; FNE system '{system.Name}' is disconnected.");
+            }
         }
 
         /// <summary>
@@ -4551,6 +4605,14 @@ namespace dvmconsole
 
             if (e.PttState)
             {
+                if (!ValidateFneConnectionAvailable(system.Name, e, current =>
+                {
+                    current.PttState = false;
+                    ResetChannel(current);
+                    current.VolumeMeterLevel = 0;
+                }))
+                    return;
+
                 if (!ValidateTalkgroupAvailability(fne, cpgChannel, e, current =>
                 {
                     current.PttState = false;
@@ -4580,10 +4642,17 @@ namespace dvmconsole
                 e.VolumeMeterLevel = 0;
                 Log.WriteLine($"({system.Name}) {e.ChannelMode.ToUpperInvariant()} Traffic *CALL END       * SRC_ID {srcId} TGID {dstId} [STREAM ID {e.TxStreamId}]");
                 EndTarTxRecording(e, system, cpgChannel);
-                if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                    fne.SendP25TDU(srcId, dstId, false);
-                else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                    fne.SendDMRTerminator(srcId, dstId, 1, e.dmrSeqNo, e.dmrN, e.embeddedData);
+                if (IsFneSystemConnected(system.Name))
+                {
+                    if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                        fne.SendP25TDU(srcId, dstId, false);
+                    else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                        fne.SendDMRTerminator(srcId, dstId, 1, e.dmrSeqNo, e.dmrN, e.embeddedData);
+                }
+                else
+                {
+                    Log.WriteWarning($"Call end network signal skipped for {e.ChannelName}; FNE system '{system.Name}' is disconnected.");
+                }
 
                 // reset values
                 ResetChannel(e);
@@ -4635,6 +4704,14 @@ namespace dvmconsole
                     return;
 
                 FneUtils.Memset(e.mi, 0x00, P25Defines.P25_MI_LENGTH);
+
+                if (!ValidateFneConnectionAvailable(system.Name, e, current =>
+                {
+                    current.PttState = false;
+                    ResetChannel(current);
+                    current.VolumeMeterLevel = 0;
+                }))
+                    return;
 
                 if (!ValidateTalkgroupAvailability(fne, cpgChannel, e, current =>
                 {
@@ -4715,10 +4792,17 @@ namespace dvmconsole
                 Log.WriteLine($"({system.Name}) {e.ChannelMode.ToUpperInvariant()} Traffic *CALL END       * SRC_ID {srcId} TGID {dstId} [STREAM ID {e.TxStreamId}]");
                 e.VolumeMeterLevel = 0;
                 EndTarTxRecording(e, system, cpgChannel);
-                if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                    fne.SendP25TDU(srcId, dstId, false);
-                else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                    fne.SendDMRTerminator(srcId, dstId, 1, e.dmrSeqNo, e.dmrN, e.embeddedData);
+                if (IsFneSystemConnected(system.Name))
+                {
+                    if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                        fne.SendP25TDU(srcId, dstId, false);
+                    else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                        fne.SendDMRTerminator(srcId, dstId, 1, e.dmrSeqNo, e.dmrN, e.embeddedData);
+                }
+                else
+                {
+                    Log.WriteWarning($"Call end network signal skipped for {e.ChannelName}; FNE system '{system.Name}' is disconnected.");
+                }
 
                 ResetChannel(e);
             }
@@ -5510,6 +5594,9 @@ namespace dvmconsole
                 if (cpgChannel.RxOnly || channelBox.IsRxOnly)
                     continue;
 
+                if (!ValidateFneConnectionAvailable(system.Name, channelBox, null, showWarning: false))
+                    continue;
+
                 if (!ValidateTalkgroupAvailability(fne, cpgChannel))
                     continue;
 
@@ -5604,10 +5691,17 @@ namespace dvmconsole
             Log.WriteLine($"({session.CodeplugSystem.Name}) {session.CodeplugChannel.GetChannelMode().ToString().ToUpperInvariant()} Traffic *CALL END       * SRC_ID {session.SourceId} TGID {dstId} [STREAM ID {session.Channel.TxStreamId}] (Patch PTT: {session.GroupName})");
             EndTarTxRecording(session.Channel, session.CodeplugSystem, session.CodeplugChannel);
 
-            if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                session.Fne.SendP25TDU(session.SourceId, dstId, false);
-            else if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                session.Fne.SendDMRTerminator(session.SourceId, dstId, 1, session.Channel.dmrSeqNo, session.Channel.dmrN, session.Channel.embeddedData);
+            if (IsFneSystemConnected(session.CodeplugSystem.Name))
+            {
+                if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                    session.Fne.SendP25TDU(session.SourceId, dstId, false);
+                else if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                    session.Fne.SendDMRTerminator(session.SourceId, dstId, 1, session.Channel.dmrSeqNo, session.Channel.dmrN, session.Channel.embeddedData);
+            }
+            else
+            {
+                Log.WriteWarning($"Patch PTT call end skipped for {session.Channel.ChannelName}; FNE system '{session.CodeplugSystem.Name}' is disconnected.");
+            }
 
             session.Channel.PatchForwardingTxState = false;
             ResetChannel(session.Channel);
@@ -5628,6 +5722,8 @@ namespace dvmconsole
                 if (session.Channel == null || session.CodeplugChannel == null || session.CodeplugSystem == null || session.Fne == null || session.Channel.TxStreamId == 0)
                     continue;
                 if (alreadySentTargets.Contains(session.Key))
+                    continue;
+                if (!IsFneSystemConnected(session.CodeplugSystem.Name))
                     continue;
 
                 alreadySentTargets.Add(session.Key);
@@ -5705,6 +5801,12 @@ namespace dvmconsole
                 return 0;
             }
 
+            if (!ValidateFneConnectionAvailable(system.Name, channelBox, null, showWarning: false))
+            {
+                Log.WriteWarning($"Patch forward target blocked: {channelBox.ChannelName} ({systemName} TG {tgid}) is disconnected from the FNE.");
+                return 0;
+            }
+
             if (!ValidateTalkgroupAvailability(fne, cpgChannel))
             {
                 Log.WriteWarning($"Patch forward target blocked: {channelBox.ChannelName} ({systemName} TG {tgid}) is unavailable on the FNE.");
@@ -5750,10 +5852,17 @@ namespace dvmconsole
                 return;
 
             uint dstId = uint.Parse(cpgChannel.Tgid);
-            if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                fne.SendP25TDU(sourceId, dstId, false);
-            else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                fne.SendDMRTerminator(sourceId, dstId, 1, channelBox.dmrSeqNo, channelBox.dmrN, channelBox.embeddedData);
+            if (IsFneSystemConnected(system.Name))
+            {
+                if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                    fne.SendP25TDU(sourceId, dstId, false);
+                else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                    fne.SendDMRTerminator(sourceId, dstId, 1, channelBox.dmrSeqNo, channelBox.dmrN, channelBox.embeddedData);
+            }
+            else
+            {
+                Log.WriteWarning($"Patch forward call end skipped for {channelBox.ChannelName}; FNE system '{system.Name}' is disconnected.");
+            }
 
             if (!IsPatchPttTargetActive(systemName, tgid))
                 channelBox.PatchForwardingTxState = false;
@@ -5783,6 +5892,8 @@ namespace dvmconsole
             if (!TryResolvePatchEndpoint(systemName, tgid, out ChannelBox channelBox, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne))
                 return;
             if (channelBox.TxStreamId == 0)
+                return;
+            if (!IsFneSystemConnected(system.Name))
                 return;
 
             if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
@@ -5944,6 +6055,11 @@ namespace dvmconsole
                 });
                 
                 primaryChannel.TriggerPTTState(globalPttState);
+                if (globalPttState && !primaryChannel.PttState)
+                {
+                    globalPttState = false;
+                    Dispatcher.Invoke(() => btnGlobalPtt.Background = btnGlobalPttDefaultBg);
+                }
 
                 return;
             }
@@ -5955,11 +6071,14 @@ namespace dvmconsole
                 return;
             }
 
+            bool anyGlobalPttChannelStarted = false;
             foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
             {
                 if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
                     continue;
                 if (globalPttState && channel.IsRxOnly)
+                    continue;
+                if (globalPttState && !CanStartChannelPtt(channel, showWarning: false))
                     continue;
 
                 Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
@@ -6005,6 +6124,15 @@ namespace dvmconsole
                 }
 
                 channel.TriggerPTTState(globalPttState);
+                if (!globalPttState || channel.PttState)
+                    anyGlobalPttChannelStarted = true;
+            }
+
+            if (globalPttState && !anyGlobalPttChannelStarted)
+            {
+                globalPttState = false;
+                Dispatcher.Invoke(() => btnGlobalPtt.Background = btnGlobalPttDefaultBg);
+                MessageBox.Show(FNE_DISCONNECTED_MESSAGE, "FNE Disconnected", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
 

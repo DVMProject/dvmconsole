@@ -60,10 +60,19 @@
                                FontWeight="SemiBold"
                                Foreground="{Binding SelectableEncryptionForeground}"
                                TextTrimming="CharacterEllipsis"
+                               Margin="0,0,6,0"
                                Cursor="Hand"
                                Visibility="{Binding SelectableEncryptionVisibility}"
                                ToolTip="{Binding SelectableEncryptionToolTip}"
                                MouseLeftButtonDown="SelectableEncryptionTextBlock_MouseLeftButtonDown" />
+                    <TextBlock x:Name="FneConnectionWarningTextBlock"
+                               Text="FNE"
+                               FontSize="10"
+                               FontWeight="SemiBold"
+                               Foreground="#FFFF5A5A"
+                               TextTrimming="CharacterEllipsis"
+                               Visibility="{Binding FneConnectionWarningVisibility}"
+                               ToolTip="{Binding FneConnectionWarningToolTip}" />
                 </StackPanel>
             </StackPanel>
 

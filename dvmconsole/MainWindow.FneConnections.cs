@@ -36,13 +36,22 @@ namespace dvmconsole
             public PeerSystem Peer { get; set; }
             public bool IsConnected { get; set; }
             public bool IsBusy { get; set; }
+            public bool DesiredStarted { get; set; }
+            public int LastHealthPingsSent { get; set; }
+            public int LastHealthPingsAcked { get; set; }
+            public DateTime LastHealthProgressUtc { get; set; } = DateTime.UtcNow;
             public SemaphoreSlim Sync { get; } = new SemaphoreSlim(1, 1);
             public EventHandler<PeerConnectedEvent> PeerConnectedHandler { get; set; }
             public Action<uint> PeerDisconnectedHandler { get; set; }
         }
 
+        private static readonly TimeSpan FNE_HEALTH_CHECK_INTERVAL = TimeSpan.FromSeconds(30);
+        private static readonly TimeSpan FNE_HEALTH_NO_PROGRESS_TIMEOUT = TimeSpan.FromMinutes(2);
+        private const int FNE_HEALTH_MISSED_PING_GRACE = 3;
+
         private readonly Dictionary<string, FneConnectionEntry> fneConnectionEntries = new(StringComparer.OrdinalIgnoreCase);
         private FneConnectionManagerWindow fneConnectionManagerWindow;
+        private DateTime nextFneHealthCheckUtc = DateTime.MinValue;
 
         public event Action<FneConnectionSnapshot> FneConnectionStateChanged;
 
@@ -63,6 +72,8 @@ namespace dvmconsole
             if (entry == null)
                 return;
 
+            entry.DesiredStarted = true;
+
             await entry.Sync.WaitAsync();
             try
             {
@@ -72,10 +83,21 @@ namespace dvmconsole
                 entry.IsBusy = true;
                 PublishConnectionState(entry);
 
-                if (entry.Peer?.IsStarted == true)
+                if (entry.Peer?.IsStarted == true && entry.IsConnected)
+                {
+                    ResetHealthMonitorBaseline(entry);
                     return;
+                }
+
+                if (entry.Peer?.IsStarted == true)
+                {
+                    await Task.Run(() => entry.Peer.Stop());
+                    RemovePeerForEntry(entry);
+                    ApplyDisconnectedState(entry);
+                }
 
                 CreatePeerForEntry(entry);
+                ResetHealthMonitorBaseline(entry);
                 await Task.Run(() => entry.Peer.Start());
             }
             catch (Exception ex)
@@ -99,6 +121,8 @@ namespace dvmconsole
             FneConnectionEntry entry = GetFneConnectionEntry(systemName);
             if (entry == null)
                 return;
+
+            entry.DesiredStarted = false;
 
             await entry.Sync.WaitAsync();
             try
@@ -133,9 +157,16 @@ namespace dvmconsole
 
         public async Task RestartFneSystemAsync(string systemName)
         {
+            await RestartFneSystemAsync(systemName, showError: true);
+        }
+
+        private async Task RestartFneSystemAsync(string systemName, bool showError)
+        {
             FneConnectionEntry entry = GetFneConnectionEntry(systemName);
             if (entry == null)
                 return;
+
+            entry.DesiredStarted = true;
 
             await entry.Sync.WaitAsync();
             try
@@ -155,15 +186,23 @@ namespace dvmconsole
                 await Task.Delay(250);
 
                 CreatePeerForEntry(entry);
+                ResetHealthMonitorBaseline(entry);
                 await Task.Run(() => entry.Peer.Start());
             }
             catch (Exception ex)
             {
                 Log.StackTrace(ex, false);
-                Dispatcher.Invoke(() =>
+                if (showError)
                 {
-                    MessageBox.Show($"Unable to restart FNE system '{systemName}'. {ex.Message}", "FNE Connection Manager", MessageBoxButton.OK, MessageBoxImage.Error);
-                });
+                    Dispatcher.Invoke(() =>
+                    {
+                        MessageBox.Show($"Unable to restart FNE system '{systemName}'. {ex.Message}", "FNE Connection Manager", MessageBoxButton.OK, MessageBoxImage.Error);
+                    });
+                }
+                else
+                {
+                    Log.WriteWarning($"FNE health restart failed for '{systemName}': {ex.Message}");
+                }
             }
             finally
             {
@@ -184,7 +223,8 @@ namespace dvmconsole
                 SystemConfig = system,
                 StatusBox = statusBox,
                 IsConnected = false,
-                IsBusy = false
+                IsBusy = false,
+                DesiredStarted = autoStart
             };
 
             lock (fneConnectionEntries)
@@ -249,7 +289,9 @@ namespace dvmconsole
                 Dispatcher.Invoke(() =>
                 {
                     entry.IsConnected = true;
+                    ResetHealthMonitorBaseline(entry);
                     UpdateSystemStatusBox(entry);
+                    UpdateChannelConnectionVisuals(entry.SystemName);
                     RefreshCommandControlsForConnectionState();
                     PublishConnectionState(entry);
                     ScheduleDeferredStartupKeyRequests(entry.SystemName);
@@ -294,7 +336,9 @@ namespace dvmconsole
         {
             entry.IsConnected = false;
             UpdateSystemStatusBox(entry);
+            ClearPatchPttTargetsForDisconnectedSystem(entry.SystemName);
             ResetChannelsForDisconnectedSystem(entry.SystemName);
+            UpdateChannelConnectionVisuals(entry.SystemName);
             RefreshCommandControlsForConnectionState();
         }
 
@@ -309,29 +353,201 @@ namespace dvmconsole
 
         private void ResetChannelsForDisconnectedSystem(string systemName)
         {
+            string normalizedSystemName = NormalizeChannelSystemName(systemName);
             foreach (Canvas canvas in GetAllCanvases())
             {
                 foreach (ChannelBox channel in canvas.Children.OfType<ChannelBox>())
                 {
-                    if (!string.Equals(channel.SystemName, systemName, StringComparison.OrdinalIgnoreCase))
+                    if (!string.Equals(NormalizeChannelSystemName(channel.SystemName), normalizedSystemName, StringComparison.OrdinalIgnoreCase))
                         continue;
 
-                    if (!(channel.IsReceiving || channel.IsReceivingEncrypted))
-                        continue;
+                    Codeplug.System disconnectedSystem = Codeplug?.Systems?
+                        .FirstOrDefault(system => ResourceIdentity.SystemMatches(system.Name, normalizedSystemName));
+                    Codeplug.Channel disconnectedChannel = GetConfiguredChannels()
+                        .FirstOrDefault(cpgChannel =>
+                            ResourceIdentity.SystemMatches(cpgChannel.System, normalizedSystemName) &&
+                            string.Equals(cpgChannel.Tgid?.Trim() ?? string.Empty, channel.DstId?.Trim() ?? string.Empty, StringComparison.OrdinalIgnoreCase));
+                    bool hadReceiveState = channel.IsReceiving || channel.IsReceivingEncrypted;
+                    bool hadTransmitState = channel.PttState || channel.PatchForwardingTxState || channel.TxStreamId != 0;
 
-                    Codeplug.System disconnectedSystem = Codeplug.GetSystemForChannel(channel.ChannelName);
-                    Codeplug.Channel disconnectedChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                    if (disconnectedSystem != null && disconnectedChannel != null && channel.RxStreamId > 0)
+                    if (disconnectedSystem != null && disconnectedChannel != null && hadReceiveState && channel.RxStreamId > 0)
                         patchManager.HandleCallEnd(disconnectedSystem.Name, disconnectedChannel.Tgid, channel.RxStreamId);
+
+                    if (disconnectedSystem != null && disconnectedChannel != null && hadTransmitState)
+                        EndTarTxRecording(channel, disconnectedSystem, disconnectedChannel);
 
                     channel.IsReceiving = false;
                     channel.IsReceivingEncrypted = false;
+                    channel.PttState = false;
+                    channel.PatchForwardingTxState = false;
                     channel.PeerId = 0;
                     channel.RxStreamId = 0;
                     channel.VolumeMeterLevel = 0;
+                    ResetChannel(channel);
                     UpdateTabAudioIndicatorForChannel(channel);
                 }
             }
+        }
+
+        private void ClearPatchPttTargetsForDisconnectedSystem(string systemName)
+        {
+            List<PatchPttTargetSession> sessionsToClear;
+            lock (patchPttSync)
+            {
+                sessionsToClear = activePatchPttTargets.Values
+                    .Where(session => string.Equals(session.SystemName, systemName ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                foreach (PatchPttTargetSession session in sessionsToClear)
+                    activePatchPttTargets.Remove(session.Key);
+            }
+
+            foreach (PatchPttTargetSession session in sessionsToClear)
+            {
+                if (session.Channel == null)
+                    continue;
+
+                if (session.CodeplugSystem != null && session.CodeplugChannel != null)
+                    EndTarTxRecording(session.Channel, session.CodeplugSystem, session.CodeplugChannel);
+
+                session.Channel.PatchForwardingTxState = false;
+                session.Channel.PttState = false;
+                session.Channel.VolumeMeterLevel = 0;
+                ResetChannel(session.Channel);
+            }
+        }
+
+        private bool IsFneSystemConnected(string systemName)
+        {
+            if (string.IsNullOrWhiteSpace(systemName))
+                return false;
+
+            FneConnectionEntry entry = GetFneConnectionEntry(NormalizeChannelSystemName(systemName));
+            return entry?.IsConnected == true && entry.Peer?.IsStarted == true;
+        }
+
+        private void RefreshAllChannelConnectionVisuals()
+        {
+            foreach (Canvas canvas in GetAllCanvases())
+            {
+                foreach (ChannelBox channel in canvas.Children.OfType<ChannelBox>())
+                    UpdateChannelConnectionVisual(channel);
+            }
+        }
+
+        private void UpdateChannelConnectionVisuals(string systemName)
+        {
+            foreach (Canvas canvas in GetAllCanvases())
+            {
+                foreach (ChannelBox channel in canvas.Children.OfType<ChannelBox>())
+                {
+                    if (string.Equals(NormalizeChannelSystemName(channel.SystemName), NormalizeChannelSystemName(systemName), StringComparison.OrdinalIgnoreCase))
+                        UpdateChannelConnectionVisual(channel);
+                }
+            }
+        }
+
+        private void UpdateChannelConnectionVisual(ChannelBox channel)
+        {
+            if (channel == null || channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                return;
+
+            string systemName = NormalizeChannelSystemName(channel.SystemName);
+            bool disconnected = !IsFneSystemConnected(systemName);
+            channel.SetFneConnectionWarning(
+                disconnected,
+                disconnected ? $"{systemName} FNE disconnected. Transmit disabled." : null);
+        }
+
+        private void ResetHealthMonitorBaseline(FneConnectionEntry entry)
+        {
+            if (entry?.Peer?.peer == null)
+            {
+                if (entry != null)
+                {
+                    entry.LastHealthPingsSent = 0;
+                    entry.LastHealthPingsAcked = 0;
+                    entry.LastHealthProgressUtc = DateTime.UtcNow;
+                }
+                return;
+            }
+
+            entry.LastHealthPingsSent = entry.Peer.peer.PingsSent;
+            entry.LastHealthPingsAcked = entry.Peer.peer.PingsAcked;
+            entry.LastHealthProgressUtc = DateTime.UtcNow;
+        }
+
+        private void CheckFneConnectionHealth(bool force = false)
+        {
+            if (isShuttingDown)
+                return;
+
+            DateTime now = DateTime.UtcNow;
+            if (!force && now < nextFneHealthCheckUtc)
+                return;
+
+            nextFneHealthCheckUtc = now.Add(FNE_HEALTH_CHECK_INTERVAL);
+
+            List<(string SystemName, string Reason)> systemsToRestart = new List<(string, string)>();
+            lock (fneConnectionEntries)
+            {
+                foreach (FneConnectionEntry entry in fneConnectionEntries.Values)
+                {
+                    if (!ShouldRestartUnhealthyFneConnection(entry, now, out string reason))
+                        continue;
+
+                    systemsToRestart.Add((entry.SystemName, reason));
+                }
+            }
+
+            foreach ((string systemName, string reason) in systemsToRestart)
+            {
+                Log.WriteWarning($"FNE health check restarting '{systemName}': {reason}");
+                Dispatcher.BeginInvoke(new Action(() => _ = RestartFneSystemAsync(systemName, showError: false)));
+            }
+        }
+
+        private bool ShouldRestartUnhealthyFneConnection(FneConnectionEntry entry, DateTime now, out string reason)
+        {
+            reason = string.Empty;
+            if (entry == null || entry.IsBusy || !entry.DesiredStarted)
+                return false;
+
+            if (entry.Peer == null || entry.Peer.peer == null || !entry.Peer.IsStarted)
+            {
+                reason = "peer is not started";
+                return true;
+            }
+
+            if (!entry.IsConnected)
+            {
+                reason = "peer is not connected";
+                return true;
+            }
+
+            int pingsSent = entry.Peer.peer.PingsSent;
+            int pingsAcked = entry.Peer.peer.PingsAcked;
+
+            if (pingsSent != entry.LastHealthPingsSent || pingsAcked != entry.LastHealthPingsAcked)
+            {
+                entry.LastHealthPingsSent = pingsSent;
+                entry.LastHealthPingsAcked = pingsAcked;
+                entry.LastHealthProgressUtc = now;
+            }
+
+            if (pingsSent > pingsAcked + FNE_HEALTH_MISSED_PING_GRACE)
+            {
+                reason = $"missed ping threshold exceeded (sent={pingsSent}, acked={pingsAcked})";
+                return true;
+            }
+
+            if (now - entry.LastHealthProgressUtc > FNE_HEALTH_NO_PROGRESS_TIMEOUT)
+            {
+                reason = $"no ping progress for {(now - entry.LastHealthProgressUtc).TotalSeconds:F0} seconds";
+                return true;
+            }
+
+            return false;
         }
 
         private void RefreshCommandControlsForConnectionState()

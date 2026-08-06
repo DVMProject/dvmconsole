@@ -18,6 +18,7 @@ namespace dvmconsole
     public partial class MainWindow
     {
         private const string TG_UNAVAILABLE_MESSAGE = "Target TG unavailable on FNE";
+        private const string FNE_DISCONNECTED_MESSAGE = "FNE system disconnected. Transmit disabled.";
         private const string PATCH_EDIT_PTT_BLOCKED_MESSAGE = "PTT is disabled while patch editing is active.";
 
         private bool IsPatchEditModeActive()
@@ -44,26 +45,24 @@ namespace dvmconsole
 
         private bool CanStartChannelPtt(ChannelBox channel)
         {
+            return CanStartChannelPtt(channel, showWarning: true);
+        }
+
+        private bool CanStartChannelPtt(ChannelBox channel, bool showWarning)
+        {
             if (channel == null || channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
                 return true;
 
-            if (!CanStartPttOutsidePatchEditMode())
+            if (!CanStartPttOutsidePatchEditMode(showWarning))
                 return false;
 
-            Codeplug.Channel cpgChannel = Codeplug?.GetChannelByName(channel.ChannelName);
-            if (cpgChannel == null)
+            if (!TryResolveChannelEndpoint(channel, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne, out _))
                 return false;
+
             if (cpgChannel.RxOnly || channel.IsRxOnly)
                 return false;
-
-            Codeplug.System system = Codeplug?.Systems?.FirstOrDefault(s => s.Name == cpgChannel.System);
-            if (system == null)
+            if (!ValidateFneConnectionAvailable(system.Name, channel, null, showWarning))
                 return false;
-
-            PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
-            if (fne == null)
-                return false;
-
             return ValidateTalkgroupAvailability(fne, cpgChannel);
         }
 
@@ -71,6 +70,13 @@ namespace dvmconsole
         {
             if (fne == null || cpgChannel == null)
                 return false;
+
+            string systemName = cpgChannel.System ?? fne.ConfiguredSystemName ?? fne.SystemName;
+            if (!IsFneSystemConnected(systemName))
+            {
+                Log.WriteWarning($"TX blocked on FNE '{systemName}' because the peer is disconnected.");
+                return false;
+            }
 
             if (fne.IsTalkgroupAvailable(cpgChannel))
                 return true;
@@ -89,11 +95,39 @@ namespace dvmconsole
 
         private bool ValidateTalkgroupAvailability(PeerSystem fne, Codeplug.Channel cpgChannel, ChannelBox channel, Action<ChannelBox> rollback)
         {
+            string systemName = cpgChannel?.System ?? fne?.ConfiguredSystemName ?? fne?.SystemName;
+            if (!ValidateFneConnectionAvailable(systemName, channel, rollback))
+                return false;
+
             if (ValidateTalkgroupAvailability(fne, cpgChannel))
                 return true;
 
             if (channel != null && rollback != null)
                 Dispatcher.Invoke(() => rollback(channel));
+
+            return false;
+        }
+
+        private bool ValidateFneConnectionAvailable(string systemName, ChannelBox channel = null, Action<ChannelBox> rollback = null, bool showWarning = true)
+        {
+            string normalizedSystemName = NormalizeChannelSystemName(systemName);
+            if (IsFneSystemConnected(normalizedSystemName))
+                return true;
+
+            if (channel != null)
+                channel.SetFneConnectionWarning(true, $"{normalizedSystemName} FNE disconnected. Transmit disabled.");
+
+            if (channel != null && rollback != null)
+                Dispatcher.Invoke(() => rollback(channel));
+
+            Log.WriteWarning($"TX blocked because FNE system '{normalizedSystemName}' is disconnected.");
+            if (showWarning)
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    MessageBox.Show(FNE_DISCONNECTED_MESSAGE, "FNE Disconnected", MessageBoxButton.OK, MessageBoxImage.Warning);
+                });
+            }
 
             return false;
         }

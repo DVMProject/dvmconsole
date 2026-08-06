@@ -97,6 +97,8 @@ namespace dvmconsole.Controls
         private Visibility selectableEncryptionVisibility = Visibility.Collapsed;
         private string selectableEncryptionToolTip = "Selectable encryption";
         private Brush selectableEncryptionForeground = Brushes.LightGray;
+        private Visibility fneConnectionWarningVisibility = Visibility.Collapsed;
+        private string fneConnectionWarningToolTip = "FNE system disconnected. Transmit disabled.";
 
         public FlashingBackgroundManager flashingBackgroundManager;
 
@@ -633,6 +635,39 @@ namespace dvmconsole.Controls
                 }
             }
         }
+
+        /// <summary>
+        /// Visibility for the disconnected/unhealthy FNE badge.
+        /// </summary>
+        public Visibility FneConnectionWarningVisibility
+        {
+            get => fneConnectionWarningVisibility;
+            private set
+            {
+                if (fneConnectionWarningVisibility != value)
+                {
+                    fneConnectionWarningVisibility = value;
+                    OnPropertyChanged(nameof(FneConnectionWarningVisibility));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Tooltip for the disconnected/unhealthy FNE badge.
+        /// </summary>
+        public string FneConnectionWarningToolTip
+        {
+            get => fneConnectionWarningToolTip;
+            private set
+            {
+                if (fneConnectionWarningToolTip != value)
+                {
+                    fneConnectionWarningToolTip = value;
+                    OnPropertyChanged(nameof(FneConnectionWarningToolTip));
+                }
+            }
+        }
+
         /// <summary>
         /// Current volume for this channel.
         /// </summary>
@@ -1478,6 +1513,25 @@ namespace dvmconsole.Controls
             TarIndicatorToolTip = isEnabled
                 ? "TAR recording enabled for this channel"
                 : "TAR recording disabled for this channel";
+        }
+
+        /// <summary>
+        /// Sets the per-resource FNE connection warning badge.
+        /// </summary>
+        public void SetFneConnectionWarning(bool isDisconnected, string toolTip = null)
+        {
+            void Apply()
+            {
+                FneConnectionWarningVisibility = isDisconnected ? Visibility.Visible : Visibility.Collapsed;
+                FneConnectionWarningToolTip = string.IsNullOrWhiteSpace(toolTip)
+                    ? "FNE system disconnected. Transmit disabled."
+                    : toolTip;
+            }
+
+            if (Dispatcher.CheckAccess())
+                Apply();
+            else
+                Dispatcher.Invoke(Apply);
         }
 
         /// <summary>
