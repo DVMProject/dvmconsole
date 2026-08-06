@@ -154,6 +154,7 @@ namespace dvmconsole
         private ChannelBox playbackChannelBox;
 
         private CallHistoryWindow callHistoryWindow;
+        private KeyStatusWindow keyStatusWindow;
         private PatchGroupsWindow patchGroupsWindow;
 
         public static string PLAYBACKTG = "LOCPLAYBACK";
@@ -6295,9 +6296,20 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void KeyStatus_Click(object sender, RoutedEventArgs e)
         {
-            KeyStatusWindow keyStatus = new KeyStatusWindow(Codeplug, this);
-            keyStatus.Owner = this;
-            keyStatus.Show();
+            if (keyStatusWindow == null || !keyStatusWindow.IsLoaded)
+            {
+                keyStatusWindow = new KeyStatusWindow(Codeplug, this)
+                {
+                    Owner = this
+                };
+                keyStatusWindow.Closed += (_, _) => keyStatusWindow = null;
+                keyStatusWindow.Show();
+            }
+
+            if (keyStatusWindow.WindowState == WindowState.Minimized)
+                keyStatusWindow.WindowState = WindowState.Normal;
+
+            keyStatusWindow.Activate();
         }
         private void ToggleTalkPermitTone_Click(object sender, RoutedEventArgs e)
         {
