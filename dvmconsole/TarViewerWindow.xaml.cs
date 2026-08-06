@@ -163,7 +163,6 @@ namespace dvmconsole
             ApplyRecordings(Array.Empty<TarRecordingListItem>());
             InitializeColumnVisibilityMenu();
             DataContext = this;
-            RefreshRecordings();
         }
 
         public void RefreshView()
@@ -182,7 +181,7 @@ namespace dvmconsole
 
         private void Refresh_Click(object sender, RoutedEventArgs e)
         {
-            RefreshRecordings();
+            RefreshRecordings(rebuildIndex: true);
         }
 
         private void Play_Click(object sender, RoutedEventArgs e)
@@ -302,12 +301,12 @@ namespace dvmconsole
             column.Visibility = menuItem.IsChecked ? Visibility.Visible : Visibility.Collapsed;
         }
 
-        private void RefreshRecordings()
+        private void RefreshRecordings(bool rebuildIndex = false)
         {
-            _ = RefreshRecordingsAsync();
+            _ = RefreshRecordingsAsync(rebuildIndex);
         }
 
-        private async Task RefreshRecordingsAsync()
+        private async Task RefreshRecordingsAsync(bool rebuildIndex)
         {
             FolderPathTextBlock.Text = TarManager.TryEnsureRecordingRoot(
                 tarManager.GetConfiguredRecordingRoot(),
@@ -322,11 +321,11 @@ namespace dvmconsole
             CancellationToken cancellationToken = refreshCancellationTokenSource.Token;
 
             RefreshButton.IsEnabled = false;
-            SetStatus("Indexing TAR recordings...");
+            SetStatus(rebuildIndex ? "Rebuilding TAR recording index..." : "Loading TAR recording index...");
 
             try
             {
-                List<TarRecordingMetadata> metadata = await Task.Run(() => tarManager.LoadRecordings(cancellationToken), cancellationToken);
+                List<TarRecordingMetadata> metadata = await Task.Run(() => tarManager.LoadRecordings(cancellationToken, rebuildIndex), cancellationToken);
                 if (cancellationToken.IsCancellationRequested)
                     return;
 

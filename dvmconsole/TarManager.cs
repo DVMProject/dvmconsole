@@ -36,6 +36,7 @@ namespace dvmconsole
 
         private readonly SettingsManager settingsManager;
         private readonly object syncRoot = new object();
+        private readonly object indexSyncRoot = new object();
         private readonly Dictionary<string, TarActiveSession> activeSessions = new Dictionary<string, TarActiveSession>(StringComparer.OrdinalIgnoreCase);
 
         private sealed class TarActiveSession
@@ -254,20 +255,9 @@ namespace dvmconsole
             if (configs.Count == 0)
                 return;
 
-            IEnumerable<string> metadataFiles;
-            try
+            List<string> deletedMetadataPaths = new List<string>();
+            foreach (TarRecordingMetadata metadata in LoadRecordings())
             {
-                metadataFiles = Directory.EnumerateFiles(rootPath, "*.json", SearchOption.AllDirectories).ToList();
-            }
-            catch (Exception ex)
-            {
-                Log.WriteWarning($"TAR retention scan skipped: {ex.Message}");
-                return;
-            }
-
-            foreach (string metadataFile in metadataFiles)
-            {
-                TarRecordingMetadata metadata = TryReadMetadata(metadataFile);
                 if (metadata == null || string.IsNullOrWhiteSpace(metadata.ChannelName))
                     continue;
 
@@ -281,89 +271,94 @@ namespace dvmconsole
                 if (metadata.UtcEndTime >= DateTime.UtcNow.AddDays(-config.RetentionDays))
                     continue;
 
-                DeleteRecording(metadataFile, metadata.FilePath);
+                string sidecarPath = GetSidecarPath(metadata.FilePath);
+                DeleteRecording(sidecarPath, metadata.FilePath);
+                deletedMetadataPaths.Add(sidecarPath);
             }
+
+            RemoveRecordingIndexEntries(rootPath, deletedMetadataPaths);
         }
 
-        public List<TarRecordingMetadata> LoadRecordings(CancellationToken cancellationToken = default)
+        public List<TarRecordingMetadata> LoadRecordings(CancellationToken cancellationToken = default, bool rebuildIndex = false)
         {
             List<TarRecordingMetadata> recordings = new List<TarRecordingMetadata>();
             if (!TryEnsureRecordingRoot(GetConfiguredRecordingRoot(), out string rootPath, out _))
                 return recordings;
 
+            Dictionary<string, TarRecordingIndexEntry> cachedEntries;
+            lock (indexSyncRoot)
+                cachedEntries = LoadRecordingIndex(rootPath);
+
+            if (!rebuildIndex && cachedEntries.Count > 0)
+                return SortRecordings(cachedEntries.Values.Select(entry => entry.Metadata));
+
+            return RebuildRecordingIndex(rootPath, cancellationToken);
+        }
+
+        private List<TarRecordingMetadata> RebuildRecordingIndex(string rootPath, CancellationToken cancellationToken)
+        {
+            List<TarRecordingMetadata> recordings = new List<TarRecordingMetadata>();
             IEnumerable<string> metadataFiles;
-            try
+            lock (indexSyncRoot)
             {
-                metadataFiles = Directory.EnumerateFiles(rootPath, "*.json", SearchOption.AllDirectories);
-            }
-            catch (Exception ex)
-            {
-                Log.WriteWarning($"Unable to scan TAR recordings: {ex.Message}");
-                return recordings;
-            }
-
-            Dictionary<string, TarRecordingIndexEntry> cachedEntries = LoadRecordingIndex(rootPath);
-            List<TarRecordingIndexEntry> updatedIndexEntries = new List<TarRecordingIndexEntry>();
-            bool indexChanged = false;
-
-            foreach (string metadataFile in metadataFiles)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                TarRecordingMetadata metadata = null;
-                FileInfo metadataInfo;
                 try
                 {
-                    metadataInfo = new FileInfo(metadataFile);
+                    metadataFiles = Directory.EnumerateFiles(rootPath, "*.json", SearchOption.AllDirectories).ToList();
                 }
-                catch
+                catch (Exception ex)
                 {
-                    indexChanged = true;
-                    continue;
-                }
-
-                if (cachedEntries.TryGetValue(metadataFile, out TarRecordingIndexEntry cachedEntry) &&
-                    cachedEntry.Metadata != null &&
-                    cachedEntry.MetadataLastWriteUtc == metadataInfo.LastWriteTimeUtc)
-                {
-                    metadata = cachedEntry.Metadata;
-                }
-                else
-                {
-                    metadata = TryReadMetadata(metadataFile);
-                    indexChanged = true;
+                    Log.WriteWarning($"Unable to scan TAR recordings: {ex.Message}");
+                    return recordings;
                 }
 
-                if (metadata == null)
+                Dictionary<string, TarRecordingIndexEntry> cachedEntries = LoadRecordingIndex(rootPath);
+                List<TarRecordingIndexEntry> updatedIndexEntries = new List<TarRecordingIndexEntry>();
+                bool indexChanged = false;
+
+                foreach (string metadataFile in metadataFiles)
                 {
-                    indexChanged = true;
-                    continue;
-                }
-                if (string.IsNullOrWhiteSpace(metadata.FilePath) || !File.Exists(metadata.FilePath))
-                {
-                    indexChanged = true;
-                    continue;
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    TarRecordingMetadata metadata = null;
+                    FileInfo metadataInfo;
+                    try
+                    {
+                        metadataInfo = new FileInfo(metadataFile);
+                    }
+                    catch
+                    {
+                        indexChanged = true;
+                        continue;
+                    }
+
+                    if (cachedEntries.TryGetValue(metadataFile, out TarRecordingIndexEntry cachedEntry) &&
+                        cachedEntry.Metadata != null &&
+                        cachedEntry.MetadataLastWriteUtc == metadataInfo.LastWriteTimeUtc)
+                    {
+                        metadata = cachedEntry.Metadata;
+                        NormalizeMetadataPaths(metadataFile, metadata);
+                    }
+                    else
+                    {
+                        metadata = TryReadMetadata(metadataFile);
+                        indexChanged = true;
+                    }
+
+                    if (!TryBuildIndexEntry(metadataFile, metadata, out TarRecordingIndexEntry updatedEntry))
+                    {
+                        indexChanged = true;
+                        continue;
+                    }
+
+                    recordings.Add(updatedEntry.Metadata);
+                    updatedIndexEntries.Add(updatedEntry);
                 }
 
-                recordings.Add(metadata);
-
-                updatedIndexEntries.Add(new TarRecordingIndexEntry
-                {
-                    MetadataPath = metadataFile,
-                    MetadataLastWriteUtc = metadataInfo.LastWriteTimeUtc,
-                    RecordingPath = metadata.FilePath,
-                    RecordingLastWriteUtc = TryGetLastWriteUtc(metadata.FilePath),
-                    Metadata = metadata
-                });
+                if (indexChanged || updatedIndexEntries.Count != cachedEntries.Count)
+                    SaveRecordingIndex(rootPath, updatedIndexEntries);
             }
 
-            if (indexChanged || updatedIndexEntries.Count != cachedEntries.Count)
-                SaveRecordingIndex(rootPath, updatedIndexEntries);
-
-            return recordings
-                .OrderByDescending(recording => recording.UtcStartTime)
-                .ThenBy(recording => recording.FileName, StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            return SortRecordings(recordings);
         }
 
         public void DeleteRecording(TarRecordingMetadata metadata)
@@ -373,6 +368,8 @@ namespace dvmconsole
 
             string sidecarPath = GetSidecarPath(metadata.FilePath);
             DeleteRecording(sidecarPath, metadata.FilePath);
+            if (TryEnsureRecordingRoot(GetConfiguredRecordingRoot(), out string rootPath, out _))
+                RemoveRecordingIndexEntries(rootPath, new[] { sidecarPath });
         }
 
         public static bool TryEnsureRecordingRoot(string rootPath, out string normalizedPath, out string errorMessage)
@@ -544,6 +541,7 @@ namespace dvmconsole
 
                 string json = JsonConvert.SerializeObject(session.Metadata, Formatting.Indented);
                 File.WriteAllText(metadataPath, json, Encoding.UTF8);
+                UpdateRecordingIndexEntry(rootPath, metadataPath, session.Metadata);
             }
             catch (Exception ex)
             {
@@ -564,15 +562,113 @@ namespace dvmconsole
                 TarRecordingMetadata metadata = JsonConvert.DeserializeObject<TarRecordingMetadata>(json);
                 if (metadata == null)
                     return null;
-                if (string.IsNullOrWhiteSpace(metadata.FilePath))
-                    metadata.FilePath = Path.ChangeExtension(metadataFile, ".wav");
-                if (string.IsNullOrWhiteSpace(metadata.FileName))
-                    metadata.FileName = Path.GetFileName(metadata.FilePath);
+
+                NormalizeMetadataPaths(metadataFile, metadata);
                 return metadata;
             }
             catch
             {
                 return null;
+            }
+        }
+
+        private static List<TarRecordingMetadata> SortRecordings(IEnumerable<TarRecordingMetadata> recordings)
+        {
+            return (recordings ?? Enumerable.Empty<TarRecordingMetadata>())
+                .Where(metadata => metadata != null && !string.IsNullOrWhiteSpace(metadata.FilePath))
+                .OrderByDescending(recording => recording.UtcStartTime)
+                .ThenBy(recording => recording.FileName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static bool TryBuildIndexEntry(string metadataFile, TarRecordingMetadata metadata, out TarRecordingIndexEntry entry)
+        {
+            entry = null;
+            if (metadata == null)
+                return false;
+
+            NormalizeMetadataPaths(metadataFile, metadata);
+            if (string.IsNullOrWhiteSpace(metadata.FilePath) || !File.Exists(metadata.FilePath))
+                return false;
+
+            FileInfo metadataInfo;
+            try
+            {
+                metadataInfo = new FileInfo(metadataFile);
+                if (!metadataInfo.Exists)
+                    return false;
+            }
+            catch
+            {
+                return false;
+            }
+
+            entry = new TarRecordingIndexEntry
+            {
+                MetadataPath = metadataFile,
+                MetadataLastWriteUtc = metadataInfo.LastWriteTimeUtc,
+                RecordingPath = metadata.FilePath,
+                RecordingLastWriteUtc = TryGetLastWriteUtc(metadata.FilePath),
+                Metadata = metadata
+            };
+            return true;
+        }
+
+        private static void NormalizeMetadataPaths(string metadataFile, TarRecordingMetadata metadata)
+        {
+            if (metadata == null)
+                return;
+
+            string sidecarWavPath = string.IsNullOrWhiteSpace(metadataFile)
+                ? string.Empty
+                : Path.ChangeExtension(metadataFile, ".wav");
+
+            if (string.IsNullOrWhiteSpace(metadata.FilePath) ||
+                (!File.Exists(metadata.FilePath) && !string.IsNullOrWhiteSpace(sidecarWavPath) && File.Exists(sidecarWavPath)))
+            {
+                metadata.FilePath = sidecarWavPath;
+            }
+
+            if (string.IsNullOrWhiteSpace(metadata.FileName) && !string.IsNullOrWhiteSpace(metadata.FilePath))
+                metadata.FileName = Path.GetFileName(metadata.FilePath);
+        }
+
+        private void UpdateRecordingIndexEntry(string rootPath, string metadataPath, TarRecordingMetadata metadata)
+        {
+            if (!TryBuildIndexEntry(metadataPath, metadata, out TarRecordingIndexEntry entry))
+                return;
+
+            lock (indexSyncRoot)
+            {
+                Dictionary<string, TarRecordingIndexEntry> entries = LoadRecordingIndex(rootPath);
+                entries[metadataPath] = entry;
+                SaveRecordingIndex(rootPath, entries.Values);
+            }
+        }
+
+        private void RemoveRecordingIndexEntries(string rootPath, IEnumerable<string> metadataPaths)
+        {
+            if (string.IsNullOrWhiteSpace(rootPath) || metadataPaths == null)
+                return;
+
+            List<string> paths = metadataPaths
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (paths.Count == 0)
+                return;
+
+            lock (indexSyncRoot)
+            {
+                Dictionary<string, TarRecordingIndexEntry> entries = LoadRecordingIndex(rootPath);
+                bool removed = false;
+                foreach (string metadataPath in paths)
+                    removed |= entries.Remove(metadataPath);
+
+                if (!removed)
+                    return;
+
+                SaveRecordingIndex(rootPath, entries.Values);
             }
         }
 
@@ -586,7 +682,11 @@ namespace dvmconsole
 
                 string json = File.ReadAllText(indexPath);
                 TarRecordingIndex index = JsonConvert.DeserializeObject<TarRecordingIndex>(json);
-                return (index?.Entries ?? new List<TarRecordingIndexEntry>())
+                List<TarRecordingIndexEntry> entries = index?.Entries ?? new List<TarRecordingIndexEntry>();
+                foreach (TarRecordingIndexEntry entry in entries)
+                    NormalizeMetadataPaths(entry?.MetadataPath, entry?.Metadata);
+
+                return entries
                     .Where(entry => !string.IsNullOrWhiteSpace(entry?.MetadataPath) && entry.Metadata != null)
                     .GroupBy(entry => entry.MetadataPath, StringComparer.OrdinalIgnoreCase)
                     .ToDictionary(group => group.Key, group => group.Last(), StringComparer.OrdinalIgnoreCase);
@@ -609,7 +709,9 @@ namespace dvmconsole
                 };
 
                 string json = JsonConvert.SerializeObject(index, Formatting.None);
-                File.WriteAllText(indexPath, json, Encoding.UTF8);
+                string tempPath = indexPath + ".tmp";
+                File.WriteAllText(tempPath, json, Encoding.UTF8);
+                File.Move(tempPath, indexPath, true);
             }
             catch (Exception ex)
             {
