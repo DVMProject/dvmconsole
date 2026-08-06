@@ -155,6 +155,7 @@ namespace dvmconsole
 
         private CallHistoryWindow callHistoryWindow;
         private KeyStatusWindow keyStatusWindow;
+        private AudioSettingsWindow audioSettingsWindow;
         private PatchGroupsWindow patchGroupsWindow;
 
         public static string PLAYBACKTG = "LOCPLAYBACK";
@@ -3144,11 +3145,17 @@ namespace dvmconsole
                 channel.ChannelName != PLAYBACKCHNAME &&
                 channel.DstId != PLAYBACKTG);
 
-            // Avoid letting local speaker playback or QCII tones train the mic AGC while the console is idle.
+            // Avoid letting local speaker playback or generated tones train mic processing while the console is idle.
             if (micTransmitActive)
+            {
+                ApplyMicrophoneProcessing(micBuffer);
                 ApplyInputAgc(micBuffer);
+            }
             else
+            {
+                ResetMicrophoneProcessingState();
                 ResetInputAgcGain();
+            }
 
               foreach (ChannelBox channel in selectedChannels)
               {
@@ -3707,10 +3714,27 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void AudioSettings_Click(object sender, RoutedEventArgs e)
         {
-            List<Codeplug.Zone> zones = Codeplug?.Zones ?? new List<Codeplug.Zone>();
+            if (audioSettingsWindow == null)
+            {
+                List<Codeplug.Zone> zones = Codeplug?.Zones ?? new List<Codeplug.Zone>();
+                audioSettingsWindow = new AudioSettingsWindow(
+                    settingsManager,
+                    audioManager,
+                    zones,
+                    ApplyConfiguredInputDevice,
+                    PreviewMicrophoneProcessingSettings,
+                    RestoreSavedMicrophoneProcessingSettings)
+                {
+                    Owner = this
+                };
+                audioSettingsWindow.Closed += (_, _) => audioSettingsWindow = null;
+                audioSettingsWindow.Show();
+            }
 
-            AudioSettingsWindow audioSettingsWindow = new AudioSettingsWindow(settingsManager, audioManager, zones, ApplyConfiguredInputDevice);
-            audioSettingsWindow.ShowDialog();
+            if (audioSettingsWindow.WindowState == WindowState.Minimized)
+                audioSettingsWindow.WindowState = WindowState.Normal;
+
+            audioSettingsWindow.Activate();
         }
 
         private void SettingsTransfer_Click(object sender, RoutedEventArgs e)

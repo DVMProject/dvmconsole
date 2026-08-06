@@ -43,6 +43,10 @@ namespace dvmconsole
         public const double TONE_PRESET_MIN_DURATION_SECONDS = 0.25;
         public const double TONE_PRESET_MAX_DURATION_SECONDS = 10.0;
         public const string DTMF_PRESET_STEP_KIND_DIGIT = "digit";
+        public const double AUDIO_INPUT_GAIN_MIN = 0.25;
+        public const double AUDIO_INPUT_GAIN_MAX = 3.0;
+        public const double AUDIO_INPUT_EQ_GAIN_DB_MIN = -12.0;
+        public const double AUDIO_INPUT_EQ_GAIN_DB_MAX = 12.0;
 
         public static readonly string UserAppData = Environment.GetFolderPath(
             Environment.SpecialFolder.ApplicationData);
@@ -154,6 +158,30 @@ namespace dvmconsole
         /// </summary>
         public bool AudioInputAgcEnabled { get; set; } = false;
         /// <summary>
+        /// Console microphone gain applied before transmit encoding.
+        /// </summary>
+        public double AudioInputGain { get; set; } = 1.0;
+        /// <summary>
+        /// Low-band microphone EQ gain in dB.
+        /// </summary>
+        public double AudioInputEqLowGainDb { get; set; } = 0.0;
+        /// <summary>
+        /// Mid-band microphone EQ gain in dB.
+        /// </summary>
+        public double AudioInputEqMidGainDb { get; set; } = 0.0;
+        /// <summary>
+        /// High-band microphone EQ gain in dB.
+        /// </summary>
+        public double AudioInputEqHighGainDb { get; set; } = 0.0;
+        /// <summary>
+        /// Last selected/saved microphone processing preset name.
+        /// </summary>
+        public string AudioInputPresetName { get; set; } = string.Empty;
+        /// <summary>
+        /// User-defined microphone gain/EQ presets.
+        /// </summary>
+        public List<AudioInputPresetConfig> AudioInputPresets { get; set; } = new List<AudioInputPresetConfig>();
+        /// <summary>
         /// Suppresses local RX speaker playback while the console is transmitting.
         /// </summary>
         public bool MuteRxAudioWhileTransmitting { get; set; } = false;
@@ -257,6 +285,18 @@ namespace dvmconsole
             public string DisplayName { get; set; } = string.Empty;
             public string TargetResourceKey { get; set; } = string.Empty;
             public List<DtmfPresetStep> Steps { get; set; } = new List<DtmfPresetStep>();
+        }
+
+        /// <summary>
+        /// Persisted microphone gain/EQ preset.
+        /// </summary>
+        public class AudioInputPresetConfig
+        {
+            public string Name { get; set; } = string.Empty;
+            public double Gain { get; set; } = 1.0;
+            public double LowGainDb { get; set; } = 0.0;
+            public double MidGainDb { get; set; } = 0.0;
+            public double HighGainDb { get; set; } = 0.0;
         }
 
         /// <summary>
@@ -455,6 +495,12 @@ namespace dvmconsole
                     nameof(MasterOutputDevice),
                     nameof(MasterOutputDeviceKey),
                     nameof(AudioInputAgcEnabled),
+                    nameof(AudioInputGain),
+                    nameof(AudioInputEqLowGainDb),
+                    nameof(AudioInputEqMidGainDb),
+                    nameof(AudioInputEqHighGainDb),
+                    nameof(AudioInputPresetName),
+                    nameof(AudioInputPresets),
                     nameof(MuteRxAudioWhileTransmitting),
                     nameof(ChannelVolumes),
                     nameof(WebStreamVolumes)
@@ -626,6 +672,12 @@ namespace dvmconsole
                     MasterOutputDevice = NormalizeAudioDeviceIndex(loadedSettings.MasterOutputDevice);
                     MasterOutputDeviceKey = NormalizeAudioDeviceKey(loadedSettings.MasterOutputDeviceKey);
                     AudioInputAgcEnabled = loadedSettings.AudioInputAgcEnabled;
+                    AudioInputGain = NormalizeAudioInputGain(loadedSettings.AudioInputGain);
+                    AudioInputEqLowGainDb = NormalizeAudioInputEqGainDb(loadedSettings.AudioInputEqLowGainDb);
+                    AudioInputEqMidGainDb = NormalizeAudioInputEqGainDb(loadedSettings.AudioInputEqMidGainDb);
+                    AudioInputEqHighGainDb = NormalizeAudioInputEqGainDb(loadedSettings.AudioInputEqHighGainDb);
+                    AudioInputPresetName = loadedSettings.AudioInputPresetName?.Trim() ?? string.Empty;
+                    AudioInputPresets = NormalizeAudioInputPresets(loadedSettings.AudioInputPresets);
                     MuteRxAudioWhileTransmitting = loadedSettings.MuteRxAudioWhileTransmitting;
                     MigrateLegacyAudioSettings();
                     ChannelVolumes = loadedSettings.ChannelVolumes ?? new Dictionary<string, double>();
@@ -968,6 +1020,12 @@ namespace dvmconsole
             AudioInputDeviceKey = NormalizeAudioDeviceKey(AudioInputDeviceKey);
             MasterOutputDevice = NormalizeAudioDeviceIndex(MasterOutputDevice);
             MasterOutputDeviceKey = NormalizeAudioDeviceKey(MasterOutputDeviceKey);
+            AudioInputGain = NormalizeAudioInputGain(AudioInputGain);
+            AudioInputEqLowGainDb = NormalizeAudioInputEqGainDb(AudioInputEqLowGainDb);
+            AudioInputEqMidGainDb = NormalizeAudioInputEqGainDb(AudioInputEqMidGainDb);
+            AudioInputEqHighGainDb = NormalizeAudioInputEqGainDb(AudioInputEqHighGainDb);
+            AudioInputPresetName = AudioInputPresetName?.Trim() ?? string.Empty;
+            AudioInputPresets = NormalizeAudioInputPresets(AudioInputPresets);
             MigrateLegacyAudioSettings();
 
             TarRecordingsRootPath = string.IsNullOrWhiteSpace(TarRecordingsRootPath)
@@ -1301,6 +1359,38 @@ namespace dvmconsole
                         })
                         .ToList()
                 })
+                .ToList();
+        }
+
+        public static double NormalizeAudioInputGain(double gain)
+        {
+            return double.IsNaN(gain) || double.IsInfinity(gain)
+                ? 1.0
+                : Math.Clamp(gain, AUDIO_INPUT_GAIN_MIN, AUDIO_INPUT_GAIN_MAX);
+        }
+
+        public static double NormalizeAudioInputEqGainDb(double gainDb)
+        {
+            return double.IsNaN(gainDb) || double.IsInfinity(gainDb)
+                ? 0.0
+                : Math.Clamp(gainDb, AUDIO_INPUT_EQ_GAIN_DB_MIN, AUDIO_INPUT_EQ_GAIN_DB_MAX);
+        }
+
+        public static List<AudioInputPresetConfig> NormalizeAudioInputPresets(IEnumerable<AudioInputPresetConfig> presets)
+        {
+            return (presets ?? Enumerable.Empty<AudioInputPresetConfig>())
+                .Where(preset => preset != null)
+                .Select(preset => new AudioInputPresetConfig
+                {
+                    Name = string.IsNullOrWhiteSpace(preset.Name) ? "Mic Preset" : preset.Name.Trim(),
+                    Gain = NormalizeAudioInputGain(preset.Gain),
+                    LowGainDb = NormalizeAudioInputEqGainDb(preset.LowGainDb),
+                    MidGainDb = NormalizeAudioInputEqGainDb(preset.MidGainDb),
+                    HighGainDb = NormalizeAudioInputEqGainDb(preset.HighGainDb)
+                })
+                .GroupBy(preset => preset.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.Last())
+                .OrderBy(preset => preset.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
 

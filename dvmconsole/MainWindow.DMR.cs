@@ -145,6 +145,7 @@ namespace dvmconsole
                     if (channel.ExtHalfRateVocoder == null)
                         channel.ExtHalfRateVocoder = new AmbeVocoder(false);
 
+                    channel.ExtHalfRateVocoder.EncoderAgcEnabled = IsAudioInputAgcEnabled();
                     channel.ExtHalfRateVocoder.encode(samples, out ambe, true);
                 }
                 else

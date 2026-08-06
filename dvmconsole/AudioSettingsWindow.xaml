@@ -4,7 +4,7 @@
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
         TextElement.Foreground="{DynamicResource MaterialDesignBody}" TextElement.FontWeight="Regular" TextElement.FontSize="13"
         Style="{StaticResource MaterialDesignWindow}" Background="{DynamicResource MaterialDesignPaper}" FontFamily="{DynamicResource MaterialDesignFont}"
-        Title="Audio Settings" Height="560" MinHeight="460" Width="760" MinWidth="640" Icon="/dvmconsole;component/Assets/audio.png"
+        Title="Audio Settings" Height="650" MinHeight="520" Width="780" MinWidth="680" Icon="/dvmconsole;component/Assets/audio.png"
         WindowStartupLocation="CenterOwner">
     <Window.Resources>
         <Style x:Key="AudioTabNavButtonStyle" TargetType="{x:Type Button}">
@@ -77,9 +77,143 @@
 
         <StackPanel Grid.Row="1" Margin="0,0,0,10">
             <Border Background="{DynamicResource MaterialDesignDivider}" Height="1" Margin="0,0,0,10"/>
-            <CheckBox x:Name="AgcToggle"
-                      Content="Enable AGC for console microphone audio"
-                      ToolTip="Automatic gain control adjusts console mic level before transmit. Leave off for the current raw microphone behavior."/>
+            <Expander Header="Microphone Gain / EQ"
+                      Background="{DynamicResource MaterialDesignCardBackground}"
+                      BorderBrush="{DynamicResource MaterialDesignDivider}"
+                      BorderThickness="1"
+                      Padding="10,6">
+                <Grid Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="150"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="70"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="10"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="8"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="8"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="8"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="8"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="8"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" Orientation="Horizontal">
+                        <ComboBox x:Name="MicPresetComboBox"
+                                  Width="190"
+                                  Margin="0,0,8,0"
+                                  SelectionChanged="MicPresetComboBox_SelectionChanged"
+                                  materialDesign:HintAssist.Hint="Preset"/>
+                        <TextBox x:Name="MicPresetNameTextBox"
+                                 Width="180"
+                                 Margin="0,0,8,0"
+                                 materialDesign:HintAssist.Hint="Preset name"/>
+                        <Button Content="Save Preset"
+                                Width="110"
+                                Margin="0,0,8,0"
+                                ToolTip="Adds or updates this preset in the window. Press Save to persist it."
+                                Click="SaveMicPreset_Click"
+                                Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                        <Button Content="Delete"
+                                Width="80"
+                                Margin="0,0,8,0"
+                                Click="DeleteMicPreset_Click"
+                                Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                        <Button Content="Reset"
+                                Width="80"
+                                ToolTip="Flatten mic gain and EQ to 1.00x / 0 dB. Press Save to persist."
+                                Click="ResetMicProcessing_Click"
+                                Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Mic Gain" VerticalAlignment="Center"/>
+                    <Slider x:Name="MicGainSlider"
+                            Grid.Row="2"
+                            Grid.Column="1"
+                            Minimum="-12"
+                            Maximum="9.5"
+                            TickFrequency="1"
+                            SmallChange="0.5"
+                            LargeChange="3"
+                            ValueChanged="MicProcessingSlider_ValueChanged"/>
+                    <TextBlock x:Name="MicGainValueTextBlock"
+                               Grid.Row="2"
+                               Grid.Column="2"
+                               TextAlignment="Right"
+                               VerticalAlignment="Center"/>
+
+                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Low EQ (150 Hz)" VerticalAlignment="Center"/>
+                    <Slider x:Name="MicLowEqSlider"
+                            Grid.Row="4"
+                            Grid.Column="1"
+                            Minimum="-12"
+                            Maximum="12"
+                            TickFrequency="1"
+                            SmallChange="0.5"
+                            LargeChange="3"
+                            ValueChanged="MicProcessingSlider_ValueChanged"/>
+                    <TextBlock x:Name="MicLowEqValueTextBlock"
+                               Grid.Row="4"
+                               Grid.Column="2"
+                               TextAlignment="Right"
+                               VerticalAlignment="Center"/>
+
+                    <TextBlock Grid.Row="6" Grid.Column="0" Text="Mid EQ (700 Hz)" VerticalAlignment="Center"/>
+                    <Slider x:Name="MicMidEqSlider"
+                            Grid.Row="6"
+                            Grid.Column="1"
+                            Minimum="-12"
+                            Maximum="12"
+                            TickFrequency="1"
+                            SmallChange="0.5"
+                            LargeChange="3"
+                            ValueChanged="MicProcessingSlider_ValueChanged"/>
+                    <TextBlock x:Name="MicMidEqValueTextBlock"
+                               Grid.Row="6"
+                               Grid.Column="2"
+                               TextAlignment="Right"
+                               VerticalAlignment="Center"/>
+
+                    <TextBlock Grid.Row="8" Grid.Column="0" Text="High EQ (2 kHz)" VerticalAlignment="Center"/>
+                    <Slider x:Name="MicHighEqSlider"
+                            Grid.Row="8"
+                            Grid.Column="1"
+                            Minimum="-12"
+                            Maximum="12"
+                            TickFrequency="1"
+                            SmallChange="0.5"
+                            LargeChange="3"
+                            ValueChanged="MicProcessingSlider_ValueChanged"/>
+                    <TextBlock x:Name="MicHighEqValueTextBlock"
+                               Grid.Row="8"
+                               Grid.Column="2"
+                               TextAlignment="Right"
+                               VerticalAlignment="Center"/>
+
+                    <CheckBox x:Name="AgcToggle"
+                              Grid.Row="10"
+                              Grid.Column="0"
+                              Grid.ColumnSpan="3"
+                              Content="Enable AGC for console microphone audio"
+                              ToolTip="Automatic gain control raises/lowers mic audio toward a target level. Disable it when manually tuning gain."
+                              Checked="AgcToggle_Changed"
+                              Unchecked="AgcToggle_Changed"/>
+
+                    <TextBlock Grid.Row="12"
+                               Grid.Column="0"
+                               Grid.ColumnSpan="3"
+                               Opacity="0.72"
+                               FontSize="11"
+                               TextWrapping="Wrap"
+                               Text="Mic gain and EQ are applied to console-originated transmit audio before AGC. If AGC is enabled, it can lift quiet audio back up over time."/>
+                </Grid>
+            </Expander>
         </StackPanel>
 
         <TabControl x:Name="ZoneRoutingTabs"

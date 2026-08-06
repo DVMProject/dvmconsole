@@ -15,6 +15,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Threading;
+using System.ComponentModel;
 
 using NAudio.Wave;
 
@@ -26,12 +27,19 @@ namespace dvmconsole
     public partial class AudioSettingsWindow : Window
     {
         private const double TAB_HEADER_SCROLL_STEP = 180.0;
+        private const double MIC_GAIN_DB_MIN = -12.0;
+        private const double MIC_GAIN_DB_MAX = 9.5;
 
         private readonly SettingsManager settingsManager;
         private readonly AudioManager audioManager;
         private readonly List<Codeplug.Zone> zones;
         private readonly Action inputDeviceChanged;
+        private readonly Action<bool, double, double, double, double> microphoneProcessingPreviewChanged;
+        private readonly Action microphoneProcessingPreviewCanceled;
         private readonly Dictionary<string, ComboBox> outputSelectorsByTalkgroup = new Dictionary<string, ComboBox>(StringComparer.OrdinalIgnoreCase);
+        private List<SettingsManager.AudioInputPresetConfig> micPresetDrafts = new List<SettingsManager.AudioInputPresetConfig>();
+        private bool loadingMicProcessingControls;
+        private bool settingsSaved;
 
         private ScrollViewer tabHeaderScrollViewer;
         private Button scrollTabsLeftButton;
@@ -57,13 +65,21 @@ namespace dvmconsole
         /// <summary>
         /// Initializes a new instance of the <see cref="AudioSettingsWindow"/> class.
         /// </summary>
-        public AudioSettingsWindow(SettingsManager settingsManager, AudioManager audioManager, List<Codeplug.Zone> zones, Action inputDeviceChanged = null)
+        public AudioSettingsWindow(
+            SettingsManager settingsManager,
+            AudioManager audioManager,
+            List<Codeplug.Zone> zones,
+            Action inputDeviceChanged = null,
+            Action<bool, double, double, double, double> microphoneProcessingPreviewChanged = null,
+            Action microphoneProcessingPreviewCanceled = null)
         {
             InitializeComponent();
             this.settingsManager = settingsManager;
             this.audioManager = audioManager;
             this.zones = zones ?? new List<Codeplug.Zone>();
             this.inputDeviceChanged = inputDeviceChanged;
+            this.microphoneProcessingPreviewChanged = microphoneProcessingPreviewChanged;
+            this.microphoneProcessingPreviewCanceled = microphoneProcessingPreviewCanceled;
 
             Loaded += AudioSettingsWindow_Loaded;
             ZoneRoutingTabs.SelectionChanged += ZoneRoutingTabs_SelectionChanged;
@@ -90,7 +106,121 @@ namespace dvmconsole
             MasterOutputComboBox.ItemsSource = outputDevices;
             MasterOutputComboBox.SelectedValue = ResolveSavedDeviceKey(settingsManager.MasterOutputDeviceKey);
 
+            LoadMicProcessingControls();
+        }
+
+        private void LoadMicProcessingControls()
+        {
+            loadingMicProcessingControls = true;
+            micPresetDrafts = SettingsManager.NormalizeAudioInputPresets(settingsManager.AudioInputPresets);
+            RefreshMicPresetCombo(settingsManager.AudioInputPresetName);
+
             AgcToggle.IsChecked = settingsManager.AudioInputAgcEnabled;
+            MicGainSlider.Value = LinearGainToDb(settingsManager.AudioInputGain);
+            MicLowEqSlider.Value = SettingsManager.NormalizeAudioInputEqGainDb(settingsManager.AudioInputEqLowGainDb);
+            MicMidEqSlider.Value = SettingsManager.NormalizeAudioInputEqGainDb(settingsManager.AudioInputEqMidGainDb);
+            MicHighEqSlider.Value = SettingsManager.NormalizeAudioInputEqGainDb(settingsManager.AudioInputEqHighGainDb);
+            MicPresetNameTextBox.Text = settingsManager.AudioInputPresetName?.Trim() ?? string.Empty;
+
+            loadingMicProcessingControls = false;
+            UpdateMicProcessingValueLabels();
+        }
+
+        private void RefreshMicPresetCombo(string selectedName = null)
+        {
+            string normalizedSelectedName = selectedName?.Trim() ?? string.Empty;
+            MicPresetComboBox.ItemsSource = null;
+            MicPresetComboBox.DisplayMemberPath = nameof(SettingsManager.AudioInputPresetConfig.Name);
+            MicPresetComboBox.ItemsSource = micPresetDrafts;
+
+            if (!string.IsNullOrWhiteSpace(normalizedSelectedName))
+            {
+                MicPresetComboBox.SelectedItem = micPresetDrafts.FirstOrDefault(preset =>
+                    string.Equals(preset.Name, normalizedSelectedName, StringComparison.OrdinalIgnoreCase));
+            }
+        }
+
+        private SettingsManager.AudioInputPresetConfig CaptureMicPreset(string presetName)
+        {
+            return new SettingsManager.AudioInputPresetConfig
+            {
+                Name = string.IsNullOrWhiteSpace(presetName) ? "Mic Preset" : presetName.Trim(),
+                Gain = DbToLinearGain(MicGainSlider.Value),
+                LowGainDb = SettingsManager.NormalizeAudioInputEqGainDb(MicLowEqSlider.Value),
+                MidGainDb = SettingsManager.NormalizeAudioInputEqGainDb(MicMidEqSlider.Value),
+                HighGainDb = SettingsManager.NormalizeAudioInputEqGainDb(MicHighEqSlider.Value)
+            };
+        }
+
+        private void ApplyMicPresetToControls(SettingsManager.AudioInputPresetConfig preset)
+        {
+            if (preset == null)
+                return;
+
+            loadingMicProcessingControls = true;
+            MicPresetNameTextBox.Text = preset.Name;
+            MicGainSlider.Value = LinearGainToDb(preset.Gain);
+            MicLowEqSlider.Value = SettingsManager.NormalizeAudioInputEqGainDb(preset.LowGainDb);
+            MicMidEqSlider.Value = SettingsManager.NormalizeAudioInputEqGainDb(preset.MidGainDb);
+            MicHighEqSlider.Value = SettingsManager.NormalizeAudioInputEqGainDb(preset.HighGainDb);
+            loadingMicProcessingControls = false;
+            UpdateMicProcessingValueLabels();
+            PreviewCurrentMicProcessing();
+        }
+
+        private void UpdateMicProcessingValueLabels()
+        {
+            if (MicGainValueTextBlock == null)
+                return;
+
+            MicGainValueTextBlock.Text = FormatGainDb(MicGainSlider.Value);
+            MicLowEqValueTextBlock.Text = FormatEqGain(MicLowEqSlider.Value);
+            MicMidEqValueTextBlock.Text = FormatEqGain(MicMidEqSlider.Value);
+            MicHighEqValueTextBlock.Text = FormatEqGain(MicHighEqSlider.Value);
+        }
+
+        private static double LinearGainToDb(double gain)
+        {
+            double normalized = SettingsManager.NormalizeAudioInputGain(gain);
+            return NormalizeMicGainDb(20.0 * Math.Log10(normalized));
+        }
+
+        private static double DbToLinearGain(double gainDb)
+        {
+            return SettingsManager.NormalizeAudioInputGain(Math.Pow(10.0, NormalizeMicGainDb(gainDb) / 20.0));
+        }
+
+        private static double NormalizeMicGainDb(double gainDb)
+        {
+            return double.IsNaN(gainDb) || double.IsInfinity(gainDb)
+                ? 0.0
+                : Math.Clamp(gainDb, MIC_GAIN_DB_MIN, MIC_GAIN_DB_MAX);
+        }
+
+        private static string FormatGainDb(double gainDb)
+        {
+            double normalized = NormalizeMicGainDb(gainDb);
+            return normalized >= 0
+                ? $"+{normalized:0.#} dB"
+                : $"{normalized:0.#} dB";
+        }
+
+        private static string FormatEqGain(double gainDb)
+        {
+            double normalized = SettingsManager.NormalizeAudioInputEqGainDb(gainDb);
+            return normalized >= 0
+                ? $"+{normalized:0.#} dB"
+                : $"{normalized:0.#} dB";
+        }
+
+        private void PreviewCurrentMicProcessing()
+        {
+            microphoneProcessingPreviewChanged?.Invoke(
+                AgcToggle.IsChecked == true,
+                DbToLinearGain(MicGainSlider.Value),
+                SettingsManager.NormalizeAudioInputEqGainDb(MicLowEqSlider.Value),
+                SettingsManager.NormalizeAudioInputEqGainDb(MicMidEqSlider.Value),
+                SettingsManager.NormalizeAudioInputEqGainDb(MicHighEqSlider.Value));
         }
 
         /// <summary>
@@ -467,6 +597,96 @@ namespace dvmconsole
             FillOutputSelectors(sender, fillDown: true);
         }
 
+        private void MicPresetComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (loadingMicProcessingControls)
+                return;
+
+            if (MicPresetComboBox.SelectedItem is SettingsManager.AudioInputPresetConfig preset)
+                ApplyMicPresetToControls(preset);
+        }
+
+        private void MicProcessingSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (loadingMicProcessingControls)
+                return;
+
+            UpdateMicProcessingValueLabels();
+            PreviewCurrentMicProcessing();
+        }
+
+        private void AgcToggle_Changed(object sender, RoutedEventArgs e)
+        {
+            if (loadingMicProcessingControls)
+                return;
+
+            PreviewCurrentMicProcessing();
+        }
+
+        private void SaveMicPreset_Click(object sender, RoutedEventArgs e)
+        {
+            string presetName = MicPresetNameTextBox.Text?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(presetName))
+            {
+                MessageBox.Show("Enter a preset name before saving.", "Mic Preset", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            SettingsManager.AudioInputPresetConfig preset = CaptureMicPreset(presetName);
+            int existingIndex = micPresetDrafts.FindIndex(existing =>
+                string.Equals(existing.Name, preset.Name, StringComparison.OrdinalIgnoreCase));
+
+            if (existingIndex >= 0)
+                micPresetDrafts[existingIndex] = preset;
+            else
+                micPresetDrafts.Add(preset);
+
+            micPresetDrafts = SettingsManager.NormalizeAudioInputPresets(micPresetDrafts);
+            RefreshMicPresetCombo(preset.Name);
+            PreviewCurrentMicProcessing();
+        }
+
+        private void DeleteMicPreset_Click(object sender, RoutedEventArgs e)
+        {
+            string presetName = (MicPresetComboBox.SelectedItem as SettingsManager.AudioInputPresetConfig)?.Name
+                ?? MicPresetNameTextBox.Text?.Trim()
+                ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(presetName))
+                return;
+
+            micPresetDrafts = micPresetDrafts
+                .Where(preset => !string.Equals(preset.Name, presetName, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            loadingMicProcessingControls = true;
+            MicPresetNameTextBox.Text = string.Empty;
+            loadingMicProcessingControls = false;
+            RefreshMicPresetCombo();
+        }
+
+        private void ResetMicProcessing_Click(object sender, RoutedEventArgs e)
+        {
+            loadingMicProcessingControls = true;
+            MicPresetComboBox.SelectedItem = null;
+            MicPresetNameTextBox.Text = string.Empty;
+            MicGainSlider.Value = 0.0;
+            MicLowEqSlider.Value = SettingsManager.NormalizeAudioInputEqGainDb(0.0);
+            MicMidEqSlider.Value = SettingsManager.NormalizeAudioInputEqGainDb(0.0);
+            MicHighEqSlider.Value = SettingsManager.NormalizeAudioInputEqGainDb(0.0);
+            loadingMicProcessingControls = false;
+
+            UpdateMicProcessingValueLabels();
+            PreviewCurrentMicProcessing();
+        }
+
+        protected override void OnClosing(CancelEventArgs e)
+        {
+            if (!settingsSaved)
+                microphoneProcessingPreviewCanceled?.Invoke();
+
+            base.OnClosing(e);
+        }
+
         private void FillOutputSelectors(object sender, bool fillDown)
         {
             if ((sender as FrameworkElement)?.Tag is not ComboBox sourceSelector)
@@ -508,6 +728,12 @@ namespace dvmconsole
             settingsManager.MasterOutputDevice = SettingsManager.NormalizeAudioDeviceIndex(selectedMasterOutput);
             settingsManager.MasterOutputDeviceKey = SettingsManager.NormalizeAudioDeviceKey(selectedMasterOutputKey);
             settingsManager.AudioInputAgcEnabled = AgcToggle.IsChecked == true;
+            settingsManager.AudioInputGain = DbToLinearGain(MicGainSlider.Value);
+            settingsManager.AudioInputEqLowGainDb = SettingsManager.NormalizeAudioInputEqGainDb(MicLowEqSlider.Value);
+            settingsManager.AudioInputEqMidGainDb = SettingsManager.NormalizeAudioInputEqGainDb(MicMidEqSlider.Value);
+            settingsManager.AudioInputEqHighGainDb = SettingsManager.NormalizeAudioInputEqGainDb(MicHighEqSlider.Value);
+            settingsManager.AudioInputPresetName = MicPresetNameTextBox.Text?.Trim() ?? string.Empty;
+            settingsManager.AudioInputPresets = SettingsManager.NormalizeAudioInputPresets(micPresetDrafts);
 
             foreach (KeyValuePair<string, ComboBox> entry in outputSelectorsByTalkgroup)
             {
@@ -528,7 +754,8 @@ namespace dvmconsole
             settingsManager.SaveSettings();
             audioManager.ReloadOutputDevices();
             inputDeviceChanged?.Invoke();
-            DialogResult = true;
+            RestoreSavedMicProcessingPreview();
+            settingsSaved = true;
             Close();
         }
 
@@ -537,8 +764,12 @@ namespace dvmconsole
         /// </summary>
         private void CancelButton_Click(object sender, RoutedEventArgs e)
         {
-            DialogResult = false;
             Close();
+        }
+
+        private void RestoreSavedMicProcessingPreview()
+        {
+            microphoneProcessingPreviewCanceled?.Invoke();
         }
     } // public partial class AudioSettingsWindow : Window
 } // namespace dvmconsole

@@ -107,6 +107,7 @@ namespace dvmconsole
                     if (channel.ExtFullRateVocoder == null)
                         channel.ExtFullRateVocoder = new AmbeVocoder(true);
 
+                    channel.ExtFullRateVocoder.EncoderAgcEnabled = IsAudioInputAgcEnabled();
                     channel.ExtFullRateVocoder.encode(samples, out imbe);
                 }
                 else

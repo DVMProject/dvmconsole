@@ -88,6 +88,20 @@ namespace dvmconsole
             }
         }
 
+        /// <summary>
+        /// Gets or sets whether the external AMBE encoder applies automatic gain control.
+        /// </summary>
+        public bool EncoderAgcEnabled
+        {
+            get => (ecmode & ECMODE_AGC) == ECMODE_AGC;
+            set
+            {
+                ecmode = value
+                    ? (ushort)(ecmode | ECMODE_AGC)
+                    : (ushort)(ecmode & ~ECMODE_AGC);
+            }
+        }
+
         /*
         ** Methods
         */

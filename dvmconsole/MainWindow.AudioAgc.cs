@@ -31,7 +31,7 @@ namespace dvmconsole
 
         private void ApplyInputAgc(byte[] pcm)
         {
-            if (pcm == null || pcm.Length < 2 || !settingsManager.AudioInputAgcEnabled)
+            if (pcm == null || pcm.Length < 2 || !IsAudioInputAgcEnabled())
                 return;
 
             int sampleCount = pcm.Length / 2;
