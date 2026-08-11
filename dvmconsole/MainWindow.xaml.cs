@@ -1587,6 +1587,12 @@ namespace dvmconsole
                 PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
                 if (fne == null)
                 {
+                    if (TryHandleDisconnectedFneEndpoint(channel, system, $"Selected channel {channel.ChannelName}"))
+                    {
+                        channel.ApplyCurrentVolume();
+                        continue;
+                    }
+
                     MessageBox.Show($"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {PLEASE_RESTART_CONSOLE}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                     channel.IsSelected = false;
                     selectedChannelsManager.RemoveSelectedChannel(channel);
@@ -1920,6 +1926,15 @@ namespace dvmconsole
                         if (!TryResolveChannelEndpoint(channel, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne, out string endpointError))
                         {
                             Log.WriteLine($"{endpointError} {ERR_SKIPPING_AUDIO}.");
+                            if (TryHandleDisconnectedFneEndpoint(channel, system, $"Alert tone target {channel.ChannelName}"))
+                            {
+                                if (forHold)
+                                    channel.HoldState = false;
+                                else
+                                    channel.PageState = false;
+                                return;
+                            }
+
                             channel.IsSelected = false;
                             selectedChannelsManager.RemoveSelectedChannel(channel);
                             return;
@@ -2200,6 +2215,12 @@ namespace dvmconsole
                 if (!TryResolveChannelEndpoint(channel, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne, out string endpointError))
                 {
                     Log.WriteLine($"{endpointError} {ERR_SKIPPING_AUDIO}.");
+                    if (TryHandleDisconnectedFneEndpoint(channel, system, $"Tone target {channel.ChannelName}"))
+                    {
+                        channel.PageState = false;
+                        continue;
+                    }
+
                     channel.IsSelected = false;
                     selectedChannelsManager.RemoveSelectedChannel(channel);
                     continue;
@@ -3183,6 +3204,12 @@ namespace dvmconsole
                 PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
                 if (fne == null)
                 {
+                    if (TryHandleDisconnectedFneEndpoint(channel, system, $"TX audio {channel.ChannelName}"))
+                    {
+                        UpdateChannelConnectionVisual(channel);
+                        continue;
+                    }
+
                     Log.WriteLine($"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
                     channel.IsSelected = false;
                     selectedChannelsManager.RemoveSelectedChannel(channel);
@@ -4556,6 +4583,12 @@ namespace dvmconsole
 
             if (!TryResolveChannelEndpoint(e, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne, out string endpointError))
             {
+                if (TryHandleDisconnectedFneEndpoint(e, system, $"Page select {e.ChannelName}"))
+                {
+                    e.PageState = false;
+                    return;
+                }
+
                 MessageBox.Show($"{endpointError} {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 e.IsSelected = false;
                 selectedChannelsManager.RemoveSelectedChannel(e);
@@ -4614,6 +4647,14 @@ namespace dvmconsole
             PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
             if (fne == null)
             {
+                if (TryHandleDisconnectedFneEndpoint(e, system, $"PTT click {e.ChannelName}"))
+                {
+                    e.PttState = false;
+                    e.VolumeMeterLevel = 0;
+                    ResetChannel(e);
+                    return;
+                }
+
                 MessageBox.Show($"{e.ChannelName} has a {ERR_INVALID_FNE_REF}. {PLEASE_RESTART_CONSOLE}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 e.IsSelected = false;
                 selectedChannelsManager.RemoveSelectedChannel(e);
@@ -4719,6 +4760,14 @@ namespace dvmconsole
                 PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
                 if (fne == null)
                 {
+                    if (TryHandleDisconnectedFneEndpoint(e, system, $"PTT press {e.ChannelName}"))
+                    {
+                        e.PttState = false;
+                        e.VolumeMeterLevel = 0;
+                        ResetChannel(e);
+                        return;
+                    }
+
                     MessageBox.Show($"{e.ChannelName} has a {ERR_INVALID_FNE_REF}. {PLEASE_RESTART_CONSOLE}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                     e.IsSelected = false;
                     selectedChannelsManager.RemoveSelectedChannel(e);
@@ -4802,6 +4851,14 @@ namespace dvmconsole
                 PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
                 if (fne == null)
                 {
+                    if (TryHandleDisconnectedFneEndpoint(e, system, $"PTT release {e.ChannelName}"))
+                    {
+                        e.PttState = false;
+                        e.VolumeMeterLevel = 0;
+                        ResetChannel(e);
+                        return;
+                    }
+
                     MessageBox.Show($"{e.ChannelName} has a {ERR_INVALID_FNE_REF}. {PLEASE_RESTART_CONSOLE}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                     e.IsSelected = false;
                     selectedChannelsManager.RemoveSelectedChannel(e);
@@ -6127,6 +6184,14 @@ namespace dvmconsole
                 PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
                 if (fne == null)
                 {
+                    if (TryHandleDisconnectedFneEndpoint(channel, system, $"Global PTT {channel.ChannelName}"))
+                    {
+                        channel.PttState = false;
+                        channel.VolumeMeterLevel = 0;
+                        ResetChannel(channel);
+                        continue;
+                    }
+
                     Log.WriteLine($"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {ERR_INVALID_CODEPLUG}.");
                     channel.IsSelected = false;
                     selectedChannelsManager.RemoveSelectedChannel(channel);

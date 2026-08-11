@@ -426,6 +426,21 @@ namespace dvmconsole
             return entry?.IsConnected == true && entry.Peer?.IsStarted == true;
         }
 
+        private bool TryHandleDisconnectedFneEndpoint(ChannelBox channel, Codeplug.System system, string context = null)
+        {
+            if (channel == null || system == null)
+                return false;
+
+            string normalizedSystemName = NormalizeChannelSystemName(system.Name);
+            FneConnectionEntry entry = GetFneConnectionEntry(normalizedSystemName);
+            if (entry == null || IsFneSystemConnected(normalizedSystemName))
+                return false;
+
+            channel.SetFneConnectionWarning(true, $"{normalizedSystemName} FNE disconnected. Transmit disabled.");
+            Log.WriteWarning($"{context ?? channel.ChannelName}: FNE system '{normalizedSystemName}' is disconnected; keeping resource selected.");
+            return true;
+        }
+
         private void RefreshAllChannelConnectionVisuals()
         {
             foreach (Canvas canvas in GetAllCanvases())
