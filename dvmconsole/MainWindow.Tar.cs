@@ -110,6 +110,52 @@ namespace dvmconsole
             tarManager.AppendRxAudio(systemName, talkgroupId, streamId, pcmData);
         }
 
+        private void EnsureTarRxRecording(
+            Codeplug.System system,
+            Codeplug.Channel channel,
+            ChannelBox channelBox,
+            uint peerId,
+            uint streamId,
+            uint subscriberId,
+            string subscriberAlias,
+            bool isEncrypted,
+            string encryptionAlgorithm,
+            ushort? encryptionKeyId,
+            DateTime packetTime,
+            string reason)
+        {
+            if (system == null || channel == null || channelBox == null || streamId == 0)
+                return;
+
+            if (channelBox.RxStreamId != streamId)
+            {
+                channelBox.IsReceiving = true;
+                channelBox.PeerId = peerId;
+                channelBox.RxStreamId = streamId;
+                channelBox.IsReceivingEncrypted = isEncrypted;
+                channelBox.LastPktTime = packetTime;
+            }
+
+            if (tarManager.HasRxRecording(system.Name, channel.Tgid, streamId))
+                return;
+
+            TarChannelConfig config = tarManager.GetChannelConfig(system, channel);
+            if (!config.Enabled || config.IgnoredSubscriberIds.Contains(subscriberId))
+                return;
+
+            Log.WriteLine($"TAR RX late-start requested for {system.Name} TG {channel.Tgid} RID {subscriberId} stream {streamId} ({reason}).");
+            BeginTarRxRecording(
+                system,
+                channel,
+                streamId,
+                subscriberId,
+                subscriberAlias,
+                isEncrypted,
+                encryptionAlgorithm,
+                encryptionKeyId,
+                packetTime);
+        }
+
         private void EndTarRxRecording(
             Codeplug.System system,
             Codeplug.Channel channel,
@@ -125,6 +171,53 @@ namespace dvmconsole
                 system,
                 channel,
                 streamId,
+                subscriberId,
+                subscriberAlias,
+                isEncrypted,
+                encryptionAlgorithm,
+                encryptionKeyId,
+                packetTime);
+        }
+
+        private void EndTarRxRecordingFromChannelState(
+            Codeplug.System system,
+            Codeplug.Channel channel,
+            ChannelBox channelBox,
+            SlotStatus slotStatus,
+            DateTime packetTime)
+        {
+            if (system == null || channel == null || channelBox == null || channelBox.RxStreamId == 0)
+                return;
+
+            uint subscriberId = slotStatus?.RxRFS ?? 0;
+            string subscriberAlias = subscriberId > 0
+                ? TryResolveSubscriberAlias(system, (int)subscriberId)
+                : string.Empty;
+
+            bool isEncrypted = channelBox.IsReceivingEncrypted;
+            string encryptionAlgorithm = string.Empty;
+            ushort? encryptionKeyId = null;
+
+            switch (channel.GetChannelMode())
+            {
+                case Codeplug.ChannelMode.P25:
+                    isEncrypted = channelBox.algId != P25Defines.P25_ALGO_UNENCRYPT;
+                    encryptionAlgorithm = DescribeP25EncryptionAlgorithm(channelBox.algId);
+                    encryptionKeyId = channelBox.kId > 0 ? channelBox.kId : null;
+                    break;
+
+                case Codeplug.ChannelMode.DMR:
+                    PrivacyLC privacy = slotStatus?.DMR_RxPILC;
+                    isEncrypted = privacy != null && privacy.AlgId != 0;
+                    encryptionAlgorithm = DescribeDmrEncryptionAlgorithm(privacy?.AlgId ?? 0);
+                    encryptionKeyId = NormalizeEncryptionKeyId(privacy?.KId ?? 0);
+                    break;
+            }
+
+            EndTarRxRecording(
+                system,
+                channel,
+                channelBox.RxStreamId,
                 subscriberId,
                 subscriberAlias,
                 isEncrypted,

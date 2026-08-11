@@ -120,6 +120,13 @@ namespace dvmconsole
             AppendAudio(BuildRxSessionKey(systemName, talkgroupId, streamId), pcmData);
         }
 
+        public bool HasRxRecording(string systemName, string talkgroupId, uint streamId)
+        {
+            string sessionKey = BuildRxSessionKey(systemName, talkgroupId, streamId);
+            lock (syncRoot)
+                return activeSessions.ContainsKey(sessionKey);
+        }
+
         public void StopRxRecording(
             Codeplug.System system,
             Codeplug.Channel channel,
@@ -135,7 +142,8 @@ namespace dvmconsole
             if (session == null)
                 return;
 
-            session.Metadata.SubscriberId = subscriberId;
+            if (subscriberId != 0)
+                session.Metadata.SubscriberId = subscriberId;
             if (!string.IsNullOrWhiteSpace(subscriberAlias))
                 session.Metadata.SubscriberAlias = subscriberAlias.Trim();
             UpdateEncryptionMetadata(session.Metadata, isEncrypted, encryptionAlgorithm, encryptionKeyId);
@@ -410,10 +418,16 @@ namespace dvmconsole
                 return false;
 
             if (config.IgnoredSubscriberIds.Contains(subscriberId))
+            {
+                Log.WriteLine($"TAR RX skipped for {system.Name} TG {channel.Tgid} stream {streamId}: RID {subscriberId} is ignored for this resource.");
                 return false;
+            }
 
             if (!TryEnsureRecordingRoot(GetConfiguredRecordingRoot(), out _, out _))
+            {
+                Log.WriteWarning($"TAR RX skipped for {system.Name} TG {channel.Tgid} stream {streamId}: recording root is unavailable.");
                 return false;
+            }
 
             string sessionKey = BuildRxSessionKey(system.Name, channel.Tgid, streamId);
             lock (syncRoot)
@@ -447,6 +461,8 @@ namespace dvmconsole
                     ChannelName = channel.Name ?? string.Empty,
                     Metadata = metadata
                 };
+
+                Log.WriteLine($"TAR RX started for {metadata.SystemName} TG {metadata.TalkgroupId} RID {subscriberId} stream {streamId}.");
             }
 
             return true;
@@ -508,12 +524,18 @@ namespace dvmconsole
                     pcmBytes = session.PcmBuffer.ToArray();
 
                 if (pcmBytes.Length == 0)
+                {
+                    Log.WriteWarning($"TAR finalize skipped for {session.ChannelName}: no PCM audio was captured for stream {session.Metadata.StreamId}.");
                     return;
+                }
 
                 DateTime normalizedEndUtc = NormalizeUtc(endTimeUtc);
                 TarTrimResult trimResult = TrimSilence(pcmBytes);
                 if (trimResult.AudioBytes.Length == 0)
+                {
+                    Log.WriteWarning($"TAR finalize skipped for {session.ChannelName}: silence trim removed all audio for stream {session.Metadata.StreamId}.");
                     return;
+                }
 
                 string dayFolder = Path.Combine(rootPath, session.Metadata.UtcStartTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
                 string talkgroupFolder = Path.Combine(dayFolder, BuildTalkgroupFolderName(session.Metadata));
@@ -542,6 +564,7 @@ namespace dvmconsole
                 string json = JsonConvert.SerializeObject(session.Metadata, Formatting.Indented);
                 File.WriteAllText(metadataPath, json, Encoding.UTF8);
                 UpdateRecordingIndexEntry(rootPath, metadataPath, session.Metadata);
+                Log.WriteLine($"TAR recording saved: {session.Metadata.FileName}");
             }
             catch (Exception ex)
             {

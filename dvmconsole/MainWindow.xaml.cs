@@ -1809,7 +1809,11 @@ namespace dvmconsole
                 return;
 
             Codeplug.Channel cpgChannel = Codeplug?.GetChannelByName(channel.ChannelName);
-            ClearReceiveState(channel, FindActiveReceiveStatus(channel, cpgChannel));
+            Codeplug.System system = cpgChannel == null ? null : Codeplug?.GetSystemForChannel(channel.ChannelName);
+            SlotStatus slotStatus = FindActiveReceiveStatus(channel, cpgChannel);
+
+            EndTarRxRecordingFromChannelState(system, cpgChannel, channel, slotStatus, DateTime.Now);
+            ClearReceiveState(channel, slotStatus);
             audioManager.StopTalkgroupStream(channel.AudioOutputKey);
             callHistoryWindow.ClearChannelActivity(channel.ChannelName);
             channel.ClearCallHistoryActivity();
@@ -2990,13 +2994,16 @@ namespace dvmconsole
                           TimeSpan dt = now - channel.LastPktTime;
                           if (dt.TotalMilliseconds > 2000) // 2 seconds is more then enough time -- the interpacket time for P25 is ~180ms and DMR is ~60ms
                           {
+                              SlotStatus slotStatus = FindActiveReceiveStatus(channel, cpgChannel);
                               if (cpgChannel != null && channel.RxStreamId > 0)
                                   patchManager.HandleCallEnd(system.Name, cpgChannel.Tgid, channel.RxStreamId);
+
+                              EndTarRxRecordingFromChannelState(system, cpgChannel, channel, slotStatus, now);
 
                               Log.WriteLine($"({system.Name}) P25D: Traffic *CALL TIMEOUT   * TGID {channel.DstId} ALGID {channel.algId} KID {channel.kId}");
                               Dispatcher.Invoke(() =>
                               {
-                                  ClearReceiveState(channel, FindActiveReceiveStatus(channel, cpgChannel));
+                                  ClearReceiveState(channel, slotStatus);
                                   audioManager.ReleaseTalkgroupStream(channel.AudioOutputKey);
                                   
                                   // Update tab audio indicator
@@ -5372,6 +5379,21 @@ namespace dvmconsole
                 return trimmed.Substring(prefix.Length).Trim();
 
             return trimmed;
+        }
+
+        /// <summary>
+        /// Matches a visual resource card to a canonical system/talkgroup pair.
+        /// </summary>
+        private static bool ChannelMatchesResource(ChannelBox channel, string systemName, string tgid)
+        {
+            if (channel == null)
+                return false;
+
+            return ResourceIdentity.SystemMatches(NormalizeChannelSystemName(channel.SystemName), systemName) &&
+                string.Equals(
+                    channel.DstId?.Trim() ?? string.Empty,
+                    tgid?.Trim() ?? string.Empty,
+                    StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>

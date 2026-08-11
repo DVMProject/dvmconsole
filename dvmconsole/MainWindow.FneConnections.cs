@@ -383,9 +383,13 @@ namespace dvmconsole
                             string.Equals(cpgChannel.Tgid?.Trim() ?? string.Empty, channel.DstId?.Trim() ?? string.Empty, StringComparison.OrdinalIgnoreCase));
                     bool hadReceiveState = channel.IsReceiving || channel.IsReceivingEncrypted;
                     bool hadTransmitState = channel.PttState || channel.PatchForwardingTxState || channel.TxStreamId != 0;
+                    SlotStatus slotStatus = FindActiveReceiveStatus(channel, disconnectedChannel);
 
                     if (disconnectedSystem != null && disconnectedChannel != null && hadReceiveState && channel.RxStreamId > 0)
+                    {
                         patchManager.HandleCallEnd(disconnectedSystem.Name, disconnectedChannel.Tgid, channel.RxStreamId);
+                        EndTarRxRecordingFromChannelState(disconnectedSystem, disconnectedChannel, channel, slotStatus, DateTime.Now);
+                    }
 
                     if (disconnectedSystem != null && disconnectedChannel != null && hadTransmitState)
                         EndTarTxRecording(channel, disconnectedSystem, disconnectedChannel);

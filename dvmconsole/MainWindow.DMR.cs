@@ -295,18 +295,12 @@ namespace dvmconsole
 
                     channel.LastPktTime = pktTime;
 
-                    // is the Rx stream ID being Rx'ed on any of our other channels?
-                    bool duplicateRx = false;
-                    foreach (ChannelBox other in selectedChannelsManager.GetSelectedChannels())
-                    {
-                        if (other.InternalID == channel.InternalID)
-                            continue;
-                        if ((other.RxStreamId > 0 && other.RxStreamId == e.StreamId) && other.InternalID != channel.InternalID)
-                        {
-                            duplicateRx = true;
-                            break;
-                        }
-                    }
+                    // is the Rx stream ID being Rx'ed on another copy of this same resource?
+                    bool duplicateRx = selectedChannelsManager.GetSelectedChannels().Any(other =>
+                        other.InternalID != channel.InternalID &&
+                        other.RxStreamId > 0 &&
+                        other.RxStreamId == e.StreamId &&
+                        ChannelMatchesResource(other, system.Name, cpgChannel.Tgid));
 
                     // is this duplicate traffic?
                     if (((channel.PeerId > 0 && channel.RxStreamId > 0) && (e.PeerId != channel.PeerId && e.StreamId == channel.RxStreamId)) || duplicateRx)
@@ -316,13 +310,13 @@ namespace dvmconsole
                     }
 
                     // is the Rx stream ID any of our Tx stream IDs?
-                    List<bool> txChannels = new List<bool>();
-                    foreach (ChannelBox other in selectedChannelsManager.GetSelectedChannels())
-                        if (other.TxStreamId > 0 && other.TxStreamId == channel.RxStreamId)
-                            txChannels.Add(true);
+                    bool hasMatchingTxStream = selectedChannelsManager.GetSelectedChannels().Any(other =>
+                        other.TxStreamId > 0 &&
+                        other.TxStreamId == e.StreamId &&
+                        ChannelMatchesResource(other, system.Name, cpgChannel.Tgid));
 
                     // if we have a count of Tx channels this means we're sourcing traffic for the incoming stream ID
-                    if (txChannels.Count() > 0)
+                    if (hasMatchingTxStream)
                     {
                         Log.WriteLine($"({system.Name}) DMRD: Traffic *IGNORE TX TRAF * PEER {e.PeerId} CALL_START PEER ID {channel.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
                         continue;
@@ -414,6 +408,8 @@ namespace dvmconsole
                             DescribeDmrEncryptionAlgorithm(slotStatus.DMR_RxPILC?.AlgId ?? 0),
                             NormalizeEncryptionKeyId(slotStatus.DMR_RxPILC?.KId ?? 0),
                             pktTime);
+                        if (channel.RxStreamId > 0 && channel.RxStreamId != e.StreamId)
+                            EndTarRxRecordingFromChannelState(system, cpgChannel, channel, slotStatus, pktTime);
 
                         ClearReceiveState(channel, slotStatus);
                         audioManager.ReleaseTalkgroupStream(channel.AudioOutputKey);
@@ -442,6 +438,20 @@ namespace dvmconsole
                         ambe[13] &= 0xF0;
                         ambe[13] |= (byte)(data[19] & 0x0F);
                         Buffer.BlockCopy(data, 20, ambe, 14, 13);
+                        bool isEncrypted = slotStatus.DMR_RxPILC != null && slotStatus.DMR_RxPILC.AlgId != 0;
+                        EnsureTarRxRecording(
+                            system,
+                            cpgChannel,
+                            channel,
+                            e.PeerId,
+                            e.StreamId,
+                            e.SrcId,
+                            alias,
+                            isEncrypted,
+                            DescribeDmrEncryptionAlgorithm(slotStatus.DMR_RxPILC?.AlgId ?? 0),
+                            NormalizeEncryptionKeyId(slotStatus.DMR_RxPILC?.KId ?? 0),
+                            pktTime,
+                            "DMR voice frame");
                         DMRDecodeAudioFrame(ambe, e, handler, channel, system.Name);
                     }
 
