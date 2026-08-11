@@ -37,6 +37,8 @@ namespace dvmconsole
             public bool IsConnected { get; set; }
             public bool IsBusy { get; set; }
             public bool DesiredStarted { get; set; }
+            public bool IsInitialAutoStartPending { get; set; }
+            public bool SuppressNextDisconnectChime { get; set; }
             public int LastHealthPingsSent { get; set; }
             public int LastHealthPingsAcked { get; set; }
             public DateTime LastHealthProgressUtc { get; set; } = DateTime.UtcNow;
@@ -133,11 +135,17 @@ namespace dvmconsole
                 entry.IsBusy = true;
                 PublishConnectionState(entry);
 
+                bool shouldPlayManualDisconnectChime = entry.IsConnected || entry.Peer?.IsStarted == true;
+                entry.SuppressNextDisconnectChime = shouldPlayManualDisconnectChime;
+
                 if (entry.Peer?.IsStarted == true)
                     await Task.Run(() => entry.Peer.Stop());
 
                 RemovePeerForEntry(entry);
                 ApplyDisconnectedState(entry);
+
+                if (shouldPlayManualDisconnectChime)
+                    PlayFneConnectionChime(connected: false);
             }
             catch (Exception ex)
             {
@@ -224,7 +232,8 @@ namespace dvmconsole
                 StatusBox = statusBox,
                 IsConnected = false,
                 IsBusy = false,
-                DesiredStarted = autoStart
+                DesiredStarted = autoStart,
+                IsInitialAutoStartPending = autoStart
             };
 
             lock (fneConnectionEntries)
@@ -295,6 +304,7 @@ namespace dvmconsole
                     RefreshCommandControlsForConnectionState();
                     PublishConnectionState(entry);
                     ScheduleDeferredStartupKeyRequests(entry.SystemName);
+                    PlayFneConnectedChime(entry);
                 });
             };
 
@@ -306,6 +316,10 @@ namespace dvmconsole
                     ApplyDisconnectedState(entry);
                     PublishConnectionState(entry);
                     CancelDeferredStartupKeyRequests(entry.SystemName);
+                    if (entry.SuppressNextDisconnectChime)
+                        entry.SuppressNextDisconnectChime = false;
+                    else
+                        PlayFneConnectionChime(connected: false);
                 });
             };
 
