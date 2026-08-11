@@ -244,7 +244,7 @@ namespace dvmconsole
             settingsManager.LoadSettings();
             tarManager = new TarManager(settingsManager);
             InitializeKeyboardShortcuts();
-            callHistoryWindow = new CallHistoryWindow(settingsManager, CallHistoryWindow.MAX_CALL_HISTORY);
+            callHistoryWindow = new CallHistoryWindow(settingsManager, CallHistoryWindow.MAX_CALL_HISTORY, eventHistoryMode: true);
             patchGroupsWindow = new PatchGroupsWindow(settingsManager, ResolvePatchTalkgroupState);
             patchGroupsWindow.MembershipsCommitted += PatchGroupsWindow_MembershipsCommitted;
             patchGroupsWindow.GroupModesCommitted += PatchGroupsWindow_GroupModesCommitted;
@@ -2914,6 +2914,8 @@ namespace dvmconsole
         /// <param name="e"></param>
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
+            AddConsoleEventHistoryEntry("Console stopped");
+
             if (!noSaveSettingsOnClose)
                 PersistSelectedResourceState(saveSettings: false);
 
@@ -2956,6 +2958,32 @@ namespace dvmconsole
 
             base.OnClosing(e);
             Application.Current.Shutdown();
+        }
+
+        private void AddConsoleEventHistoryEntry(string message)
+        {
+            callHistoryWindow?.AddEvent(
+                "Console",
+                message,
+                GetConfiguredPeerIdSummary(),
+                string.Empty,
+                Brushes.LightSkyBlue);
+        }
+
+        private string GetConfiguredPeerIdSummary()
+        {
+            List<string> peerIds = Codeplug?.Systems?
+                .Where(system => system != null && system.PeerId > 0)
+                .Select(system => system.PeerId.ToString())
+                .Distinct()
+                .ToList() ?? new List<string>();
+
+            return peerIds.Count switch
+            {
+                0 => string.Empty,
+                1 => peerIds[0],
+                _ => string.Join(", ", peerIds)
+            };
         }
 
         /// <summary>
@@ -3388,6 +3416,8 @@ namespace dvmconsole
                 LoadCodeplug(settingsManager.LastCodeplugPath);
             else
                 GenerateChannelWidgets();
+
+            AddConsoleEventHistoryEntry("Console started");
 
             // set background configuration
             menuDarkMode.IsChecked = settingsManager.DarkMode;

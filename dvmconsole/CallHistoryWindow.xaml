@@ -21,8 +21,8 @@
                 <DataGridTextColumn x:Name="TimestampColumn" Header="Timestamp" Binding="{Binding Timestamp}" Width="120" />
                 <DataGridTextColumn x:Name="ChannelColumn" Header="Channel" Binding="{Binding Channel}" Width="150" />
                 <DataGridTextColumn x:Name="RidAliasColumn" Header="RID Alias" Binding="{Binding RidAlias}" Width="160" />
-                <DataGridTextColumn x:Name="RidColumn" Header="RID" Binding="{Binding SrcId}" Width="90" />
-                <DataGridTextColumn x:Name="TgidColumn" Header="TGID" Binding="{Binding DstId}" Width="80" />
+                <DataGridTextColumn x:Name="RidColumn" Header="RID" Binding="{Binding SrcIdText}" Width="90" />
+                <DataGridTextColumn x:Name="TgidColumn" Header="TGID" Binding="{Binding DstIdText}" Width="80" />
             </DataGrid.Columns>
         </DataGrid>
     </Grid>

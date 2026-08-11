@@ -12,6 +12,7 @@
 *
 */
 
+using System;
 using System.Collections.ObjectModel;
 using System.Collections.Generic;
 using System.Linq;
@@ -42,11 +43,19 @@ namespace dvmconsole
         /// <summary>
         /// Source ID.
         /// </summary>
-        public int SrcId { get; set; }
+        public int? SrcId { get; set; }
+        /// <summary>
+        /// Source ID display text.
+        /// </summary>
+        public string SrcIdText { get; set; } = string.Empty;
         /// <summary>
         /// Destination ID.
         /// </summary>
-        public int DstId { get; set; }
+        public int? DstId { get; set; }
+        /// <summary>
+        /// Destination ID display text.
+        /// </summary>
+        public string DstIdText { get; set; } = string.Empty;
 
         /// <summary>
         /// Resolved RID alias when available.
@@ -57,6 +66,21 @@ namespace dvmconsole
         /// Timestamp for entry.
         /// </summary>
         public string Timestamp { get; set; }
+
+        /// <summary>
+        /// True when this row is an informational console/FNE event instead of a call.
+        /// </summary>
+        public bool IsEvent { get; set; }
+
+        /// <summary>
+        /// True when this row represents a console-originated transmit call.
+        /// </summary>
+        public bool IsConsoleTx { get; set; }
+
+        /// <summary>
+        /// Stream ID for active console TX rows.
+        /// </summary>
+        public uint? StreamId { get; set; }
 
         /// <summary>
         /// Background color for call entry.
@@ -113,6 +137,7 @@ namespace dvmconsole
         private int maxCallHistory = MAX_CALL_HISTORY;
         private SettingsManager settingsManager;
         private Dictionary<string, DataGridColumn> columnsByKey;
+        private bool eventHistoryMode;
 
         /*
         ** Properties
@@ -132,11 +157,14 @@ namespace dvmconsole
         /// </summary>
         /// <param name="settingsManager"></param>
         /// <param name="maxCallHistory"></param>
-        public CallHistoryWindow(SettingsManager settingsManager, int maxCallHistory)
+        public CallHistoryWindow(SettingsManager settingsManager, int maxCallHistory, bool eventHistoryMode = false)
         {
             InitializeComponent();
             this.settingsManager = settingsManager;
             this.maxCallHistory = maxCallHistory;
+            this.eventHistoryMode = eventHistoryMode;
+            if (this.eventHistoryMode)
+                Title = "Event History";
             columnsByKey = new Dictionary<string, DataGridColumn>
             {
                 { "Timestamp", TimestampColumn },
@@ -267,18 +295,101 @@ namespace dvmconsole
         {
             Dispatcher.Invoke(() =>
             {
-                if (ViewModel.CallHistory.Count == maxCallHistory)
-                    ViewModel.CallHistory.RemoveAt(maxCallHistory - 1);
+                TrimHistoryForNewEntry();
 
                 ViewModel.CallHistory.Insert(0, new CallEntry
                 {
                     Channel = channel,
                     SrcId = srcId,
+                    SrcIdText = srcId.ToString(),
                     DstId = dstId,
+                    DstIdText = dstId.ToString(),
                     RidAlias = ridAlias ?? string.Empty,
                     Timestamp = timestamp,
+                    IsEvent = false,
                     BackgroundColor = Brushes.Transparent
                 });
+            });
+        }
+
+        /// <summary>
+        /// Adds an informational row to the global Event History view.
+        /// </summary>
+        /// <param name="source"></param>
+        /// <param name="message"></param>
+        public void AddEvent(string source, string message, string ridText = null, string tgidText = null, Brush foreground = null)
+        {
+            if (!eventHistoryMode || string.IsNullOrWhiteSpace(message))
+                return;
+
+            Dispatcher.Invoke(() =>
+            {
+                TrimHistoryForNewEntry();
+
+                ViewModel.CallHistory.Insert(0, new CallEntry
+                {
+                    Channel = string.IsNullOrWhiteSpace(source) ? "Console" : source.Trim(),
+                    RidAlias = message.Trim(),
+                    SrcIdText = ridText?.Trim() ?? string.Empty,
+                    DstIdText = tgidText?.Trim() ?? string.Empty,
+                    Timestamp = DateTime.Now.ToString("HH:mm:ss"),
+                    IsEvent = true,
+                    ForegroundColor = foreground ?? (settingsManager?.DarkMode == false ? Brushes.Black : Brushes.White),
+                    BackgroundColor = Brushes.Transparent
+                });
+            });
+        }
+
+        /// <summary>
+        /// Adds a console-originated transmit row to Event History and marks it active.
+        /// </summary>
+        /// <param name="channel"></param>
+        /// <param name="srcId"></param>
+        /// <param name="dstId"></param>
+        /// <param name="ridAlias"></param>
+        /// <param name="timestamp"></param>
+        /// <param name="streamId"></param>
+        public void AddConsoleTransmission(string channel, int srcId, int dstId, string ridAlias, string timestamp, uint streamId)
+        {
+            if (!eventHistoryMode || string.IsNullOrWhiteSpace(channel) || streamId == 0)
+                return;
+
+            Dispatcher.Invoke(() =>
+            {
+                TrimHistoryForNewEntry();
+
+                ViewModel.CallHistory.Insert(0, new CallEntry
+                {
+                    Channel = channel,
+                    SrcId = srcId,
+                    SrcIdText = srcId.ToString(),
+                    DstId = dstId,
+                    DstIdText = dstId.ToString(),
+                    RidAlias = ridAlias ?? string.Empty,
+                    Timestamp = timestamp,
+                    IsConsoleTx = true,
+                    StreamId = streamId,
+                    ForegroundColor = Brushes.White,
+                    BackgroundColor = Brushes.Red
+                });
+            });
+        }
+
+        /// <summary>
+        /// Clears active highlighting for a completed console-originated transmit row.
+        /// </summary>
+        /// <param name="channel"></param>
+        /// <param name="srcId"></param>
+        /// <param name="streamId"></param>
+        public void ConsoleTransmissionEnded(string channel, int srcId, uint streamId)
+        {
+            if (string.IsNullOrWhiteSpace(channel) || streamId == 0)
+                return;
+
+            Dispatcher.Invoke(() =>
+            {
+                foreach (var entry in ViewModel.CallHistory.Where(c => c.IsConsoleTx && c.Channel == channel && c.SrcId == srcId && c.StreamId == streamId))
+                    ResetEntryColors(entry);
             });
         }
 
@@ -292,7 +403,7 @@ namespace dvmconsole
         {
             Dispatcher.Invoke(() =>
             {
-                foreach (var entry in ViewModel.CallHistory.Where(c => c.Channel == channel && c.SrcId == srcId))
+                foreach (var entry in ViewModel.CallHistory.Where(c => !c.IsEvent && !c.IsConsoleTx && c.Channel == channel && c.SrcId == srcId))
                 {
                     entry.ForegroundColor = Brushes.Black;
 
@@ -313,7 +424,7 @@ namespace dvmconsole
         {
             Dispatcher.Invoke(() =>
             {
-                foreach (var entry in ViewModel.CallHistory.Where(c => c.Channel == channel && c.SrcId == srcId))
+                foreach (var entry in ViewModel.CallHistory.Where(c => !c.IsEvent && !c.IsConsoleTx && c.Channel == channel && c.SrcId == srcId))
                     ResetEntryColors(entry);
             });
         }
@@ -326,9 +437,15 @@ namespace dvmconsole
         {
             Dispatcher.Invoke(() =>
             {
-                foreach (var entry in ViewModel.CallHistory.Where(c => c.Channel == channel))
+                foreach (var entry in ViewModel.CallHistory.Where(c => !c.IsEvent && c.Channel == channel))
                     ResetEntryColors(entry);
             });
+        }
+
+        private void TrimHistoryForNewEntry()
+        {
+            if (ViewModel.CallHistory.Count == maxCallHistory)
+                ViewModel.CallHistory.RemoveAt(maxCallHistory - 1);
         }
 
         private void ResetEntryColors(CallEntry entry)

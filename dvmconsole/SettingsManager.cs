@@ -329,7 +329,7 @@ namespace dvmconsole
         /// </summary>
         public bool LockWidgets { get; set; } = true;
         /// <summary>
-        /// Flag indicating whether or not the call history window should be snapped to the right of the main window.
+        /// Flag indicating whether or not the event history window should be snapped to the right of the main window.
         /// </summary>
         public bool SnapCallHistoryToWindow { get; set; } = false;
 
@@ -403,7 +403,7 @@ namespace dvmconsole
         /// </summary>
         public List<string> SelectedWebStreams { get; set; } = new List<string>();
         /// <summary>
-        /// Saved call history window position and size.
+        /// Saved event history window position and size.
         /// </summary>
         public WindowPlacementConfig CallHistoryWindowPlacement { get; set; } = new WindowPlacementConfig
         {
@@ -411,7 +411,7 @@ namespace dvmconsole
             Height = DEFAULT_CALL_HISTORY_WINDOW_HEIGHT
         };
         /// <summary>
-        /// Saved call history column order, visibility, and widths.
+        /// Saved event history column order, visibility, and widths.
         /// </summary>
         public List<GridColumnConfig> CallHistoryColumns { get; set; } = CreateDefaultCallHistoryColumns();
         /*
@@ -593,8 +593,8 @@ namespace dvmconsole
             new SettingsTransferCategoryDefinition
             {
                 Id = "call-history",
-                DisplayName = "Call History Window",
-                Description = "Call history window size, position, column order, and visible columns.",
+                DisplayName = "Event History Window",
+                Description = "Event history window size, position, column order, and visible columns.",
                 PropertyNames = new List<string>
                 {
                     nameof(CallHistoryWindowPlacement),
@@ -795,7 +795,7 @@ namespace dvmconsole
         }
 
         /// <summary>
-        /// Saves call history window geometry and column preferences.
+        /// Saves event history window geometry and column preferences.
         /// </summary>
         /// <param name="placement"></param>
         /// <param name="columns"></param>

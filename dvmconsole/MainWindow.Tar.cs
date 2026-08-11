@@ -231,6 +231,8 @@ namespace dvmconsole
             if (channelBox == null || system == null || channel == null || streamId == 0)
                 return;
 
+            AddConsoleTxHistoryEntry(channelBox, system, channel, streamId);
+
             bool isEncrypted = channelBox.IsTxEncrypted;
             string algorithm = DescribeTxEncryptionAlgorithm(channel);
             ushort? keyId = isEncrypted && channel.GetKeyId() > 0 ? channel.GetKeyId() : null;
@@ -248,11 +250,65 @@ namespace dvmconsole
             if (channelBox == null || system == null || channel == null || channelBox.TxStreamId == 0)
                 return;
 
+            ClearConsoleTxHistoryEntry(channelBox, system, channel);
+
             bool isEncrypted = channelBox.IsTxEncrypted;
             string algorithm = DescribeTxEncryptionAlgorithm(channel);
             ushort? keyId = isEncrypted && channel.GetKeyId() > 0 ? channel.GetKeyId() : null;
 
             tarManager.StopTxRecording(system, channel, channelBox.TxStreamId, isEncrypted, algorithm, keyId, DateTime.UtcNow);
+        }
+
+        private void AddConsoleTxHistoryEntry(ChannelBox channelBox, Codeplug.System system, Codeplug.Channel channel, uint streamId)
+        {
+            if (callHistoryWindow == null || !TryResolveConsoleTxHistoryIds(system, channel, out int sourceId, out int destinationId))
+                return;
+
+            callHistoryWindow.AddConsoleTransmission(
+                channel.Name ?? channelBox.ChannelName ?? string.Empty,
+                sourceId,
+                destinationId,
+                ResolveConsoleHistoryDisplayName(system),
+                DateTime.Now.ToString("HH:mm:ss"),
+                streamId);
+        }
+
+        private void ClearConsoleTxHistoryEntry(ChannelBox channelBox, Codeplug.System system, Codeplug.Channel channel)
+        {
+            if (callHistoryWindow == null || channelBox == null || channelBox.TxStreamId == 0)
+                return;
+
+            if (!TryResolveConsoleTxHistoryIds(system, channel, out int sourceId, out _))
+                return;
+
+            callHistoryWindow.ConsoleTransmissionEnded(
+                channel.Name ?? channelBox.ChannelName ?? string.Empty,
+                sourceId,
+                channelBox.TxStreamId);
+        }
+
+        private static bool TryResolveConsoleTxHistoryIds(Codeplug.System system, Codeplug.Channel channel, out int sourceId, out int destinationId)
+        {
+            sourceId = 0;
+            destinationId = 0;
+
+            if (!uint.TryParse(system?.Rid, out uint parsedSourceId) || parsedSourceId > int.MaxValue)
+                return false;
+
+            if (!uint.TryParse(channel?.Tgid, out uint parsedDestinationId) || parsedDestinationId > int.MaxValue)
+                return false;
+
+            sourceId = (int)parsedSourceId;
+            destinationId = (int)parsedDestinationId;
+            return true;
+        }
+
+        private static string ResolveConsoleHistoryDisplayName(Codeplug.System system)
+        {
+            if (!string.IsNullOrWhiteSpace(system?.Identity))
+                return system.Identity.Trim();
+
+            return system?.Name?.Trim() ?? string.Empty;
         }
 
         private static string TryResolveSubscriberAlias(Codeplug.System system, int subscriberId)

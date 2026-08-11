@@ -12,6 +12,7 @@
 using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using dvmconsole.Controls;
 using fnecore;
 
@@ -95,7 +96,7 @@ namespace dvmconsole
                 {
                     await Task.Run(() => entry.Peer.Stop());
                     RemovePeerForEntry(entry);
-                    ApplyDisconnectedState(entry);
+                    ApplyDisconnectedState(entry, recordEvent: true);
                 }
 
                 CreatePeerForEntry(entry);
@@ -142,7 +143,7 @@ namespace dvmconsole
                     await Task.Run(() => entry.Peer.Stop());
 
                 RemovePeerForEntry(entry);
-                ApplyDisconnectedState(entry);
+                ApplyDisconnectedState(entry, recordEvent: true);
 
                 if (shouldPlayManualDisconnectChime)
                     PlayFneConnectionChime(connected: false);
@@ -189,7 +190,7 @@ namespace dvmconsole
                     await Task.Run(() => entry.Peer.Stop());
 
                 RemovePeerForEntry(entry);
-                ApplyDisconnectedState(entry);
+                ApplyDisconnectedState(entry, recordEvent: true);
 
                 await Task.Delay(250);
 
@@ -297,7 +298,10 @@ namespace dvmconsole
                 Log.WriteLine($"FNE Peer connected: {entry.SystemName}");
                 Dispatcher.Invoke(() =>
                 {
+                    bool wasConnected = entry.IsConnected;
                     entry.IsConnected = true;
+                    if (!wasConnected)
+                        AddFneEventHistoryEntry(entry, connected: true);
                     ResetHealthMonitorBaseline(entry);
                     UpdateSystemStatusBox(entry);
                     UpdateChannelConnectionVisuals(entry.SystemName);
@@ -313,7 +317,7 @@ namespace dvmconsole
                 Log.WriteLine($"FNE Peer disconnected: {entry.SystemName}");
                 Dispatcher.Invoke(() =>
                 {
-                    ApplyDisconnectedState(entry);
+                    ApplyDisconnectedState(entry, recordEvent: true);
                     PublishConnectionState(entry);
                     CancelDeferredStartupKeyRequests(entry.SystemName);
                     if (entry.SuppressNextDisconnectChime)
@@ -346,14 +350,47 @@ namespace dvmconsole
             entry.PeerDisconnectedHandler = null;
         }
 
-        private void ApplyDisconnectedState(FneConnectionEntry entry)
+        private void ApplyDisconnectedState(FneConnectionEntry entry, bool recordEvent = false)
         {
+            bool wasConnected = entry.IsConnected;
             entry.IsConnected = false;
+            if (recordEvent && wasConnected)
+                AddFneEventHistoryEntry(entry, connected: false);
+
             UpdateSystemStatusBox(entry);
             ClearPatchPttTargetsForDisconnectedSystem(entry.SystemName);
             ResetChannelsForDisconnectedSystem(entry.SystemName);
             UpdateChannelConnectionVisuals(entry.SystemName);
             RefreshCommandControlsForConnectionState();
+        }
+
+        private void AddFneEventHistoryEntry(FneConnectionEntry entry, bool connected)
+        {
+            if (entry == null)
+                return;
+
+            string status = connected ? "connected" : "disconnected";
+            callHistoryWindow?.AddEvent(
+                "FNE",
+                $"{entry.SystemName} {status}",
+                GetFnePeerIdText(entry),
+                GetFneEndpointText(entry),
+                connected ? Brushes.LightGreen : Brushes.LightCoral);
+        }
+
+        private static string GetFnePeerIdText(FneConnectionEntry entry)
+        {
+            return entry?.SystemConfig?.PeerId > 0
+                ? entry.SystemConfig.PeerId.ToString()
+                : string.Empty;
+        }
+
+        private static string GetFneEndpointText(FneConnectionEntry entry)
+        {
+            if (string.IsNullOrWhiteSpace(entry?.SystemConfig?.Address))
+                return string.Empty;
+
+            return $"{entry.SystemConfig.Address.Trim()}:{entry.SystemConfig.Port}";
         }
 
         private void UpdateSystemStatusBox(FneConnectionEntry entry)

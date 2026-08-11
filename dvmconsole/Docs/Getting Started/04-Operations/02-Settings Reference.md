@@ -144,9 +144,9 @@ Snaps channel cards back to a grid-style layout.
 
 Resizes the channel display area to the current window.
 
-## Snap Call History To Window
+## Snap Event History To Window
 
-Keeps the Call History window aligned next to the main console when shown.
+Keeps the Event History window aligned next to the main console when shown.
 
 ## Groups
 
