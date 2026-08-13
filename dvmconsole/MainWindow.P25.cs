@@ -251,7 +251,7 @@ namespace dvmconsole
 
                 byte[] payload = new byte[200];
                 fne.CreateP25MessageHdr((byte)P25DUID.LDU1, callData, ref payload, cryptoParams);
-                fne.CreateP25LDU1Message(channel.netLDU1, ref payload, srcId, dstId);
+                fne.CreateP25LDU1Message(channel.netLDU1, ref payload, srcId, dstId, encryptCall);
 
                 peer.SendMasterTraffic(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_P25), payload, channel.pktSeq, channel.TxStreamId);
             }
