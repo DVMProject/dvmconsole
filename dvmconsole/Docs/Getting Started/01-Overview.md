@@ -15,6 +15,18 @@ Common operator tasks include:
 
 ---
 
+# Compatibility Warning
+
+DVMConsole R02A00 has limited backwards compatibility with older FNE builds and older codeplugs.
+
+DVMConsole R02A00 is intended for use with DVMHost/FNE R06A00 or newer.
+
+Older FNE builds are not recommended and may behave unpredictably with this console release.
+
+Codeplugs created for R01A00 should be reviewed before use with R02A00. There have been major changes to resource configuration.
+
+---
+
 # Main Concepts
 
 ## Systems

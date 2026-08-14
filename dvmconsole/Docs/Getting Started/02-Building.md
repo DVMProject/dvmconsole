@@ -2,7 +2,7 @@
 
 This page explains how to build the Digital Voice Modem Desktop Dispatch Console from source.
 
-Most developers should use Visual Studio with the .NET desktop workload.
+Most developers should use Visual Studio 2026 with the .NET desktop workload.
 
 ---
 
@@ -10,11 +10,21 @@ Most developers should use Visual Studio with the .NET desktop workload.
 
 ## Visual Studio
 
-Install Visual Studio 2022 or newer with:
+Install Visual Studio 2026 with:
 
 ```
 .NET Desktop Development
 ```
+
+## .NET SDK
+
+The console project targets:
+
+```
+net8.0-windows7.0
+```
+
+Use a .NET SDK capable of building .NET 8 Windows desktop projects.
 
 ## Git
 
@@ -22,22 +32,32 @@ Git is required to clone the repository and submodules.
 
 ## Windows
 
-The console is a WPF application and is intended to build and run on Windows.
+The console is a WPF application and is intended to build and run on Windows 10 or newer.
+
+## dvmvocoder
+
+The console requires `libvocoder.DLL` from:
+
+```
+https://github.com/DVMProject/dvmvocoder
+```
+
+`libvocoder.DLL` must be present next to the built console executable. If it is missing, the console will stop at startup and display an error.
 
 ---
 
 # Clone the Repository
 
-Use `--recurse-submodules` so required submodules are downloaded.
+Use `--recursive` so required submodules are downloaded.
 
-```bash
-git clone --recurse-submodules https://github.com/DVMProject/dvmconsole.git
+```powershell
+git clone --recursive https://github.com/DVMProject/dvmconsole.git
 cd dvmconsole
 ```
 
 If the repository was already cloned without submodules, run:
 
-```bash
+```powershell
 git submodule update --init --recursive
 ```
 
@@ -51,7 +71,7 @@ Open:
 dvmconsole.sln
 ```
 
-from Visual Studio.
+from Visual Studio 2026.
 
 You can open it by double-clicking the solution file or by using:
 
@@ -63,7 +83,9 @@ File > Open > Project/Solution
 
 # Build
 
-Select the desired platform, usually `x64` or `x86`, then build:
+Use the included solution configuration. The console project is configured for `x86`.
+
+Build with:
 
 ```
 Build > Build Solution
@@ -75,7 +97,19 @@ or press:
 Ctrl + Shift + B
 ```
 
-The app targets .NET for Windows and includes WPF UI resources, audio assets, and markdown documentation files.
+The app includes WPF UI resources, audio assets, markdown documentation files, and the `fnecore` submodule.
+
+If building for a different CPU architecture, `libvocoder.DLL` must be built for that same architecture.
+
+---
+
+# Build From PowerShell
+
+From the repository root:
+
+```powershell
+dotnet build .\dvmconsole.sln
+```
 
 ---
 
@@ -98,7 +132,7 @@ The compiled app is written under the project `bin` directory for the selected p
 Example:
 
 ```
-dvmconsole\bin\x64\Debug\net8.0-windows7.0\
+dvmconsole\bin\x86\Debug\net8.0-windows7.0\
 ```
 
 ---
@@ -121,7 +155,7 @@ The project file copies these docs into the build output. If new markdown files 
 
 Run:
 
-```bash
+```powershell
 git submodule update --init --recursive
 ```
 
@@ -132,3 +166,7 @@ Verify that Visual Studio has the `.NET Desktop Development` workload installed.
 ## Build succeeds but docs are missing in the app
 
 Verify that the markdown files are included as content in `dvmconsole.csproj` and copied to the output directory.
+
+## App stops at startup with a missing vocoder message
+
+Verify that `libvocoder.DLL` is next to the built console executable and matches the selected CPU architecture.

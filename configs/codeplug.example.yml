@@ -1,6 +1,7 @@
 #
 # Digital Voice Modem - Desktop Dispatch Console
 #
+
 #
 # IMPORTANT NOTICE REGARDING AI / LLM-GENERATED CONFIGURATIONS
 #
@@ -20,8 +21,10 @@
 # configuration so that humans and automated tools see it before modifying the
 # file.
 #
+
 # Full path to local key YAML file (see keys.example.clear for formatting)
 #keyFile: "Full/Path/To/Keyfile.clear"
+
 #
 # FNE Masters
 #

@@ -6,6 +6,14 @@ The console can load local key material from a YAML key file referenced by the c
 
 ---
 
+# FNE Compatibility
+
+DVMConsole R02A00 is intended for use with DVMHost/FNE R06A00 or newer.
+
+Older FNE builds are not recommended for encrypted console operation.
+
+---
+
 # Key File Location
 
 Reference the key file with `keyFile` in the codeplug:

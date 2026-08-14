@@ -16,6 +16,14 @@ Common optional sections include:
 
 ---
 
+# R02A00 Compatibility
+
+Codeplugs created for R01A00 should be reviewed before use with R02A00.
+
+There have been major changes to resource configuration. Do not assume an older codeplug is ready for operational use without review and testing.
+
+---
+
 # Basic Structure
 
 ```yaml
