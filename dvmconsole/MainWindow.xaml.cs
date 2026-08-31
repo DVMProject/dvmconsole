@@ -106,6 +106,14 @@ namespace dvmconsole
         private const double ALERT_TONE_TARGET_RMS_DBFS = -18.0;
         private const double ALERT_TONE_PEAK_CEILING_DBFS = -6.0;
         private const double ALERT_TONE_MIN_RMS = 0.0001;
+        private const double GENERATED_ALERT_TONE_AMPLITUDE = 1845.0 / short.MaxValue;
+        private const double GENERATED_HOLD_TONE_AMPLITUDE = 0.10;
+        private const double LEGACY_ALERT_TONE_FREQUENCY_HZ = 1000.0;
+        private const double LEGACY_ALERT_TONE_ALT_HIGH_HZ = 1500.0;
+        private const double LEGACY_ALERT_TONE_ALT_LOW_HZ = 800.0;
+        private const double GENERATED_HOLD_TONE_FREQUENCY_HZ = 650.0;
+        private const int LEGACY_ALERT_TONE_STEP_MS = 240;
+        private const int GENERATED_HOLD_TONE_MS = 500;
         private static readonly TimeSpan WaveInStaleRestartThreshold = TimeSpan.FromSeconds(5);
         private static readonly TimeSpan WaveInRestartThrottle = TimeSpan.FromSeconds(10);
         private static readonly TimeSpan WaveInIntentionalStopGrace = TimeSpan.FromSeconds(2);
@@ -223,6 +231,39 @@ namespace dvmconsole
             public Codeplug.Channel CodeplugChannel { get; set; }
             public Codeplug.System CodeplugSystem { get; set; }
             public PeerSystem Fne { get; set; }
+        }
+
+        private sealed class GeneratedTonePayload
+        {
+            public byte[] PcmData { get; set; } = Array.Empty<byte>();
+            public ushort?[] P25ToneFrequenciesByFrame { get; set; } = Array.Empty<ushort?>();
+        }
+
+        private sealed class GeneratedToneStep
+        {
+            public double FrequencyHz { get; set; }
+            public int DurationMs { get; set; }
+            public bool IsSilence { get; set; }
+
+            public static GeneratedToneStep Tone(double frequencyHz, int durationMs)
+            {
+                return new GeneratedToneStep
+                {
+                    FrequencyHz = frequencyHz,
+                    DurationMs = durationMs,
+                    IsSilence = false
+                };
+            }
+
+            public static GeneratedToneStep Silence(int durationMs)
+            {
+                return new GeneratedToneStep
+                {
+                    FrequencyHz = 0,
+                    DurationMs = durationMs,
+                    IsSilence = true
+                };
+            }
         }
 
         /*
@@ -1689,6 +1730,129 @@ namespace dvmconsole
             e.TxStreamId = 0;
         }
 
+        private static GeneratedTonePayload BuildLegacyAlertTonePayload(int alertNumber)
+        {
+            List<GeneratedToneStep> steps = new List<GeneratedToneStep>();
+
+            switch (alertNumber)
+            {
+                case 1:
+                    steps.Add(GeneratedToneStep.Tone(LEGACY_ALERT_TONE_FREQUENCY_HZ, 3000));
+                    break;
+
+                case 2:
+                    for (int cycle = 0; cycle < 7; cycle++)
+                    {
+                        steps.Add(GeneratedToneStep.Tone(LEGACY_ALERT_TONE_ALT_HIGH_HZ, LEGACY_ALERT_TONE_STEP_MS));
+                        steps.Add(GeneratedToneStep.Tone(LEGACY_ALERT_TONE_ALT_LOW_HZ, LEGACY_ALERT_TONE_STEP_MS));
+                    }
+                    break;
+
+                case 3:
+                    for (int pulse = 0; pulse < 8; pulse++)
+                    {
+                        steps.Add(GeneratedToneStep.Tone(LEGACY_ALERT_TONE_FREQUENCY_HZ, LEGACY_ALERT_TONE_STEP_MS));
+                        if (pulse < 7)
+                            steps.Add(GeneratedToneStep.Silence(LEGACY_ALERT_TONE_STEP_MS));
+                    }
+                    break;
+
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(alertNumber), "Unsupported built-in alert tone.");
+            }
+
+            return BuildGeneratedTonePayload(steps, GENERATED_ALERT_TONE_AMPLITUDE, ALERT_TONE_LEAD_IN_MS, ALERT_TONE_TAIL_MS);
+        }
+
+        private static GeneratedTonePayload BuildChannelHoldTonePayload()
+        {
+            return BuildGeneratedTonePayload(
+                new[] { GeneratedToneStep.Tone(GENERATED_HOLD_TONE_FREQUENCY_HZ, GENERATED_HOLD_TONE_MS) },
+                GENERATED_HOLD_TONE_AMPLITUDE,
+                ALERT_TONE_LEAD_IN_MS,
+                ALERT_TONE_TAIL_MS);
+        }
+
+        private static GeneratedTonePayload BuildGeneratedTonePayload(
+            IEnumerable<GeneratedToneStep> contentSteps,
+            double amplitude,
+            int leadInMs,
+            int tailMs)
+        {
+            List<GeneratedToneStep> steps = new List<GeneratedToneStep>();
+
+            if (leadInMs > 0)
+                steps.Add(GeneratedToneStep.Silence(leadInMs));
+
+            steps.AddRange((contentSteps ?? Enumerable.Empty<GeneratedToneStep>())
+                .Where(step => step != null && step.DurationMs > 0));
+
+            if (tailMs > 0)
+                steps.Add(GeneratedToneStep.Silence(tailMs));
+
+            if (steps.Count == 0)
+                return new GeneratedTonePayload();
+
+            ToneGenerator generator = new ToneGenerator();
+            try
+            {
+                List<byte[]> buffers = new List<byte[]>();
+                List<ushort?> p25ToneFrequenciesByFrame = new List<ushort?>();
+
+                foreach (GeneratedToneStep step in steps)
+                {
+                    int frameAlignedByteCount = GetAlertToneFrameAlignedByteCount(step.DurationMs);
+                    int frameCount = frameAlignedByteCount / PCM_SAMPLES_LENGTH;
+                    byte[] stepPcm = BuildGeneratedToneStepPcm(generator, step, amplitude, frameAlignedByteCount);
+                    buffers.Add(stepPcm);
+
+                    ushort? p25ToneFrequency = step.IsSilence
+                        ? null
+                        : (ushort)Math.Clamp((int)Math.Round(step.FrequencyHz), 1, 4000);
+
+                    for (int frame = 0; frame < frameCount; frame++)
+                        p25ToneFrequenciesByFrame.Add(p25ToneFrequency);
+                }
+
+                byte[] pcmData = new byte[buffers.Sum(buffer => buffer.Length)];
+                int offset = 0;
+                foreach (byte[] buffer in buffers)
+                {
+                    Buffer.BlockCopy(buffer, 0, pcmData, offset, buffer.Length);
+                    offset += buffer.Length;
+                }
+
+                return new GeneratedTonePayload
+                {
+                    PcmData = pcmData,
+                    P25ToneFrequenciesByFrame = p25ToneFrequenciesByFrame.ToArray()
+                };
+            }
+            finally
+            {
+                generator.Dispose();
+            }
+        }
+
+        private static byte[] BuildGeneratedToneStepPcm(
+            ToneGenerator generator,
+            GeneratedToneStep step,
+            double amplitude,
+            int frameAlignedByteCount)
+        {
+            if (step.IsSilence)
+                return new byte[frameAlignedByteCount];
+
+            double durationSeconds = frameAlignedByteCount / (double)ALERT_TONE_PCM_BYTES_PER_MS / 1000.0;
+            byte[] pcmData = generator.GenerateTone(step.FrequencyHz, durationSeconds, amplitude);
+            if (pcmData.Length == frameAlignedByteCount)
+                return pcmData;
+
+            byte[] alignedData = new byte[frameAlignedByteCount];
+            Buffer.BlockCopy(pcmData, 0, alignedData, 0, Math.Min(pcmData.Length, alignedData.Length));
+            return alignedData;
+        }
+
         private static byte[] AddAlertToneTransmitPadding(byte[] pcmData)
         {
             if (pcmData == null || pcmData.Length == 0)
@@ -1875,6 +2039,46 @@ namespace dvmconsole
             SendAlertTone(e.AlertFilePath);
         }
 
+        private async Task SendBuiltInAlertToneAsync(int alertNumber)
+        {
+            try
+            {
+                GeneratedTonePayload payload = BuildLegacyAlertTonePayload(alertNumber);
+                await SendGeneratedTonePayloadAsync(
+                    payload,
+                    GetAlertToneRequestedChannels(forHold: false, targetChannel: null),
+                    $"ALRT {alertNumber}",
+                    clearPageStateAfterSend: true,
+                    sendStartSignal: true,
+                    $"Alert Tone {alertNumber}");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to generate alert tone: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                Log.StackTrace(ex, false);
+            }
+        }
+
+        private async Task SendGeneratedHoldToneAsync(ChannelBox targetChannel)
+        {
+            try
+            {
+                GeneratedTonePayload payload = BuildChannelHoldTonePayload();
+                await SendGeneratedTonePayloadAsync(
+                    payload,
+                    GetAlertToneRequestedChannels(forHold: true, targetChannel),
+                    "HOLD TONE",
+                    clearPageStateAfterSend: false,
+                    sendStartSignal: false,
+                    "Channel Hold");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to generate channel hold tone: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                Log.StackTrace(ex, false);
+            }
+        }
+
         /// <summary>
         /// 
         /// </summary>
@@ -1893,29 +2097,7 @@ namespace dvmconsole
             {
                 try
                 {
-                    ChannelBox primaryChannel = selectedChannelsManager.PrimaryChannel;
-                    List<ChannelBox> channelsToProcess;
-
-                    if (targetChannel != null)
-                    {
-                        channelsToProcess = new List<ChannelBox> { targetChannel };
-                    }
-                    else if (forHold)
-                    {
-                        channelsToProcess = selectedChannelsManager.GetSelectedChannels()
-                            .Where(channel => channel.HoldState)
-                            .ToList();
-                    }
-                    else
-                    {
-                        channelsToProcess = selectedChannelsManager.GetSelectedChannels()
-                            .Where(channel => channel.PageState)
-                            .ToList();
-                        channelsToProcess.AddRange(GetActiveAlertToneGroupTargetChannels());
-
-                        if (channelsToProcess.Count == 0 && primaryChannel != null)
-                            channelsToProcess = new List<ChannelBox> { primaryChannel };
-                    }
+                    List<ChannelBox> channelsToProcess = GetAlertToneRequestedChannels(forHold, targetChannel);
 
                     channelsToProcess = ResolveAlertToneTransmitTargets(channelsToProcess);
                     patchGroupsWindow.ClearAlertToneTargetStates();
@@ -2049,6 +2231,32 @@ namespace dvmconsole
             }
             else
                 MessageBox.Show("Alert file not set or file not found.", "Alert", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+
+        private List<ChannelBox> GetAlertToneRequestedChannels(bool forHold, ChannelBox targetChannel = null)
+        {
+            ChannelBox primaryChannel = selectedChannelsManager.PrimaryChannel;
+
+            if (targetChannel != null)
+                return new List<ChannelBox> { targetChannel };
+
+            if (forHold)
+            {
+                return selectedChannelsManager.GetSelectedChannels()
+                    .Where(channel => channel.HoldState)
+                    .ToList();
+            }
+
+            List<ChannelBox> requestedChannels = selectedChannelsManager.GetSelectedChannels()
+                .Where(channel => channel.PageState)
+                .ToList();
+
+            requestedChannels.AddRange(GetActiveAlertToneGroupTargetChannels());
+
+            if (requestedChannels.Count == 0 && primaryChannel != null)
+                requestedChannels = new List<ChannelBox> { primaryChannel };
+
+            return requestedChannels;
         }
 
         private List<ChannelBox> ResolveAlertToneTransmitTargets(IEnumerable<ChannelBox> requestedChannels)
@@ -2193,7 +2401,24 @@ namespace dvmconsole
             bool sendStartSignal,
             string messageTitle)
         {
-            if (pcmData == null || pcmData.Length == 0)
+            await SendGeneratedTonePayloadAsync(
+                new GeneratedTonePayload { PcmData = pcmData },
+                requestedChannels,
+                logLabel,
+                clearPageStateAfterSend,
+                sendStartSignal,
+                messageTitle);
+        }
+
+        private async Task SendGeneratedTonePayloadAsync(
+            GeneratedTonePayload payload,
+            IEnumerable<ChannelBox> requestedChannels,
+            string logLabel,
+            bool clearPageStateAfterSend,
+            bool sendStartSignal,
+            string messageTitle)
+        {
+            if (payload?.PcmData == null || payload.PcmData.Length == 0)
                 return;
 
             List<ChannelBox> requested = (requestedChannels ?? Enumerable.Empty<ChannelBox>())
@@ -2255,7 +2480,7 @@ namespace dvmconsole
                 return;
 
             ApplyRxPlaybackMuteForTransmitStart();
-            await Task.WhenAll(targets.Select(target => TransmitTonePcmToTargetAsync(pcmData, target, logLabel, clearPageStateAfterSend, sendStartSignal)));
+            await Task.WhenAll(targets.Select(target => TransmitTonePayloadToTargetAsync(payload, target, logLabel, clearPageStateAfterSend, sendStartSignal)));
         }
 
         private static List<SettingsManager.TonePresetStep> NormalizeToneStackSteps(IEnumerable<SettingsManager.TonePresetStep> steps)
@@ -2477,8 +2702,8 @@ namespace dvmconsole
             }
         }
 
-        private async Task TransmitTonePcmToTargetAsync(
-            byte[] pcmData,
+        private async Task TransmitTonePayloadToTargetAsync(
+            GeneratedTonePayload payload,
             ToneTransmitTarget target,
             string logLabel,
             bool clearPageStateAfterSend,
@@ -2488,6 +2713,8 @@ namespace dvmconsole
             Codeplug.Channel cpgChannel = target.CodeplugChannel;
             Codeplug.System system = target.CodeplugSystem;
             PeerSystem fne = target.Fne;
+            byte[] pcmData = payload?.PcmData;
+            ushort?[] p25ToneFrequenciesByFrame = payload?.P25ToneFrequenciesByFrame;
 
             if (channel == null || cpgChannel == null || system == null || fne == null || pcmData == null || pcmData.Length == 0)
                 return;
@@ -2520,7 +2747,12 @@ namespace dvmconsole
                     Buffer.BlockCopy(pcmData, offset, chunk, 0, PCM_SAMPLES_LENGTH);
 
                     if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                        P25EncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
+                    {
+                        ushort? p25ToneFrequency = p25ToneFrequenciesByFrame != null && i < p25ToneFrequenciesByFrame.Length
+                            ? p25ToneFrequenciesByFrame[i]
+                            : null;
+                        P25EncodeAudioFrame(chunk, fne, channel, cpgChannel, system, generatedToneFrequencyHz: p25ToneFrequency);
+                    }
                     else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
                         DMREncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
 
@@ -2903,7 +3135,7 @@ namespace dvmconsole
                     handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
                     await Task.Delay(1000);
 
-                    SendAlertTone(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/hold.wav"), true, channel);
+                    await SendGeneratedHoldToneAsync(channel);
                 }
             }
         }
@@ -6334,11 +6566,9 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void btnAlert1_Click(object sender, RoutedEventArgs e)
+        private async void btnAlert1_Click(object sender, RoutedEventArgs e)
         {
-            Dispatcher.Invoke(() => {
-                SendAlertTone(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/alert1.wav"));
-            });
+            await SendBuiltInAlertToneAsync(1);
         }
 
         /// <summary>
@@ -6346,12 +6576,9 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void btnAlert2_Click(object sender, RoutedEventArgs e)
+        private async void btnAlert2_Click(object sender, RoutedEventArgs e)
         {
-            Dispatcher.Invoke(() =>
-            {
-                SendAlertTone(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/alert2.wav"));
-            });
+            await SendBuiltInAlertToneAsync(2);
         }
 
         /// <summary>
@@ -6359,12 +6586,9 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void btnAlert3_Click(object sender, RoutedEventArgs e)
+        private async void btnAlert3_Click(object sender, RoutedEventArgs e)
         {
-            Dispatcher.Invoke(() =>
-            {
-                SendAlertTone(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/alert3.wav"));
-            });
+            await SendBuiltInAlertToneAsync(3);
         }
 
         /// <summary>

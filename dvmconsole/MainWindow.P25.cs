@@ -44,7 +44,7 @@ namespace dvmconsole
         /// <param name="channel"></param>
         /// <param name="cpgChannel"></param>
         /// <param name="system"></param>
-        private void P25EncodeAudioFrame(byte[] pcm, PeerSystem fne, ChannelBox channel, Codeplug.Channel cpgChannel, Codeplug.System system, uint? sourceIdOverride = null)
+        private void P25EncodeAudioFrame(byte[] pcm, PeerSystem fne, ChannelBox channel, Codeplug.Channel cpgChannel, Codeplug.System system, uint? sourceIdOverride = null, ushort? generatedToneFrequencyHz = null)
         {
             bool encryptCall = channel.IsTxEncrypted && cpgChannel.HasEncryptionConfig();
 
@@ -87,35 +87,42 @@ namespace dvmconsole
             // encode PCM samples into IMBE codewords
             byte[] imbe = new byte[FneSystemBase.IMBE_BUF_LEN];
 
-            int tone = 0;
-
-            if (true) // TODO: Disable/enable detection
+            if (generatedToneFrequencyHz.HasValue)
             {
-                tone = channel.ToneDetector.Detect(signal);
-            }
-
-            if (tone > 0)
-            {
-                MBEToneGenerator.IMBEEncodeSingleTone((ushort)tone, imbe);
-                Log.WriteLine($"({system.Name}) P25D: {tone} HZ TONE DETECT");
+                MBEToneGenerator.IMBEEncodeSingleTone(generatedToneFrequencyHz.Value, imbe);
             }
             else
             {
-                // do we have the external vocoder library?
-                if (channel.ExternalVocoderEnabled)
-                {
-                    if (channel.ExtFullRateVocoder == null)
-                        channel.ExtFullRateVocoder = new AmbeVocoder(true);
+                int tone = 0;
 
-                    channel.ExtFullRateVocoder.EncoderAgcEnabled = IsAudioInputAgcEnabled();
-                    channel.ExtFullRateVocoder.encode(samples, out imbe);
+                if (true) // TODO: Disable/enable detection
+                {
+                    tone = channel.ToneDetector.Detect(signal);
+                }
+
+                if (tone > 0)
+                {
+                    MBEToneGenerator.IMBEEncodeSingleTone((ushort)tone, imbe);
+                    Log.WriteLine($"({system.Name}) P25D: {tone} HZ TONE DETECT");
                 }
                 else
                 {
-                    if (channel.Encoder == null)
-                        channel.Encoder = new MBEEncoder(MBE_MODE.IMBE_88BIT);
+                    // do we have the external vocoder library?
+                    if (channel.ExternalVocoderEnabled)
+                    {
+                        if (channel.ExtFullRateVocoder == null)
+                            channel.ExtFullRateVocoder = new AmbeVocoder(true);
 
-                    channel.Encoder.encode(samples, imbe);
+                        channel.ExtFullRateVocoder.EncoderAgcEnabled = IsAudioInputAgcEnabled();
+                        channel.ExtFullRateVocoder.encode(samples, out imbe);
+                    }
+                    else
+                    {
+                        if (channel.Encoder == null)
+                            channel.Encoder = new MBEEncoder(MBE_MODE.IMBE_88BIT);
+
+                        channel.Encoder.encode(samples, imbe);
+                    }
                 }
             }
             // Log.Logger.Debug($"IMBE {FneUtils.HexDump(imbe)}");
