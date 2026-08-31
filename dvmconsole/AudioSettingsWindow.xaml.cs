@@ -17,8 +17,6 @@ using System.Windows.Documents;
 using System.Windows.Threading;
 using System.ComponentModel;
 
-using NAudio.Wave;
-
 namespace dvmconsole
 {
     /// <summary>
@@ -37,9 +35,16 @@ namespace dvmconsole
         private readonly Action<bool, double, double, double, double> microphoneProcessingPreviewChanged;
         private readonly Action microphoneProcessingPreviewCanceled;
         private readonly Dictionary<string, ComboBox> outputSelectorsByTalkgroup = new Dictionary<string, ComboBox>(StringComparer.OrdinalIgnoreCase);
+        private List<AudioDeviceOption> cachedInputDeviceOptions;
+        private List<AudioDeviceOption> cachedOutputDeviceOptions;
+        private AudioBackendKind? cachedDeviceOptionsBackend;
         private List<SettingsManager.AudioInputPresetConfig> micPresetDrafts = new List<SettingsManager.AudioInputPresetConfig>();
         private bool loadingMicProcessingControls;
+        private bool loadingAudioDeviceLists;
+        private bool audioDeviceListsLoaded;
         private bool settingsSaved;
+        private AudioBackendKind deviceListBackend = AudioBackendKind.Wasapi;
+        private int audioDeviceLoadVersion;
 
         private ScrollViewer tabHeaderScrollViewer;
         private Button scrollTabsLeftButton;
@@ -50,12 +55,32 @@ namespace dvmconsole
             public string DisplayName { get; set; } = string.Empty;
             public int DeviceNumber { get; set; }
             public string DeviceKey { get; set; } = string.Empty;
+            public AudioBackendKind Backend { get; set; }
+        }
+
+        private sealed class AudioBackendFilterOption
+        {
+            public string DisplayName { get; set; } = string.Empty;
+            public AudioBackendKind Backend { get; set; }
         }
 
         private sealed class AudioOutputSelectorContext
         {
             public string ResourceKey { get; init; } = string.Empty;
             public StackPanel ZonePanel { get; init; }
+        }
+
+        private sealed class SelectedOutputDevice
+        {
+            public string DeviceKey { get; init; } = string.Empty;
+            public int LegacyDeviceNumber { get; init; } = SettingsManager.WINDOWS_DEFAULT_AUDIO_DEVICE;
+        }
+
+        private sealed class AudioDeviceListSnapshot
+        {
+            public AudioBackendKind Backend { get; init; }
+            public List<AudioDeviceOption> InputDevices { get; init; } = new List<AudioDeviceOption>();
+            public List<AudioDeviceOption> OutputDevices { get; init; } = new List<AudioDeviceOption>();
         }
 
         /*
@@ -85,8 +110,9 @@ namespace dvmconsole
             ZoneRoutingTabs.SelectionChanged += ZoneRoutingTabs_SelectionChanged;
             ZoneRoutingTabs.SizeChanged += ZoneRoutingTabs_SizeChanged;
 
-            LoadAudioDevices();
-            LoadZoneOutputSettings();
+            InitializeDeviceBackendFilter();
+            LoadMicProcessingControls();
+            ShowAudioDeviceLoadingState();
         }
 
         /// <summary>
@@ -94,19 +120,152 @@ namespace dvmconsole
         /// </summary>
         private void LoadAudioDevices()
         {
+            LoadAudioDevices(settingsManager.AudioInputDeviceKey, settingsManager.MasterOutputDeviceKey, loadMicProcessing: true);
+        }
+
+        private void LoadAudioDevices(string selectedInputDeviceKey, string selectedMasterOutputDeviceKey, bool loadMicProcessing)
+        {
             List<AudioDeviceOption> inputDevices = GetAudioInputDevices();
             List<AudioDeviceOption> outputDevices = GetAudioOutputDevices(includeInheritOption: false);
 
-            EnsureSavedDeviceOption(inputDevices, settingsManager.AudioInputDeviceKey, "Saved input device unavailable; using Windows Default until it returns");
-            EnsureSavedDeviceOption(outputDevices, settingsManager.MasterOutputDeviceKey, "Saved output device unavailable; using Windows Default until it returns");
+            EnsureSavedDeviceOption(inputDevices, selectedInputDeviceKey, settingsManager.AudioInputDevice, "Saved input device unavailable; using Windows Default until it returns");
+            EnsureSavedDeviceOption(outputDevices, selectedMasterOutputDeviceKey, settingsManager.MasterOutputDevice, "Saved output device unavailable; using Windows Default until it returns");
 
             InputDeviceComboBox.ItemsSource = inputDevices;
-            InputDeviceComboBox.SelectedValue = ResolveSavedDeviceKey(settingsManager.AudioInputDeviceKey);
+            InputDeviceComboBox.SelectedValue = ResolveSavedDeviceKey(selectedInputDeviceKey);
 
             MasterOutputComboBox.ItemsSource = outputDevices;
-            MasterOutputComboBox.SelectedValue = ResolveSavedDeviceKey(settingsManager.MasterOutputDeviceKey);
+            MasterOutputComboBox.SelectedValue = ResolveSavedDeviceKey(selectedMasterOutputDeviceKey);
 
-            LoadMicProcessingControls();
+            if (loadMicProcessing)
+                LoadMicProcessingControls();
+        }
+
+        private async Task ReloadAudioDeviceListsAsync(
+            string selectedInputDeviceKey,
+            string selectedMasterOutputDeviceKey,
+            IReadOnlyDictionary<string, string> selectedOutputDeviceKeys,
+            int selectedZoneIndex,
+            bool loadMicProcessing)
+        {
+            int loadVersion = ++audioDeviceLoadVersion;
+            AudioBackendKind backend = deviceListBackend;
+
+            SetAudioDeviceControlsLoading(true);
+            try
+            {
+                AudioDeviceListSnapshot snapshot = await Task.Run(() => BuildAudioDeviceListSnapshot(backend));
+                if (loadVersion != audioDeviceLoadVersion || !IsLoaded)
+                    return;
+
+                cachedDeviceOptionsBackend = snapshot.Backend;
+                cachedInputDeviceOptions = snapshot.InputDevices;
+                cachedOutputDeviceOptions = snapshot.OutputDevices;
+                audioDeviceListsLoaded = true;
+
+                LoadAudioDevices(selectedInputDeviceKey, selectedMasterOutputDeviceKey, loadMicProcessing);
+                LoadZoneOutputSettings(selectedOutputDeviceKeys, selectedZoneIndex);
+            }
+            catch (Exception ex)
+            {
+                Log.WriteError($"Failed to load audio device list: {ex.Message}");
+                if (loadVersion == audioDeviceLoadVersion)
+                    ShowAudioDeviceLoadFailedState();
+            }
+            finally
+            {
+                if (loadVersion == audioDeviceLoadVersion)
+                    SetAudioDeviceControlsLoading(false);
+            }
+        }
+
+        private void ShowAudioDeviceLoadingState()
+        {
+            List<AudioDeviceOption> loadingInputDevices = new List<AudioDeviceOption>
+            {
+                new AudioDeviceOption
+                {
+                    DisplayName = "Loading audio devices...",
+                    DeviceKey = AudioDeviceResolver.WINDOWS_DEFAULT_DEVICE_KEY,
+                    DeviceNumber = SettingsManager.WINDOWS_DEFAULT_AUDIO_DEVICE,
+                    Backend = deviceListBackend
+                }
+            };
+
+            List<AudioDeviceOption> loadingOutputDevices = new List<AudioDeviceOption>
+            {
+                new AudioDeviceOption
+                {
+                    DisplayName = "Loading audio devices...",
+                    DeviceKey = AudioDeviceResolver.WINDOWS_DEFAULT_DEVICE_KEY,
+                    DeviceNumber = SettingsManager.WINDOWS_DEFAULT_AUDIO_DEVICE,
+                    Backend = deviceListBackend
+                }
+            };
+
+            InputDeviceComboBox.ItemsSource = loadingInputDevices;
+            InputDeviceComboBox.SelectedIndex = 0;
+            MasterOutputComboBox.ItemsSource = loadingOutputDevices;
+            MasterOutputComboBox.SelectedIndex = 0;
+
+            ZoneRoutingTabs.Items.Clear();
+            ZoneRoutingTabs.Items.Add(new TabItem
+            {
+                Header = "Resources",
+                Content = new TextBlock
+                {
+                    Text = "Loading audio devices...",
+                    Margin = new Thickness(8),
+                    Opacity = 0.72
+                }
+            });
+        }
+
+        private void ShowAudioDeviceLoadFailedState()
+        {
+            audioDeviceListsLoaded = false;
+            ZoneRoutingTabs.Items.Clear();
+            ZoneRoutingTabs.Items.Add(new TabItem
+            {
+                Header = "Resources",
+                Content = new TextBlock
+                {
+                    Text = "Audio devices could not be loaded. Close this window and try again.",
+                    Margin = new Thickness(8),
+                    Opacity = 0.72
+                }
+            });
+        }
+
+        private void SetAudioDeviceControlsLoading(bool isLoading)
+        {
+            DeviceBackendComboBox.IsEnabled = !isLoading;
+            InputDeviceComboBox.IsEnabled = !isLoading;
+            MasterOutputComboBox.IsEnabled = !isLoading;
+            ZoneRoutingTabs.IsEnabled = !isLoading;
+            SaveButton.IsEnabled = !isLoading && audioDeviceListsLoaded;
+        }
+
+        private void InitializeDeviceBackendFilter()
+        {
+            deviceListBackend = AudioBackendKind.Wasapi;
+
+            loadingAudioDeviceLists = true;
+            DeviceBackendComboBox.ItemsSource = new List<AudioBackendFilterOption>
+            {
+                new AudioBackendFilterOption
+                {
+                    DisplayName = "WASAPI Devices",
+                    Backend = AudioBackendKind.Wasapi
+                },
+                new AudioBackendFilterOption
+                {
+                    DisplayName = "Legacy MME Devices",
+                    Backend = AudioBackendKind.Mme
+                }
+            };
+            DeviceBackendComboBox.SelectedValue = deviceListBackend;
+            loadingAudioDeviceLists = false;
         }
 
         private void LoadMicProcessingControls()
@@ -228,12 +387,18 @@ namespace dvmconsole
         /// </summary>
         private void LoadZoneOutputSettings()
         {
+            LoadZoneOutputSettings(null, selectedZoneIndex: 0);
+        }
+
+        private void LoadZoneOutputSettings(IReadOnlyDictionary<string, string> selectedOutputDeviceKeys, int selectedZoneIndex)
+        {
             ZoneRoutingTabs.Items.Clear();
             outputSelectorsByTalkgroup.Clear();
 
             List<AudioDeviceOption> outputDevices = GetAudioOutputDevices(includeInheritOption: true);
-            foreach (string savedDeviceKey in settingsManager.ChannelOutputDeviceKeys?.Values ?? Enumerable.Empty<string>())
-                EnsureSavedDeviceOption(outputDevices, savedDeviceKey, "Saved output device unavailable; using Master Output until it returns");
+            Dictionary<string, SelectedOutputDevice> visibleOutputSelections = ResolveVisibleOutputDeviceSelections(selectedOutputDeviceKeys);
+            foreach (SelectedOutputDevice selectedDevice in visibleOutputSelections.Values)
+                EnsureSavedDeviceOption(outputDevices, selectedDevice.DeviceKey, selectedDevice.LegacyDeviceNumber, "Selected output device is hidden by the current Device List");
 
             foreach (Codeplug.Zone zone in zones)
             {
@@ -253,10 +418,10 @@ namespace dvmconsole
                 panel.Children.Add(hint);
 
                 foreach (Codeplug.Channel channel in zone.Channels ?? new List<Codeplug.Channel>())
-                    AddResourceOutputRow(panel, channel, outputDevices);
+                    AddResourceOutputRow(panel, channel, outputDevices, visibleOutputSelections);
 
                 foreach (Codeplug.WebStream stream in zone.WebStreams ?? new List<Codeplug.WebStream>())
-                    AddWebStreamOutputRow(panel, stream, outputDevices);
+                    AddWebStreamOutputRow(panel, stream, outputDevices, visibleOutputSelections);
 
                 ScrollViewer scrollViewer = new ScrollViewer
                 {
@@ -287,11 +452,79 @@ namespace dvmconsole
                 });
             }
 
-            ZoneRoutingTabs.SelectedIndex = 0;
+            ZoneRoutingTabs.SelectedIndex = Math.Max(0, Math.Min(selectedZoneIndex, ZoneRoutingTabs.Items.Count - 1));
             Dispatcher.BeginInvoke(new Action(UpdateTabScrollButtons), DispatcherPriority.Loaded);
         }
 
-        private void AddResourceOutputRow(StackPanel panel, Codeplug.Channel channel, List<AudioDeviceOption> outputDevices)
+        private Dictionary<string, SelectedOutputDevice> ResolveVisibleOutputDeviceSelections(IReadOnlyDictionary<string, string> selectedOutputDeviceKeys)
+        {
+            Dictionary<string, SelectedOutputDevice> selections = new Dictionary<string, SelectedOutputDevice>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (Codeplug.Zone zone in zones)
+            {
+                if (zone == null)
+                    continue;
+
+                foreach (Codeplug.Channel channel in zone.Channels ?? new List<Codeplug.Channel>())
+                {
+                    if (channel == null || string.IsNullOrWhiteSpace(channel.Tgid))
+                        continue;
+
+                    string resourceKey = ResourceIdentity.Build(channel.System, channel.Tgid);
+                    if (TryResolveSelectedOutputDevice(resourceKey, channel.Tgid, selectedOutputDeviceKeys, out SelectedOutputDevice selectedDevice))
+                        selections[resourceKey] = selectedDevice;
+                }
+
+                foreach (Codeplug.WebStream stream in zone.WebStreams ?? new List<Codeplug.WebStream>())
+                {
+                    if (stream == null || string.IsNullOrWhiteSpace(stream.Name))
+                        continue;
+
+                    string streamKey = stream.Name.Trim();
+                    if (TryResolveSelectedOutputDevice(streamKey, null, selectedOutputDeviceKeys, out SelectedOutputDevice selectedDevice))
+                        selections[streamKey] = selectedDevice;
+                }
+            }
+
+            return selections;
+        }
+
+        private bool TryResolveSelectedOutputDevice(
+            string resourceKey,
+            string legacyResourceKey,
+            IReadOnlyDictionary<string, string> selectedOutputDeviceKeys,
+            out SelectedOutputDevice selectedDevice)
+        {
+            selectedDevice = null;
+            string selectedDeviceKey = null;
+            int legacyDeviceNumber = SettingsManager.WINDOWS_DEFAULT_AUDIO_DEVICE;
+
+            if (selectedOutputDeviceKeys != null && selectedOutputDeviceKeys.TryGetValue(resourceKey, out selectedDeviceKey))
+            {
+                settingsManager.ChannelOutputDevices.TryGetValue(resourceKey, out legacyDeviceNumber);
+            }
+            else if (settingsManager.ChannelOutputDeviceKeys.TryGetValue(resourceKey, out selectedDeviceKey))
+            {
+                settingsManager.ChannelOutputDevices.TryGetValue(resourceKey, out legacyDeviceNumber);
+            }
+            else if (!string.IsNullOrWhiteSpace(legacyResourceKey) &&
+                settingsManager.ChannelOutputDeviceKeys.TryGetValue(legacyResourceKey, out selectedDeviceKey))
+            {
+                settingsManager.ChannelOutputDevices.TryGetValue(legacyResourceKey, out legacyDeviceNumber);
+            }
+
+            if (string.IsNullOrWhiteSpace(selectedDeviceKey))
+                return false;
+
+            selectedDevice = new SelectedOutputDevice
+            {
+                DeviceKey = selectedDeviceKey,
+                LegacyDeviceNumber = legacyDeviceNumber
+            };
+            return true;
+        }
+
+        private void AddResourceOutputRow(StackPanel panel, Codeplug.Channel channel, List<AudioDeviceOption> outputDevices, IReadOnlyDictionary<string, SelectedOutputDevice> visibleOutputSelections = null)
         {
             if (channel == null || string.IsNullOrWhiteSpace(channel.Tgid))
                 return;
@@ -311,8 +544,15 @@ namespace dvmconsole
 
             string resourceKey = ResourceIdentity.Build(channel.System, channel.Tgid);
             string selectedDeviceKey = null;
-            if (!settingsManager.ChannelOutputDeviceKeys.TryGetValue(resourceKey, out selectedDeviceKey))
-                settingsManager.ChannelOutputDeviceKeys.TryGetValue(channel.Tgid, out selectedDeviceKey);
+            if (visibleOutputSelections == null || !visibleOutputSelections.TryGetValue(resourceKey, out SelectedOutputDevice selectedOutputDevice))
+            {
+                if (!settingsManager.ChannelOutputDeviceKeys.TryGetValue(resourceKey, out selectedDeviceKey))
+                    settingsManager.ChannelOutputDeviceKeys.TryGetValue(channel.Tgid, out selectedDeviceKey);
+            }
+            else
+            {
+                selectedDeviceKey = selectedOutputDevice.DeviceKey;
+            }
 
             ComboBox selector = new ComboBox
             {
@@ -340,7 +580,7 @@ namespace dvmconsole
             outputSelectorsByTalkgroup[resourceKey] = selector;
         }
 
-        private void AddWebStreamOutputRow(StackPanel panel, Codeplug.WebStream stream, List<AudioDeviceOption> outputDevices)
+        private void AddWebStreamOutputRow(StackPanel panel, Codeplug.WebStream stream, List<AudioDeviceOption> outputDevices, IReadOnlyDictionary<string, SelectedOutputDevice> visibleOutputSelections = null)
         {
             if (stream == null || string.IsNullOrWhiteSpace(stream.Name))
                 return;
@@ -364,8 +604,8 @@ namespace dvmconsole
                 ItemsSource = outputDevices,
                 SelectedValuePath = nameof(AudioDeviceOption.DeviceKey),
                 DisplayMemberPath = nameof(AudioDeviceOption.DisplayName),
-                SelectedValue = settingsManager.ChannelOutputDeviceKeys.TryGetValue(streamKey, out string selectedDeviceKey)
-                    ? ResolveSavedDeviceKey(selectedDeviceKey)
+                SelectedValue = visibleOutputSelections != null && visibleOutputSelections.TryGetValue(streamKey, out SelectedOutputDevice selectedOutputDevice)
+                    ? ResolveSavedDeviceKey(selectedOutputDevice.DeviceKey)
                     : AudioDeviceResolver.INHERIT_MASTER_OUTPUT_KEY,
                 Tag = new AudioOutputSelectorContext
                 {
@@ -410,60 +650,21 @@ namespace dvmconsole
             return menu;
         }
 
-        private static List<AudioDeviceOption> GetAudioInputDevices()
+        private List<AudioDeviceOption> GetAudioOutputDevices(bool includeInheritOption)
         {
-            List<AudioDeviceOption> inputDevices = new List<AudioDeviceOption>
-            {
-                new AudioDeviceOption
-                {
-                    DisplayName = "Windows Default Input",
-                    DeviceNumber = SettingsManager.WINDOWS_DEFAULT_AUDIO_DEVICE,
-                    DeviceKey = AudioDeviceResolver.WINDOWS_DEFAULT_DEVICE_KEY
-                }
-            };
+            EnsureDeviceOptionCache();
+            List<AudioDeviceOption> outputDevices = cachedOutputDeviceOptions
+                .Select(CloneAudioDeviceOption)
+                .ToList();
 
-            for (int i = 0; i < WaveIn.DeviceCount; i++)
-            {
-                WaveInCapabilities deviceInfo = WaveIn.GetCapabilities(i);
-                inputDevices.Add(new AudioDeviceOption
-                {
-                    DisplayName = deviceInfo.ProductName,
-                    DeviceNumber = i,
-                    DeviceKey = AudioDeviceResolver.GetInputDeviceKey(i)
-                });
-            }
-
-            return inputDevices;
-        }
-
-        private static List<AudioDeviceOption> GetAudioOutputDevices(bool includeInheritOption)
-        {
-            List<AudioDeviceOption> outputDevices = new List<AudioDeviceOption>();
             if (includeInheritOption)
             {
-                outputDevices.Add(new AudioDeviceOption
+                outputDevices.Insert(0, new AudioDeviceOption
                 {
                     DisplayName = "Default (Master Output)",
                     DeviceNumber = SettingsManager.WINDOWS_DEFAULT_AUDIO_DEVICE,
-                    DeviceKey = AudioDeviceResolver.INHERIT_MASTER_OUTPUT_KEY
-                });
-            }
-
-            outputDevices.Add(new AudioDeviceOption
-            {
-                DisplayName = "Windows Default Output",
-                DeviceNumber = SettingsManager.WINDOWS_DEFAULT_AUDIO_DEVICE,
-                DeviceKey = AudioDeviceResolver.WINDOWS_DEFAULT_DEVICE_KEY
-            });
-
-            for (int i = 0; i < WaveOut.DeviceCount; i++)
-            {
-                WaveOutCapabilities deviceInfo = WaveOut.GetCapabilities(i);
-                outputDevices.Add(new AudioDeviceOption
-                {
-                    DisplayName = deviceInfo.ProductName,
-                    DeviceNumber = i,
-                    DeviceKey = AudioDeviceResolver.GetOutputDeviceKey(i)
+                    DeviceKey = AudioDeviceResolver.INHERIT_MASTER_OUTPUT_KEY,
+                    Backend = AudioBackendKind.Wasapi
                 });
             }
 
@@ -475,7 +676,7 @@ namespace dvmconsole
             return SettingsManager.NormalizeAudioDeviceKey(savedDeviceKey);
         }
 
-        private static void EnsureSavedDeviceOption(List<AudioDeviceOption> devices, string savedDeviceKey, string unavailableDisplayName)
+        private static void EnsureSavedDeviceOption(List<AudioDeviceOption> devices, string savedDeviceKey, int legacyDeviceNumber, string unavailableDisplayName)
         {
             string normalizedKey = SettingsManager.NormalizeAudioDeviceKey(savedDeviceKey);
             if (AudioDeviceResolver.IsWindowsDefault(normalizedKey) ||
@@ -485,18 +686,146 @@ namespace dvmconsole
 
             devices.Add(new AudioDeviceOption
             {
-                DisplayName = unavailableDisplayName,
-                DeviceNumber = SettingsManager.WINDOWS_DEFAULT_AUDIO_DEVICE,
-                DeviceKey = normalizedKey
+                DisplayName = GetSavedDevicePlaceholderName(normalizedKey, unavailableDisplayName),
+                DeviceNumber = SettingsManager.NormalizeAudioDeviceIndex(legacyDeviceNumber),
+                DeviceKey = normalizedKey,
+                Backend = AudioDeviceResolver.IsWasapiDeviceKey(normalizedKey)
+                    ? AudioBackendKind.Wasapi
+                    : AudioBackendKind.Mme
             });
+        }
+
+        private List<AudioDeviceOption> GetAudioInputDevices()
+        {
+            EnsureDeviceOptionCache();
+            return cachedInputDeviceOptions
+                .Select(CloneAudioDeviceOption)
+                .ToList();
+        }
+
+        private void EnsureDeviceOptionCache()
+        {
+            if (cachedDeviceOptionsBackend == deviceListBackend &&
+                cachedInputDeviceOptions != null &&
+                cachedOutputDeviceOptions != null)
+                return;
+
+            cachedDeviceOptionsBackend = deviceListBackend;
+            cachedInputDeviceOptions = AudioDeviceResolver.GetInputDeviceOptions(deviceListBackend)
+                .Select(CreateAudioDeviceOption)
+                .ToList();
+            cachedOutputDeviceOptions = AudioDeviceResolver.GetOutputDeviceOptions(includeInheritOption: false, deviceListBackend)
+                .Select(CreateAudioDeviceOption)
+                .ToList();
+        }
+
+        private static AudioDeviceListSnapshot BuildAudioDeviceListSnapshot(AudioBackendKind backend)
+        {
+            return new AudioDeviceListSnapshot
+            {
+                Backend = backend,
+                InputDevices = AudioDeviceResolver.GetInputDeviceOptions(backend)
+                    .Select(CreateAudioDeviceOption)
+                    .ToList(),
+                OutputDevices = AudioDeviceResolver.GetOutputDeviceOptions(includeInheritOption: false, backend)
+                    .Select(CreateAudioDeviceOption)
+                    .ToList()
+            };
+        }
+
+        private void ClearDeviceOptionCache()
+        {
+            cachedDeviceOptionsBackend = null;
+            cachedInputDeviceOptions = null;
+            cachedOutputDeviceOptions = null;
+        }
+
+        private static AudioDeviceOption CreateAudioDeviceOption(AudioDeviceResolver.AudioDeviceOption device)
+        {
+            return new AudioDeviceOption
+            {
+                DisplayName = device.DisplayName,
+                DeviceNumber = device.DeviceNumber,
+                DeviceKey = device.DeviceKey,
+                Backend = device.Backend
+            };
+        }
+
+        private static AudioDeviceOption CloneAudioDeviceOption(AudioDeviceOption device)
+        {
+            return new AudioDeviceOption
+            {
+                DisplayName = device.DisplayName,
+                DeviceNumber = device.DeviceNumber,
+                DeviceKey = device.DeviceKey,
+                Backend = device.Backend
+            };
+        }
+
+        private static bool IsLegacyMmeDeviceKey(string deviceKey)
+        {
+            string normalizedKey = SettingsManager.NormalizeAudioDeviceKey(deviceKey);
+            return !AudioDeviceResolver.IsWindowsDefault(normalizedKey) &&
+                !AudioDeviceResolver.IsWasapiDeviceKey(normalizedKey) &&
+                !string.Equals(normalizedKey, AudioDeviceResolver.INHERIT_MASTER_OUTPUT_KEY, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string GetSavedDevicePlaceholderName(string normalizedKey, string unavailableDisplayName)
+        {
+            if (AudioDeviceResolver.IsWasapiDeviceKey(normalizedKey))
+                return "Current WASAPI selection (switch Device List to WASAPI to edit)";
+
+            if (IsLegacyMmeDeviceKey(normalizedKey))
+                return "Current Legacy MME selection (switch Device List to Legacy MME to edit)";
+
+            return unavailableDisplayName;
+        }
+
+        private Dictionary<string, string> CaptureOutputSelections()
+        {
+            return outputSelectorsByTalkgroup.ToDictionary(
+                entry => entry.Key,
+                entry => entry.Value.SelectedValue as string ?? AudioDeviceResolver.INHERIT_MASTER_OUTPUT_KEY,
+                StringComparer.OrdinalIgnoreCase);
         }
 
         /** WPF Events */
 
-        private void AudioSettingsWindow_Loaded(object sender, RoutedEventArgs e)
+        private async void DeviceBackendComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (loadingAudioDeviceLists)
+                return;
+
+            AudioBackendFilterOption selectedOption = DeviceBackendComboBox.SelectedItem as AudioBackendFilterOption;
+            if (selectedOption == null || selectedOption.Backend == deviceListBackend)
+                return;
+
+            string selectedInputDeviceKey = InputDeviceComboBox.SelectedValue as string ?? settingsManager.AudioInputDeviceKey;
+            string selectedMasterOutputDeviceKey = MasterOutputComboBox.SelectedValue as string ?? settingsManager.MasterOutputDeviceKey;
+            Dictionary<string, string> selectedOutputDeviceKeys = CaptureOutputSelections();
+            int selectedZoneIndex = Math.Max(0, ZoneRoutingTabs.SelectedIndex);
+
+            deviceListBackend = selectedOption.Backend;
+            ClearDeviceOptionCache();
+            audioDeviceListsLoaded = false;
+            await ReloadAudioDeviceListsAsync(
+                selectedInputDeviceKey,
+                selectedMasterOutputDeviceKey,
+                selectedOutputDeviceKeys,
+                selectedZoneIndex,
+                loadMicProcessing: false);
+        }
+
+        private async void AudioSettingsWindow_Loaded(object sender, RoutedEventArgs e)
         {
             HookTabOverflowControls();
             UpdateTabScrollButtons();
+            await ReloadAudioDeviceListsAsync(
+                settingsManager.AudioInputDeviceKey,
+                settingsManager.MasterOutputDeviceKey,
+                null,
+                selectedZoneIndex: 0,
+                loadMicProcessing: false);
         }
 
         private void HookTabOverflowControls()
@@ -718,10 +1047,18 @@ namespace dvmconsole
         /// </summary>
         private void SaveButton_Click(object sender, RoutedEventArgs e)
         {
+            if (!audioDeviceListsLoaded)
+            {
+                MessageBox.Show("Audio devices are still loading. Try again in a moment.", "Audio Settings", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
             string selectedInputKey = InputDeviceComboBox.SelectedValue as string ?? AudioDeviceResolver.WINDOWS_DEFAULT_DEVICE_KEY;
             string selectedMasterOutputKey = MasterOutputComboBox.SelectedValue as string ?? AudioDeviceResolver.WINDOWS_DEFAULT_DEVICE_KEY;
-            int selectedInput = AudioDeviceResolver.ResolveInputDeviceNumber(selectedInputKey, settingsManager.AudioInputDevice);
-            int selectedMasterOutput = AudioDeviceResolver.ResolveOutputDeviceNumber(selectedMasterOutputKey, settingsManager.MasterOutputDevice);
+            int selectedInput = (InputDeviceComboBox.SelectedItem as AudioDeviceOption)?.DeviceNumber ??
+                AudioDeviceResolver.ResolveInputDeviceNumber(selectedInputKey, settingsManager.AudioInputDevice);
+            int selectedMasterOutput = (MasterOutputComboBox.SelectedItem as AudioDeviceOption)?.DeviceNumber ??
+                AudioDeviceResolver.ResolveOutputDeviceNumber(selectedMasterOutputKey, settingsManager.MasterOutputDevice);
 
             settingsManager.AudioInputDevice = SettingsManager.NormalizeAudioDeviceIndex(selectedInput);
             settingsManager.AudioInputDeviceKey = SettingsManager.NormalizeAudioDeviceKey(selectedInputKey);
@@ -745,7 +1082,8 @@ namespace dvmconsole
                 }
                 else
                 {
-                    int selectedOutput = AudioDeviceResolver.ResolveOutputDeviceNumber(selectedOutputKey);
+                    int selectedOutput = (entry.Value.SelectedItem as AudioDeviceOption)?.DeviceNumber ??
+                        AudioDeviceResolver.ResolveOutputDeviceNumber(selectedOutputKey);
                     settingsManager.ChannelOutputDevices[entry.Key] = SettingsManager.NormalizeAudioDeviceIndex(selectedOutput);
                     settingsManager.ChannelOutputDeviceKeys[entry.Key] = SettingsManager.NormalizeAudioDeviceKey(selectedOutputKey);
                 }

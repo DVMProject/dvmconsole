@@ -49,31 +49,43 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Margin="0,0,0,12">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="16"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-
-            <StackPanel Grid.Column="0">
-                <TextBlock Text="Global Input Device" FontWeight="Bold" Margin="0,0,0,4"/>
-                <ComboBox x:Name="InputDeviceComboBox"
-                          SelectedValuePath="DeviceKey"
-                          DisplayMemberPath="DisplayName"/>
-                <TextBlock Text="Use Windows Default unless this console should always use a specific mic."
-                           Opacity="0.72" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                <StackPanel Width="210">
+                    <TextBlock Text="Device List" FontWeight="Bold" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="DeviceBackendComboBox"
+                              SelectedValuePath="Backend"
+                              DisplayMemberPath="DisplayName"
+                              SelectionChanged="DeviceBackendComboBox_SelectionChanged"/>
+                </StackPanel>
             </StackPanel>
 
-            <StackPanel Grid.Column="2">
-                <TextBlock Text="Master Output Device" FontWeight="Bold" Margin="0,0,0,4"/>
-                <ComboBox x:Name="MasterOutputComboBox"
-                          SelectedValuePath="DeviceKey"
-                          DisplayMemberPath="DisplayName"/>
-                <TextBlock Text="Resources use this output unless an override is selected below."
-                           Opacity="0.72" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
-            </StackPanel>
-        </Grid>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="16"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Global Input Device" FontWeight="Bold" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="InputDeviceComboBox"
+                              SelectedValuePath="DeviceKey"
+                              DisplayMemberPath="DisplayName"/>
+                    <TextBlock Text="Use Windows Default unless this console should always use a specific mic."
+                               Opacity="0.72" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Master Output Device" FontWeight="Bold" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="MasterOutputComboBox"
+                              SelectedValuePath="DeviceKey"
+                              DisplayMemberPath="DisplayName"/>
+                    <TextBlock Text="Resources use this output unless an override is selected below."
+                               Opacity="0.72" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                </StackPanel>
+            </Grid>
+        </StackPanel>
 
         <StackPanel Grid.Row="1" Margin="0,0,0,10">
             <Border Background="{DynamicResource MaterialDesignDivider}" Height="1" Margin="0,0,0,10"/>

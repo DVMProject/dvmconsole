@@ -169,7 +169,7 @@ namespace dvmconsole
         public static string PLAYBACKTG = "LOCPLAYBACK";
         public static string PLAYBACKSYS = "Local Playback";
         public static string PLAYBACKCHNAME = "PLAYBACK";
-        private readonly WaveInEvent waveIn;
+        private IConsoleAudioInput audioInput;
         private readonly object waveInSync = new object();
         private DateTime lastWaveInDataUtc = DateTime.MinValue;
         private DateTime lastWaveInRestartAttemptUtc = DateTime.MinValue;
@@ -307,12 +307,8 @@ namespace dvmconsole
             channelHoldTimer.AutoReset = true;
             channelHoldTimer.Enabled = true;
 
-            waveIn = new WaveInEvent { WaveFormat = new WaveFormat(8000, 16, 1) };
-            waveIn.DataAvailable += WaveIn_DataAvailable;
-            waveIn.RecordingStopped += WaveIn_RecordingStopped;
-            RestartConfiguredInputDevice("startup", showError: true, force: true);
-
             audioManager = new AudioManager(settingsManager);
+            RestartConfiguredInputDevice("startup", showError: true, force: true);
 
             btnGlobalPtt.PreviewMouseLeftButtonDown += btnGlobalPtt_MouseLeftButtonDown;
             btnGlobalPtt.PreviewMouseLeftButtonUp += btnGlobalPtt_MouseLeftButtonUp;
@@ -3172,7 +3168,7 @@ namespace dvmconsole
                 }
             }
 
-            waveIn.StopRecording();
+            StopAndDisposeAudioInput();
 
             ResetFneConnections();
 
@@ -3293,7 +3289,7 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void WaveIn_RecordingStopped(object sender, StoppedEventArgs e)
+        private void AudioInput_RecordingStopped(object sender, StoppedEventArgs e)
         {
             lock (waveInSync)
                 waveInRecordingActive = false;
@@ -3305,8 +3301,11 @@ namespace dvmconsole
                 ? $"recording stopped: {e.Exception.Message}"
                 : "recording stopped unexpectedly";
 
+            IConsoleAudioInput stoppedInput = sender as IConsoleAudioInput;
+            bool forceLegacyMme = stoppedInput?.Backend == AudioBackendKind.Wasapi;
+            int? legacyFallbackDeviceNumber = forceLegacyMme ? stoppedInput.LegacyFallbackDeviceNumber : null;
             Log.WriteWarning($"Audio input capture {reason}; attempting restart.");
-            Dispatcher.BeginInvoke(new Action(() => RestartConfiguredInputDevice(reason, force: true)));
+            Dispatcher.BeginInvoke(new Action(() => RestartConfiguredInputDevice(reason, force: true, forceLegacyMme: forceLegacyMme, legacyInputDeviceOverride: legacyFallbackDeviceNumber)));
         }
 
         private void ApplyConfiguredInputDevice()
@@ -3320,6 +3319,8 @@ namespace dvmconsole
                 return;
 
             bool shouldRestart;
+            bool forceLegacyMme;
+            int? legacyFallbackDeviceNumber;
             lock (waveInSync)
             {
                 if (waveInRestartInProgress)
@@ -3330,13 +3331,15 @@ namespace dvmconsole
                 bool stopped = !waveInRecordingActive;
                 bool throttled = stale && now - lastWaveInRestartAttemptUtc < WaveInRestartThrottle;
                 shouldRestart = stopped || (stale && !throttled);
+                forceLegacyMme = stale && audioInput?.Backend == AudioBackendKind.Wasapi;
+                legacyFallbackDeviceNumber = forceLegacyMme ? audioInput.LegacyFallbackDeviceNumber : null;
             }
 
             if (shouldRestart)
-                RestartConfiguredInputDevice(reason, force: true);
+                RestartConfiguredInputDevice(reason, force: true, forceLegacyMme: forceLegacyMme, legacyInputDeviceOverride: legacyFallbackDeviceNumber);
         }
 
-        private void RestartConfiguredInputDevice(string reason, bool showError = false, bool force = false)
+        private void RestartConfiguredInputDevice(string reason, bool showError = false, bool force = false, bool forceLegacyMme = false, int? legacyInputDeviceOverride = null)
         {
             if (isShuttingDown)
                 return;
@@ -3359,23 +3362,26 @@ namespace dvmconsole
             {
                 try
                 {
-                    waveIn.StopRecording();
+                    StopAndDisposeAudioInput();
                 }
                 catch
                 {
                     // The input may already be stopped while settings are being applied or recovered.
                 }
 
-                ApplyConfiguredInputDeviceToWaveIn();
-                waveIn.StartRecording();
-
-                lock (waveInSync)
+                try
                 {
-                    waveInRecordingActive = true;
-                    lastWaveInDataUtc = DateTime.UtcNow;
+                    StartConfiguredAudioInput(reason, forceLegacyMme, legacyInputDeviceOverride);
                 }
-
-                Log.WriteLine($"Audio input capture started ({reason}) using device {waveIn.DeviceNumber}.");
+                catch (Exception ex) when (!forceLegacyMme && IsWasapiInputPreferred())
+                {
+                    int? legacyFallbackDeviceNumber = audioInput?.Backend == AudioBackendKind.Wasapi
+                        ? audioInput.LegacyFallbackDeviceNumber
+                        : legacyInputDeviceOverride;
+                    Log.WriteWarning($"WASAPI input failed to start for {reason}; falling back to legacy MME input. {ex.Message}");
+                    StopAndDisposeAudioInput();
+                    StartConfiguredAudioInput(reason, forceLegacyMme: true, legacyFallbackDeviceNumber);
+                }
             }
             catch (Exception ex)
             {
@@ -3394,10 +3400,51 @@ namespace dvmconsole
             }
         }
 
-        private void ApplyConfiguredInputDeviceToWaveIn()
+        private void StartConfiguredAudioInput(string reason, bool forceLegacyMme, int? legacyInputDeviceOverride = null)
         {
-            int deviceNumber = AudioDeviceResolver.ResolveInputDeviceNumber(settingsManager.AudioInputDeviceKey, settingsManager.AudioInputDevice);
-            waveIn.DeviceNumber = deviceNumber;
+            if (forceLegacyMme)
+                Log.WriteWarning($"WASAPI input did not provide usable audio for {reason}; falling back to legacy MME input.");
+
+            int legacyInputDevice = legacyInputDeviceOverride ?? settingsManager.AudioInputDevice;
+            audioInput = ConsoleAudioInputFactory.CreatePreferred(settingsManager.AudioInputDeviceKey, legacyInputDevice, forceLegacyMme);
+            audioInput.DataAvailable += AudioInput_DataAvailable;
+            audioInput.RecordingStopped += AudioInput_RecordingStopped;
+            audioInput.StartRecording();
+
+            lock (waveInSync)
+            {
+                waveInRecordingActive = true;
+                lastWaveInDataUtc = DateTime.UtcNow;
+            }
+
+            Log.WriteLine($"Audio input capture started ({reason}) using {audioInput.Backend}: {audioInput.DeviceDescription}.");
+        }
+
+        private bool IsWasapiInputPreferred()
+        {
+            return AudioDeviceResolver.IsWindowsDefault(settingsManager.AudioInputDeviceKey) ||
+                AudioDeviceResolver.IsWasapiInputDeviceKey(settingsManager.AudioInputDeviceKey);
+        }
+
+        private void StopAndDisposeAudioInput()
+        {
+            if (audioInput == null)
+                return;
+
+            audioInput.DataAvailable -= AudioInput_DataAvailable;
+            audioInput.RecordingStopped -= AudioInput_RecordingStopped;
+
+            try
+            {
+                audioInput.StopRecording();
+            }
+            catch
+            {
+                // The backend may already be stopped during shutdown or device recovery.
+            }
+
+            audioInput.Dispose();
+            audioInput = null;
         }
 
         /// <summary>
@@ -3405,7 +3452,7 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void WaveIn_DataAvailable(object sender, WaveInEventArgs e)
+        private void AudioInput_DataAvailable(object sender, ConsoleAudioDataAvailableEventArgs e)
         {
             bool isAnyTgOn = false;
             HashSet<string> transmittedTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

@@ -17,6 +17,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
+using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 
@@ -27,13 +28,14 @@ namespace dvmconsole
     /// </summary>
     public class AudioManager
     {
-        private Dictionary<string, (WaveOutEvent waveOut, MixingSampleProvider mixer, BufferedWaveProvider buffer, GainSampleProvider gainProvider)> talkgroupProviders;
+        private Dictionary<string, (IWavePlayer player, BufferedWaveProvider buffer, GainSampleProvider gainProvider, AudioDeviceResolver.AudioDeviceSelection deviceSelection)> talkgroupProviders;
         private readonly Dictionary<string, float> talkgroupVolumes;
         private readonly Dictionary<string, DateTime> talkgroupLastAudioTimes;
-        private readonly List<WaveOutEvent> oneShotPlayers;
+        private readonly List<IWavePlayer> oneShotPlayers;
         private SettingsManager settingsManager;
         private readonly object talkgroupProvidersSync = new object();
         private static readonly TimeSpan DefaultTalkgroupReleaseDelay = TimeSpan.FromSeconds(2);
+        private const int WasapiSharedModeOutputLatencyMilliseconds = 200;
 
         /*
         ** Methods
@@ -45,10 +47,10 @@ namespace dvmconsole
         public AudioManager(SettingsManager settingsManager)
         {
             this.settingsManager = settingsManager;
-            talkgroupProviders = new Dictionary<string, (WaveOutEvent, MixingSampleProvider, BufferedWaveProvider, GainSampleProvider)>();
+            talkgroupProviders = new Dictionary<string, (IWavePlayer, BufferedWaveProvider, GainSampleProvider, AudioDeviceResolver.AudioDeviceSelection)>();
             talkgroupVolumes = new Dictionary<string, float>();
             talkgroupLastAudioTimes = new Dictionary<string, DateTime>();
-            oneShotPlayers = new List<WaveOutEvent>();
+            oneShotPlayers = new List<IWavePlayer>();
         }
 
         /// <summary>
@@ -96,11 +98,12 @@ namespace dvmconsole
             if (audioData == null || audioData.Length == 0)
                 return;
 
-            int deviceIndex = ResolveTalkgroupOutputDevice(talkgroupId);
+            AudioDeviceResolver.AudioDeviceSelection deviceSelection = ResolveTalkgroupOutputDevice(talkgroupId);
 
             Task.Run(() =>
             {
-                WaveOutEvent waveOut = null;
+                IWavePlayer player = null;
+                IWaveProvider playbackProvider = null;
                 RawSourceWaveStream rawStream = null;
                 MemoryStream memoryStream = null;
 
@@ -108,16 +111,29 @@ namespace dvmconsole
                 {
                     memoryStream = new MemoryStream(audioData, writable: false);
                     rawStream = new RawSourceWaveStream(memoryStream, new WaveFormat(8000, 16, 1));
-                    waveOut = new WaveOutEvent { DeviceNumber = deviceIndex };
+                    player = CreateOutputPlayer(deviceSelection);
+                    playbackProvider = CreateOutputProvider(rawStream.ToSampleProvider(), deviceSelection);
 
                     lock (talkgroupProvidersSync)
-                        oneShotPlayers.Add(waveOut);
+                        oneShotPlayers.Add(player);
 
-                    waveOut.Init(rawStream);
-                    waveOut.Play();
+                    player.Init(playbackProvider);
+                    player.Play();
 
-                    while (waveOut.PlaybackState == PlaybackState.Playing)
+                    while (player.PlaybackState == PlaybackState.Playing)
                         Thread.Sleep(25);
+                }
+                catch (Exception ex) when (deviceSelection.Backend == AudioBackendKind.Wasapi)
+                {
+                    Log.WriteWarning($"WASAPI one-shot playback failed for {talkgroupId}; falling back to legacy MME. {ex.Message}");
+                    int legacyFallbackDeviceNumber = deviceSelection.DeviceNumber;
+                    CleanupOneShotPlayer(player, deviceSelection);
+                    player = null;
+                    deviceSelection = null;
+                    rawStream?.Dispose();
+                    memoryStream?.Dispose();
+
+                    PlayOneShotWithMmeFallback(talkgroupId, audioData, legacyFallbackDeviceNumber);
                 }
                 catch (Exception ex)
                 {
@@ -125,19 +141,60 @@ namespace dvmconsole
                 }
                 finally
                 {
-                    if (waveOut != null)
-                    {
-                        waveOut.Stop();
-                        waveOut.Dispose();
-
-                        lock (talkgroupProvidersSync)
-                            oneShotPlayers.Remove(waveOut);
-                    }
+                    CleanupOneShotPlayer(player, deviceSelection);
 
                     rawStream?.Dispose();
                     memoryStream?.Dispose();
                 }
             });
+        }
+
+        private void PlayOneShotWithMmeFallback(string talkgroupId, byte[] audioData, int legacyDeviceNumber)
+        {
+            AudioDeviceResolver.AudioDeviceSelection fallbackSelection = AudioDeviceResolver.ResolveMmeOutputFallback(legacyDeviceNumber);
+            IWavePlayer player = null;
+            RawSourceWaveStream rawStream = null;
+            MemoryStream memoryStream = null;
+
+            try
+            {
+                memoryStream = new MemoryStream(audioData, writable: false);
+                rawStream = new RawSourceWaveStream(memoryStream, new WaveFormat(8000, 16, 1));
+                player = CreateOutputPlayer(fallbackSelection);
+
+                lock (talkgroupProvidersSync)
+                    oneShotPlayers.Add(player);
+
+                player.Init(rawStream);
+                player.Play();
+
+                while (player.PlaybackState == PlaybackState.Playing)
+                    Thread.Sleep(25);
+            }
+            catch (Exception ex)
+            {
+                Log.WriteWarning($"Legacy MME one-shot playback failed for {talkgroupId}: {ex.Message}");
+            }
+            finally
+            {
+                CleanupOneShotPlayer(player, fallbackSelection);
+                rawStream?.Dispose();
+                memoryStream?.Dispose();
+            }
+        }
+
+        private void CleanupOneShotPlayer(IWavePlayer player, AudioDeviceResolver.AudioDeviceSelection deviceSelection)
+        {
+            if (player != null)
+            {
+                player.Stop();
+                player.Dispose();
+
+                lock (talkgroupProvidersSync)
+                    oneShotPlayers.Remove(player);
+            }
+
+            DisposeDeviceSelection(deviceSelection);
         }
 
         /// <summary>
@@ -146,38 +203,46 @@ namespace dvmconsole
         /// <param name="talkgroupId"></param>
         private void AddTalkgroupStream(string talkgroupId)
         {
-            int deviceIndex = ResolveTalkgroupOutputDevice(talkgroupId);
+            AudioDeviceResolver.AudioDeviceSelection deviceSelection = ResolveTalkgroupOutputDevice(talkgroupId);
 
-            var waveOut = new WaveOutEvent { DeviceNumber = deviceIndex };
             var bufferProvider = new BufferedWaveProvider(new WaveFormat(8000, 16, 1))
             {
                 BufferDuration = TimeSpan.FromSeconds(10),
                 DiscardOnBufferOverflow = true
             };
             var gainProvider = new GainSampleProvider(bufferProvider.ToSampleProvider()) { Gain = ResolveTalkgroupVolume(talkgroupId) };
-            var mixer = new MixingSampleProvider(WaveFormat.CreateIeeeFloatWaveFormat(8000, 1)) { ReadFully = true };
-
-            mixer.AddMixerInput(gainProvider);
+            IWavePlayer player = null;
 
             try
             {
-                waveOut.Init(mixer);
-                waveOut.Play();
+                player = CreateOutputPlayer(deviceSelection);
+                player.Init(CreateOutputProvider(gainProvider, deviceSelection));
+                player.Play();
+            }
+            catch (Exception ex) when (deviceSelection.Backend == AudioBackendKind.Wasapi)
+            {
+                Log.WriteWarning($"WASAPI playback failed for {talkgroupId}; falling back to legacy MME. {ex.Message}");
+                player?.Dispose();
+                DisposeDeviceSelection(deviceSelection);
+                deviceSelection = AudioDeviceResolver.ResolveMmeOutputFallback(deviceSelection.DeviceNumber);
+                player = CreateOutputPlayer(deviceSelection);
+                player.Init(CreateOutputProvider(gainProvider, deviceSelection));
+                player.Play();
             }
             catch
             {
-                waveOut.Dispose();
+                player?.Dispose();
                 throw;
             }
 
-            talkgroupProviders[talkgroupId] = (waveOut, mixer, bufferProvider, gainProvider);
+            talkgroupProviders[talkgroupId] = (player, bufferProvider, gainProvider, deviceSelection);
         }
 
-        private (WaveOutEvent waveOut, MixingSampleProvider mixer, BufferedWaveProvider buffer, GainSampleProvider gainProvider) GetOrCreateTalkgroupProvider(string talkgroupId)
+        private (IWavePlayer player, BufferedWaveProvider buffer, GainSampleProvider gainProvider, AudioDeviceResolver.AudioDeviceSelection deviceSelection) GetOrCreateTalkgroupProvider(string talkgroupId)
         {
             if (!talkgroupProviders.ContainsKey(talkgroupId))
                 AddTalkgroupStream(talkgroupId);
-            else if (talkgroupProviders[talkgroupId].waveOut.PlaybackState != PlaybackState.Playing)
+            else if (talkgroupProviders[talkgroupId].player.PlaybackState != PlaybackState.Playing)
             {
                 RemoveTalkgroupProvider(talkgroupId);
                 AddTalkgroupStream(talkgroupId);
@@ -278,20 +343,45 @@ namespace dvmconsole
             }
         }
 
-        private int ResolveTalkgroupOutputDevice(string talkgroupId)
+        private AudioDeviceResolver.AudioDeviceSelection ResolveTalkgroupOutputDevice(string talkgroupId)
         {
             if (!string.IsNullOrWhiteSpace(talkgroupId) &&
                 settingsManager.ChannelOutputDeviceKeys.TryGetValue(talkgroupId, out string overrideDeviceKey))
             {
                 settingsManager.ChannelOutputDevices.TryGetValue(talkgroupId, out int legacyOverrideDevice);
-                return AudioDeviceResolver.ResolveOutputDeviceNumber(overrideDeviceKey, legacyOverrideDevice);
+                return AudioDeviceResolver.ResolveOutputDevice(overrideDeviceKey, legacyOverrideDevice);
             }
 
             if (!string.IsNullOrWhiteSpace(talkgroupId) &&
                 settingsManager.ChannelOutputDevices.TryGetValue(talkgroupId, out int legacyOnlyOverrideDevice))
-                return AudioDeviceResolver.ResolveOutputDeviceNumber(null, legacyOnlyOverrideDevice);
+                return AudioDeviceResolver.ResolveOutputDevice(null, legacyOnlyOverrideDevice);
 
-            return AudioDeviceResolver.ResolveOutputDeviceNumber(settingsManager.MasterOutputDeviceKey, settingsManager.MasterOutputDevice);
+            return AudioDeviceResolver.ResolveOutputDevice(settingsManager.MasterOutputDeviceKey, settingsManager.MasterOutputDevice);
+        }
+
+        private static IWavePlayer CreateOutputPlayer(AudioDeviceResolver.AudioDeviceSelection selection)
+        {
+            if (selection?.Backend == AudioBackendKind.Wasapi && selection.WasapiDevice != null)
+                return new WasapiOut(selection.WasapiDevice, AudioClientShareMode.Shared, useEventSync: false, latency: WasapiSharedModeOutputLatencyMilliseconds);
+
+            return new WaveOutEvent { DeviceNumber = selection?.DeviceNumber ?? SettingsManager.WINDOWS_DEFAULT_AUDIO_DEVICE };
+        }
+
+        private static IWaveProvider CreateOutputProvider(ISampleProvider sourceProvider, AudioDeviceResolver.AudioDeviceSelection selection)
+        {
+            if (selection?.Backend != AudioBackendKind.Wasapi || selection.WasapiDevice == null)
+                return new SampleToWaveProvider(sourceProvider);
+
+            WaveFormat mixFormat = selection.WasapiDevice.AudioClient.MixFormat;
+            ISampleProvider outputProvider = sourceProvider;
+
+            if (outputProvider.WaveFormat.SampleRate != mixFormat.SampleRate)
+                outputProvider = new WdlResamplingSampleProvider(outputProvider, mixFormat.SampleRate);
+
+            if (outputProvider.WaveFormat.Channels != mixFormat.Channels)
+                outputProvider = new MonoToMultiChannelSampleProvider(outputProvider, mixFormat.Channels);
+
+            return new SampleToWaveProvider(outputProvider);
         }
 
         private float ResolveTalkgroupVolume(string talkgroupId)
@@ -375,10 +465,16 @@ namespace dvmconsole
                 return;
 
             provider.buffer.ClearBuffer();
-            provider.waveOut.Stop();
-            provider.waveOut.Dispose();
+            provider.player.Stop();
+            provider.player.Dispose();
+            DisposeDeviceSelection(provider.deviceSelection);
             talkgroupProviders.Remove(talkgroupId);
             talkgroupLastAudioTimes.Remove(talkgroupId);
+        }
+
+        private static void DisposeDeviceSelection(AudioDeviceResolver.AudioDeviceSelection deviceSelection)
+        {
+            deviceSelection?.WasapiDevice?.Dispose();
         }
 
         /// <summary>
@@ -389,9 +485,9 @@ namespace dvmconsole
             lock (talkgroupProvidersSync)
             {
                 foreach (var provider in talkgroupProviders.Values)
-                    provider.waveOut.Stop();
+                    provider.player.Stop();
 
-                foreach (WaveOutEvent player in oneShotPlayers.ToList())
+                foreach (IWavePlayer player in oneShotPlayers.ToList())
                     player.Stop();
             }
         }
