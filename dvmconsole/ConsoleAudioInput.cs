@@ -71,12 +71,12 @@ namespace dvmconsole
 
     internal sealed class MmeConsoleAudioInput : IConsoleAudioInput
     {
-        private readonly WaveInEvent waveIn;
+        private readonly WaveIn waveIn;
         private readonly FixedPcmBlockDispatcher blockDispatcher = new FixedPcmBlockDispatcher(AudioConverter.OriginalPcmLength);
 
         public MmeConsoleAudioInput(int deviceNumber, string displayName)
         {
-            waveIn = new WaveInEvent
+            waveIn = new WaveIn
             {
                 DeviceNumber = SettingsManager.NormalizeAudioDeviceIndex(deviceNumber),
                 WaveFormat = new WaveFormat(8000, 16, 1)
@@ -135,7 +135,7 @@ namespace dvmconsole
         private const int SharedModeCaptureBufferMilliseconds = 100;
 
         private readonly MMDevice device;
-        private readonly WasapiCapture capture;
+        private readonly WasapiRecorder capture;
         private readonly Pcm16Mono8kConverter converter;
         private readonly FixedPcmBlockDispatcher blockDispatcher = new FixedPcmBlockDispatcher(AudioConverter.OriginalPcmLength);
         private readonly object converterSync = new object();
@@ -144,11 +144,16 @@ namespace dvmconsole
         public WasapiConsoleAudioInput(MMDevice device, string displayName, int legacyFallbackDeviceNumber)
         {
             this.device = device ?? throw new ArgumentNullException(nameof(device));
-            capture = new WasapiCapture(device, useEventSync: false, audioBufferMillisecondsLength: SharedModeCaptureBufferMilliseconds)
-            {
-                ShareMode = AudioClientShareMode.Shared
-            };
-            converter = new Pcm16Mono8kConverter(capture.WaveFormat);
+            capture = new WasapiRecorderBuilder()
+                .WithDevice(device)
+                .WithSharedMode()
+                .WithPollingSync()
+                .WithBufferLength(SharedModeCaptureBufferMilliseconds)
+                .WithFormat(new WaveFormat(8000, 16, 1))
+                .Build();
+            converter = IsTargetPcmFormat(capture.WaveFormat)
+                ? null
+                : new Pcm16Mono8kConverter(capture.WaveFormat);
             DeviceDescription = string.IsNullOrWhiteSpace(displayName)
                 ? $"WASAPI input {device.FriendlyName}"
                 : displayName;
@@ -185,16 +190,18 @@ namespace dvmconsole
             device.Dispose();
         }
 
-        private void Capture_DataAvailable(object sender, WaveInEventArgs e)
+        private void Capture_DataAvailable(ReadOnlySpan<byte> buffer, AudioClientBufferFlags flags, long devicePosition, long qpcPosition)
         {
             byte[] convertedAudio;
             lock (converterSync)
-                convertedAudio = converter.Convert(e.Buffer, e.BytesRecorded);
+                convertedAudio = converter == null
+                    ? buffer.ToArray()
+                    : converter.Convert(buffer);
 
             if (!loggedFirstBuffer)
             {
                 loggedFirstBuffer = true;
-                Log.WriteLine($"WASAPI input buffer received from {DeviceDescription}: {e.BytesRecorded} bytes converted to {convertedAudio.Length} bytes.");
+                Log.WriteLine($"WASAPI input buffer received from {DeviceDescription}: {buffer.Length} bytes converted to {convertedAudio.Length} bytes.");
             }
 
             if (convertedAudio.Length > 0)
@@ -210,6 +217,15 @@ namespace dvmconsole
         private void EmitAudioBlock(byte[] buffer)
         {
             DataAvailable?.Invoke(this, new ConsoleAudioDataAvailableEventArgs(buffer));
+        }
+
+        private static bool IsTargetPcmFormat(WaveFormat waveFormat)
+        {
+            return waveFormat != null &&
+                waveFormat.Encoding == WaveFormatEncoding.Pcm &&
+                waveFormat.SampleRate == 8000 &&
+                waveFormat.BitsPerSample == 16 &&
+                waveFormat.Channels == 1;
         }
     }
 
@@ -280,10 +296,18 @@ namespace dvmconsole
 
         public byte[] Convert(byte[] buffer, int bytesRecorded)
         {
-            if (buffer == null || bytesRecorded <= 0 || sourceFormat.SampleRate <= 0 || sourceFormat.Channels <= 0)
+            if (buffer == null || bytesRecorded <= 0)
                 return Array.Empty<byte>();
 
-            AppendMonoSamples(buffer, bytesRecorded);
+            return Convert(buffer.AsSpan(0, Math.Min(bytesRecorded, buffer.Length)));
+        }
+
+        public byte[] Convert(ReadOnlySpan<byte> buffer)
+        {
+            if (buffer.IsEmpty || sourceFormat.SampleRate <= 0 || sourceFormat.Channels <= 0)
+                return Array.Empty<byte>();
+
+            AppendMonoSamples(buffer);
             if (pendingInputSamples.Count < 2)
                 return Array.Empty<byte>();
 
@@ -319,12 +343,12 @@ namespace dvmconsole
             return output;
         }
 
-        private void AppendMonoSamples(byte[] buffer, int bytesRecorded)
+        private void AppendMonoSamples(ReadOnlySpan<byte> buffer)
         {
             int blockAlign = Math.Max(1, sourceFormat.BlockAlign);
             int channels = Math.Max(1, sourceFormat.Channels);
             int bytesPerSample = Math.Max(1, sourceFormat.BitsPerSample / 8);
-            int frameCount = bytesRecorded / blockAlign;
+            int frameCount = buffer.Length / blockAlign;
 
             for (int frame = 0; frame < frameCount; frame++)
             {
@@ -334,7 +358,7 @@ namespace dvmconsole
                 for (int channel = 0; channel < channels; channel++)
                 {
                     int sampleOffset = (frame * blockAlign) + (channel * bytesPerSample);
-                    if (sampleOffset + bytesPerSample > bytesRecorded)
+                    if (sampleOffset + bytesPerSample > buffer.Length)
                         continue;
 
                     sum += ReadSample(buffer, sampleOffset, bytesPerSample);
@@ -346,10 +370,10 @@ namespace dvmconsole
             }
         }
 
-        private float ReadSample(byte[] buffer, int offset, int bytesPerSample)
+        private float ReadSample(ReadOnlySpan<byte> buffer, int offset, int bytesPerSample)
         {
             if (sourceFormat.Encoding == WaveFormatEncoding.IeeeFloat && bytesPerSample == 4)
-                return ClampSample(BitConverter.ToSingle(buffer, offset));
+                return ClampSample(BitConverter.ToSingle(buffer.Slice(offset, bytesPerSample)));
 
             if (sourceFormat.Encoding != WaveFormatEncoding.Pcm)
                 return 0;
@@ -357,14 +381,14 @@ namespace dvmconsole
             return bytesPerSample switch
             {
                 1 => ((buffer[offset] - 128) / 128f),
-                2 => BitConverter.ToInt16(buffer, offset) / 32768f,
+                2 => BitConverter.ToInt16(buffer.Slice(offset, bytesPerSample)) / 32768f,
                 3 => ReadPcm24(buffer, offset) / 8388608f,
-                4 => BitConverter.ToInt32(buffer, offset) / 2147483648f,
+                4 => BitConverter.ToInt32(buffer.Slice(offset, bytesPerSample)) / 2147483648f,
                 _ => 0
             };
         }
 
-        private static int ReadPcm24(byte[] buffer, int offset)
+        private static int ReadPcm24(ReadOnlySpan<byte> buffer, int offset)
         {
             int value = buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16);
             if ((value & 0x800000) != 0)

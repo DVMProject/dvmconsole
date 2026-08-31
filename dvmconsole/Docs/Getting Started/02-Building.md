@@ -21,10 +21,10 @@ Install Visual Studio 2026 with:
 The console project targets:
 
 ```
-net8.0-windows7.0
+net10.0-windows7.0
 ```
 
-Use a .NET SDK capable of building .NET 8 Windows desktop projects.
+Use the .NET 10 SDK or newer with Windows desktop support.
 
 ## Git
 
@@ -132,7 +132,7 @@ The compiled app is written under the project `bin` directory for the selected p
 Example:
 
 ```
-dvmconsole\bin\x86\Debug\net8.0-windows7.0\
+dvmconsole\bin\x86\Debug\net10.0-windows7.0\
 ```
 
 ---

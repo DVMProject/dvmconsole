@@ -73,7 +73,7 @@ namespace dvmconsole
         public IReadOnlyList<string> EncryptionFilters { get; } = new[] { "All", "Clear", "Encrypted" };
 
         private readonly TarManager tarManager;
-        private WaveOutEvent playbackOutput;
+        private WaveOut playbackOutput;
         private AudioFileReader playbackReader;
         private string currentPlaybackPath = string.Empty;
         private CancellationTokenSource refreshCancellationTokenSource;
@@ -200,7 +200,7 @@ namespace dvmconsole
             {
                 StopPlayback();
                 playbackReader = new AudioFileReader(item.Metadata.FilePath);
-                playbackOutput = new WaveOutEvent();
+                playbackOutput = new WaveOut();
                 playbackOutput.Init(playbackReader);
                 currentPlaybackPath = item.Metadata.FilePath;
                 playbackOutput.Play();

@@ -205,9 +205,8 @@ namespace dvmconsole
         {
             AudioDeviceResolver.AudioDeviceSelection deviceSelection = ResolveTalkgroupOutputDevice(talkgroupId);
 
-            var bufferProvider = new BufferedWaveProvider(new WaveFormat(8000, 16, 1))
+            var bufferProvider = new BufferedWaveProvider(new WaveFormat(8000, 16, 1), TimeSpan.FromSeconds(10))
             {
-                BufferDuration = TimeSpan.FromSeconds(10),
                 DiscardOnBufferOverflow = true
             };
             var gainProvider = new GainSampleProvider(bufferProvider.ToSampleProvider()) { Gain = ResolveTalkgroupVolume(talkgroupId) };
@@ -362,9 +361,16 @@ namespace dvmconsole
         private static IWavePlayer CreateOutputPlayer(AudioDeviceResolver.AudioDeviceSelection selection)
         {
             if (selection?.Backend == AudioBackendKind.Wasapi && selection.WasapiDevice != null)
-                return new WasapiOut(selection.WasapiDevice, AudioClientShareMode.Shared, useEventSync: false, latency: WasapiSharedModeOutputLatencyMilliseconds);
+            {
+                return new WasapiPlayerBuilder()
+                    .WithDevice(selection.WasapiDevice)
+                    .WithSharedMode()
+                    .WithPollingSync()
+                    .WithLatency(WasapiSharedModeOutputLatencyMilliseconds)
+                    .Build();
+            }
 
-            return new WaveOutEvent { DeviceNumber = selection?.DeviceNumber ?? SettingsManager.WINDOWS_DEFAULT_AUDIO_DEVICE };
+            return new WaveOut { DeviceNumber = selection?.DeviceNumber ?? SettingsManager.WINDOWS_DEFAULT_AUDIO_DEVICE };
         }
 
         private static IWaveProvider CreateOutputProvider(ISampleProvider sourceProvider, AudioDeviceResolver.AudioDeviceSelection selection)
@@ -372,7 +378,8 @@ namespace dvmconsole
             if (selection?.Backend != AudioBackendKind.Wasapi || selection.WasapiDevice == null)
                 return new SampleToWaveProvider(sourceProvider);
 
-            WaveFormat mixFormat = selection.WasapiDevice.AudioClient.MixFormat;
+            using AudioClient audioClient = selection.WasapiDevice.CreateAudioClient();
+            WaveFormat mixFormat = audioClient.MixFormat;
             ISampleProvider outputProvider = sourceProvider;
 
             if (outputProvider.WaveFormat.SampleRate != mixFormat.SampleRate)

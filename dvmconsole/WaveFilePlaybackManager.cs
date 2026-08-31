@@ -24,7 +24,7 @@ namespace dvmconsole
     {
         private readonly string waveFilePath;
         private readonly DispatcherTimer timer;
-        private WaveOutEvent waveOut;
+        private WaveOut waveOut;
         private AudioFileReader audioFileReader;
         private bool isPlaying;
 
@@ -93,7 +93,7 @@ namespace dvmconsole
         private void InitializeAudio()
         {
             audioFileReader = new AudioFileReader(waveFilePath);
-            waveOut = new WaveOutEvent();
+            waveOut = new WaveOut();
             waveOut.Init(audioFileReader);
         }
 

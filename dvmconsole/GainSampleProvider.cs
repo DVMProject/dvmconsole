@@ -65,9 +65,18 @@ namespace dvmconsole
         /// <returns></returns>
         public int Read(float[] buffer, int offset, int count)
         {
-            int samplesRead = source.Read(buffer, offset, count);
+            int samplesRead = source.Read(buffer.AsSpan(offset, count));
             for (int i = 0; i < samplesRead; i++)
                 buffer[offset + i] *= gain;
+
+            return samplesRead;
+        }
+
+        public int Read(Span<float> buffer)
+        {
+            int samplesRead = source.Read(buffer);
+            for (int i = 0; i < samplesRead; i++)
+                buffer[i] *= gain;
 
             return samplesRead;
         }

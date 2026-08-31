@@ -351,7 +351,7 @@ namespace dvmconsole.Controls
                 byte[] buffer = new byte[PlaybackBufferLength];
                 while (!token.IsCancellationRequested)
                 {
-                    int bytesRead = resampler.Read(buffer, 0, buffer.Length);
+                    int bytesRead = resampler.Read(buffer.AsSpan());
                     if (bytesRead <= 0)
                         throw new EndOfStreamException("stream ended");
 

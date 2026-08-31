@@ -37,18 +37,23 @@ namespace dvmconsole
 
         public int Read(float[] buffer, int offset, int count)
         {
-            int framesRequested = count / outputChannels;
+            return Read(buffer.AsSpan(offset, count));
+        }
+
+        public int Read(Span<float> buffer)
+        {
+            int framesRequested = buffer.Length / outputChannels;
             if (framesRequested <= 0)
                 return 0;
 
             if (sourceBuffer.Length < framesRequested)
                 sourceBuffer = new float[framesRequested];
 
-            int sourceSamplesRead = source.Read(sourceBuffer, 0, framesRequested);
+            int sourceSamplesRead = source.Read(sourceBuffer.AsSpan(0, framesRequested));
             for (int frame = 0; frame < sourceSamplesRead; frame++)
             {
                 float sample = sourceBuffer[frame];
-                int outputOffset = offset + (frame * outputChannels);
+                int outputOffset = frame * outputChannels;
                 for (int channel = 0; channel < outputChannels; channel++)
                     buffer[outputOffset + channel] = sample;
             }

@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows7.0</TargetFramework>
+    <TargetFramework>net10.0-windows7.0</TargetFramework>
     <Nullable>disable</Nullable>
     <Deterministic>False</Deterministic>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -177,7 +177,7 @@
   <ItemGroup>
     <PackageReference Include="Markdig" Version="1.1.1" />
     <PackageReference Include="MaterialDesignThemes" Version="5.2.1" />
-    <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="NAudio" Version="3.0.1" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="NWaves" Version="0.9.6" />
     <PackageReference Include="YamlDotNet" Version="16.2.0" />
@@ -186,6 +186,25 @@
   <ItemGroup>
     <ProjectReference Include="..\fnecore\fnecore.csproj" />
   </ItemGroup>
+
+  <PropertyGroup>
+    <VocoderSourceDirectory Condition="'$(VocoderSourceDirectory)' == '' And Exists('$(ProjectDir)libvocoder.dll')">$(ProjectDir)</VocoderSourceDirectory>
+    <VocoderSourceDirectory Condition="'$(VocoderSourceDirectory)' == '' And Exists('$(ProjectDir)libvocoder.DLL')">$(ProjectDir)</VocoderSourceDirectory>
+    <VocoderSourceDirectory Condition="'$(VocoderSourceDirectory)' == '' And Exists('$(ProjectDir)Native\$(PlatformTarget)\libvocoder.dll')">$(ProjectDir)Native\$(PlatformTarget)\</VocoderSourceDirectory>
+    <VocoderSourceDirectory Condition="'$(VocoderSourceDirectory)' == '' And Exists('$(ProjectDir)Native\$(Platform)\libvocoder.dll')">$(ProjectDir)Native\$(Platform)\</VocoderSourceDirectory>
+    <VocoderSourceDirectory Condition="'$(VocoderSourceDirectory)' == '' And Exists('$(ProjectDir)bin\$(Platform)\$(Configuration)\net8.0-windows7.0\libvocoder.dll')">$(ProjectDir)bin\$(Platform)\$(Configuration)\net8.0-windows7.0\</VocoderSourceDirectory>
+    <VocoderSourceDirectory Condition="'$(VocoderSourceDirectory)' == '' And Exists('$(ProjectDir)bin\x86\Release\net8.0-windows7.0\libvocoder.dll')">$(ProjectDir)bin\x86\Release\net8.0-windows7.0\</VocoderSourceDirectory>
+  </PropertyGroup>
+
+  <Target Name="CopyLocalVocoderRuntime" AfterTargets="Build" Condition="'$(VocoderSourceDirectory)' != ''">
+    <ItemGroup>
+      <LocalVocoderRuntime Include="$(VocoderSourceDirectory)libvocoder.dll" Condition="Exists('$(VocoderSourceDirectory)libvocoder.dll')" />
+      <LocalVocoderRuntime Include="$(VocoderSourceDirectory)libvocoder.DLL" Condition="Exists('$(VocoderSourceDirectory)libvocoder.DLL')" />
+      <LocalVocoderRuntime Include="$(VocoderSourceDirectory)AMBE.dll" Condition="Exists('$(VocoderSourceDirectory)AMBE.dll')" />
+      <LocalVocoderRuntime Include="$(VocoderSourceDirectory)AMBE.DLL" Condition="Exists('$(VocoderSourceDirectory)AMBE.DLL')" />
+    </ItemGroup>
+    <Copy SourceFiles="@(LocalVocoderRuntime)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
 
   <ItemGroup>
     <Resource Include="Assets\channelmarker.png">

@@ -22,11 +22,11 @@ This project uses a standard Visual Studio solution for its build system.
 
 - Windows 10 or newer
 - Visual Studio 2026 with the .NET desktop development workload
-- .NET SDK capable of building .NET 8 Windows desktop projects
+- .NET 10 SDK capable of building Windows desktop projects
 - Git with submodule support
 - dvmvocoder (`libvocoder.DLL`): https://github.com/DVMProject/dvmvocoder
 
-The console project currently targets `net8.0-windows7.0` and is configured for `x86`.
+The console project currently targets `net10.0-windows7.0` and is configured for `x86`.
 
 ### Clone
 

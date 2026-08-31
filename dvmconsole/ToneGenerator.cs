@@ -27,7 +27,7 @@ namespace dvmconsole
         private readonly int sampleRate = 8000;
         private readonly int bitsPerSample = 16;
         private readonly int channels = 1;
-        private WaveOutEvent waveOut;
+        private WaveOut waveOut;
         private BufferedWaveProvider waveProvider;
 
         /*
@@ -156,7 +156,7 @@ namespace dvmconsole
             if (waveOut != null && waveProvider != null)
                 return;
 
-            waveOut = new WaveOutEvent();
+            waveOut = new WaveOut();
             waveProvider = new BufferedWaveProvider(new WaveFormat(sampleRate, bitsPerSample, channels));
             waveOut.Init(waveProvider);
         }
