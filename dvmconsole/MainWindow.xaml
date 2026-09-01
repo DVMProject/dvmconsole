@@ -119,7 +119,7 @@
 
                 <Separator />
 
-                <!-- Alert Tone 1, 2 and 3 -->
+                <!-- Alert Tones -->
                 <Button x:Name="btnAlert1" Height="42" Width="42" Margin="0,0,4,0" Click="btnAlert1_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 1" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
                         IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
                     <StackPanel Width="42">
@@ -134,11 +134,32 @@
                         <TextBlock TextAlignment="Center">2</TextBlock>
                     </StackPanel>
                 </Button>
-                <Button x:Name="btnAlert3" Height="42" Width="42" Click="btnAlert3_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 3" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                <Button x:Name="btnAlert3" Height="42" Width="42" Margin="0,0,4,0" Click="btnAlert3_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 3" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
                         IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
                     <StackPanel Width="42">
                         <Image HorizontalAlignment="Center" Width="32" Height="30" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" />
                         <TextBlock TextAlignment="Center">3</TextBlock>
+                    </StackPanel>
+                </Button>
+                <Button x:Name="btnAlert4" Height="42" Width="42" Margin="0,0,4,0" Click="btnAlert4_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 4" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
+                    <StackPanel Width="42">
+                        <Image HorizontalAlignment="Center" Width="32" Height="30" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" />
+                        <TextBlock TextAlignment="Center">4</TextBlock>
+                    </StackPanel>
+                </Button>
+                <Button x:Name="btnAlert5" Height="42" Width="42" Margin="0,0,4,0" Click="btnAlert5_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 5" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
+                    <StackPanel Width="42">
+                        <Image HorizontalAlignment="Center" Width="32" Height="30" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" />
+                        <TextBlock TextAlignment="Center">5</TextBlock>
+                    </StackPanel>
+                </Button>
+                <Button x:Name="btnAlert6" Height="42" Width="42" Click="btnAlert6_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 6" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
+                    <StackPanel Width="42">
+                        <Image HorizontalAlignment="Center" Width="32" Height="30" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" />
+                        <TextBlock TextAlignment="Center">6</TextBlock>
                     </StackPanel>
                 </Button>
 

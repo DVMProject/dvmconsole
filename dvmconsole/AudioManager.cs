@@ -32,6 +32,7 @@ namespace dvmconsole
         private readonly Dictionary<string, float> talkgroupVolumes;
         private readonly Dictionary<string, DateTime> talkgroupLastAudioTimes;
         private readonly List<IWavePlayer> oneShotPlayers;
+        private readonly Dictionary<string, List<IWavePlayer>> oneShotPlayersByTalkgroup;
         private SettingsManager settingsManager;
         private readonly object talkgroupProvidersSync = new object();
         private static readonly TimeSpan DefaultTalkgroupReleaseDelay = TimeSpan.FromSeconds(2);
@@ -51,6 +52,7 @@ namespace dvmconsole
             talkgroupVolumes = new Dictionary<string, float>();
             talkgroupLastAudioTimes = new Dictionary<string, DateTime>();
             oneShotPlayers = new List<IWavePlayer>();
+            oneShotPlayersByTalkgroup = new Dictionary<string, List<IWavePlayer>>(StringComparer.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -93,7 +95,7 @@ namespace dvmconsole
         /// <summary>
         /// Plays a one-shot PCM clip without reusing the long-lived talkgroup playback provider.
         /// </summary>
-        public void PlayOneShot(string talkgroupId, byte[] audioData)
+        public void PlayOneShot(string talkgroupId, byte[] audioData, CancellationToken cancellationToken = default)
         {
             if (audioData == null || audioData.Length == 0)
                 return;
@@ -109,31 +111,39 @@ namespace dvmconsole
 
                 try
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
+
                     memoryStream = new MemoryStream(audioData, writable: false);
                     rawStream = new RawSourceWaveStream(memoryStream, new WaveFormat(8000, 16, 1));
                     player = CreateOutputPlayer(deviceSelection);
                     playbackProvider = CreateOutputProvider(rawStream.ToSampleProvider(), deviceSelection);
 
-                    lock (talkgroupProvidersSync)
-                        oneShotPlayers.Add(player);
+                    RegisterOneShotPlayer(talkgroupId, player);
 
                     player.Init(playbackProvider);
                     player.Play();
 
-                    while (player.PlaybackState == PlaybackState.Playing)
+                    while (player.PlaybackState == PlaybackState.Playing && !cancellationToken.IsCancellationRequested)
                         Thread.Sleep(25);
                 }
                 catch (Exception ex) when (deviceSelection.Backend == AudioBackendKind.Wasapi)
                 {
+                    if (cancellationToken.IsCancellationRequested)
+                        return;
+
                     Log.WriteWarning($"WASAPI one-shot playback failed for {talkgroupId}; falling back to legacy MME. {ex.Message}");
                     int legacyFallbackDeviceNumber = deviceSelection.DeviceNumber;
-                    CleanupOneShotPlayer(player, deviceSelection);
+                    CleanupOneShotPlayer(talkgroupId, player, deviceSelection);
                     player = null;
                     deviceSelection = null;
                     rawStream?.Dispose();
                     memoryStream?.Dispose();
 
-                    PlayOneShotWithMmeFallback(talkgroupId, audioData, legacyFallbackDeviceNumber);
+                    PlayOneShotWithMmeFallback(talkgroupId, audioData, legacyFallbackDeviceNumber, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Cancellation is the normal path when an operator stops an active tone.
                 }
                 catch (Exception ex)
                 {
@@ -141,7 +151,7 @@ namespace dvmconsole
                 }
                 finally
                 {
-                    CleanupOneShotPlayer(player, deviceSelection);
+                    CleanupOneShotPlayer(talkgroupId, player, deviceSelection);
 
                     rawStream?.Dispose();
                     memoryStream?.Dispose();
@@ -149,7 +159,7 @@ namespace dvmconsole
             });
         }
 
-        private void PlayOneShotWithMmeFallback(string talkgroupId, byte[] audioData, int legacyDeviceNumber)
+        private void PlayOneShotWithMmeFallback(string talkgroupId, byte[] audioData, int legacyDeviceNumber, CancellationToken cancellationToken)
         {
             AudioDeviceResolver.AudioDeviceSelection fallbackSelection = AudioDeviceResolver.ResolveMmeOutputFallback(legacyDeviceNumber);
             IWavePlayer player = null;
@@ -158,18 +168,23 @@ namespace dvmconsole
 
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 memoryStream = new MemoryStream(audioData, writable: false);
                 rawStream = new RawSourceWaveStream(memoryStream, new WaveFormat(8000, 16, 1));
                 player = CreateOutputPlayer(fallbackSelection);
 
-                lock (talkgroupProvidersSync)
-                    oneShotPlayers.Add(player);
+                RegisterOneShotPlayer(talkgroupId, player);
 
                 player.Init(rawStream);
                 player.Play();
 
-                while (player.PlaybackState == PlaybackState.Playing)
+                while (player.PlaybackState == PlaybackState.Playing && !cancellationToken.IsCancellationRequested)
                     Thread.Sleep(25);
+            }
+            catch (OperationCanceledException)
+            {
+                // Cancellation is the normal path when an operator stops an active tone.
             }
             catch (Exception ex)
             {
@@ -177,13 +192,33 @@ namespace dvmconsole
             }
             finally
             {
-                CleanupOneShotPlayer(player, fallbackSelection);
+                CleanupOneShotPlayer(talkgroupId, player, fallbackSelection);
                 rawStream?.Dispose();
                 memoryStream?.Dispose();
             }
         }
 
-        private void CleanupOneShotPlayer(IWavePlayer player, AudioDeviceResolver.AudioDeviceSelection deviceSelection)
+        private void RegisterOneShotPlayer(string talkgroupId, IWavePlayer player)
+        {
+            if (player == null)
+                return;
+
+            string key = talkgroupId ?? string.Empty;
+            lock (talkgroupProvidersSync)
+            {
+                oneShotPlayers.Add(player);
+
+                if (!oneShotPlayersByTalkgroup.TryGetValue(key, out List<IWavePlayer> players))
+                {
+                    players = new List<IWavePlayer>();
+                    oneShotPlayersByTalkgroup[key] = players;
+                }
+
+                players.Add(player);
+            }
+        }
+
+        private void CleanupOneShotPlayer(string talkgroupId, IWavePlayer player, AudioDeviceResolver.AudioDeviceSelection deviceSelection)
         {
             if (player != null)
             {
@@ -191,10 +226,41 @@ namespace dvmconsole
                 player.Dispose();
 
                 lock (talkgroupProvidersSync)
+                {
                     oneShotPlayers.Remove(player);
+
+                    string key = talkgroupId ?? string.Empty;
+                    if (oneShotPlayersByTalkgroup.TryGetValue(key, out List<IWavePlayer> players))
+                    {
+                        players.Remove(player);
+                        if (players.Count == 0)
+                            oneShotPlayersByTalkgroup.Remove(key);
+                    }
+                }
             }
 
             DisposeDeviceSelection(deviceSelection);
+        }
+
+        /// <summary>
+        /// Stops queued local one-shot playback for a specific output key.
+        /// </summary>
+        public void StopOneShot(string talkgroupId)
+        {
+            if (string.IsNullOrWhiteSpace(talkgroupId))
+                return;
+
+            List<IWavePlayer> players;
+            lock (talkgroupProvidersSync)
+            {
+                if (!oneShotPlayersByTalkgroup.TryGetValue(talkgroupId, out List<IWavePlayer> activePlayers))
+                    return;
+
+                players = activePlayers.ToList();
+            }
+
+            foreach (IWavePlayer player in players)
+                player.Stop();
         }
 
         /// <summary>

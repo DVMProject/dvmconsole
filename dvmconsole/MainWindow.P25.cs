@@ -44,7 +44,7 @@ namespace dvmconsole
         /// <param name="channel"></param>
         /// <param name="cpgChannel"></param>
         /// <param name="system"></param>
-        private void P25EncodeAudioFrame(byte[] pcm, PeerSystem fne, ChannelBox channel, Codeplug.Channel cpgChannel, Codeplug.System system, uint? sourceIdOverride = null, ushort? generatedToneFrequencyHz = null)
+        private void P25EncodeAudioFrame(byte[] pcm, PeerSystem fne, ChannelBox channel, Codeplug.Channel cpgChannel, Codeplug.System system, uint? sourceIdOverride = null, ushort? generatedToneFrequencyHz = null, bool suppressToneDetection = false)
         {
             bool encryptCall = channel.IsTxEncrypted && cpgChannel.HasEncryptionConfig();
 
@@ -95,7 +95,7 @@ namespace dvmconsole
             {
                 int tone = 0;
 
-                if (true) // TODO: Disable/enable detection
+                if (!suppressToneDetection) // TODO: Disable/enable detection
                 {
                     tone = channel.ToneDetector.Detect(signal);
                 }
