@@ -98,29 +98,25 @@
 
                 <!-- Open Codeplug -->
                 <Button Height="42" Width="42" Click="OpenCodeplug_Click" ToolTip="Open Codeplug" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                         IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image HorizontalAlignment="Left" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/config.png" IsHitTestVisible="False" />
+                    <Image HorizontalAlignment="Center" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/config.png" IsHitTestVisible="False" />
                 </Button>
 
                 <Separator />
 
                 <!-- Global PTT -->
                 <Button x:Name="btnGlobalPtt" Height="42" Width="110" ToolTip="Global PTT" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                         IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image HorizontalAlignment="Center" VerticalAlignment="Center" Width="64" Height="48" Source="/dvmconsole;component/Assets/instantptt.png" IsHitTestVisible="False">
-                        <Image.OpacityMask>
-                            <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-                                <GradientStop Color="Black"/>
-                                <GradientStop Color="White" Offset="1"/>
-                            </LinearGradientBrush>
-                        </Image.OpacityMask>
-                    </Image>
+                    <Image HorizontalAlignment="Center" VerticalAlignment="Center" Width="38" Height="34" Stretch="Uniform" Source="/dvmconsole;component/Assets/instantptt_toolbar.png" IsHitTestVisible="False" />
                 </Button>
 
                 <Separator />
 
                 <!-- Alert Tones -->
                 <Button x:Name="btnAlert1" Height="42" Width="42" Margin="0,0,4,0" Click="btnAlert1_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 1" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                         IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
                     <StackPanel Width="42">
                         <Image HorizontalAlignment="Center" Width="32" Height="30" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" />
@@ -128,6 +124,7 @@
                     </StackPanel>
                 </Button>
                 <Button x:Name="btnAlert2" Height="42" Width="42" Margin="0,0,4,0" Click="btnAlert2_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 2" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                         IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
                     <StackPanel Width="42">
                         <Image HorizontalAlignment="Center" Width="32" Height="30" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" />
@@ -135,6 +132,7 @@
                     </StackPanel>
                 </Button>
                 <Button x:Name="btnAlert3" Height="42" Width="42" Margin="0,0,4,0" Click="btnAlert3_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 3" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                         IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
                     <StackPanel Width="42">
                         <Image HorizontalAlignment="Center" Width="32" Height="30" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" />
@@ -142,6 +140,7 @@
                     </StackPanel>
                 </Button>
                 <Button x:Name="btnAlert4" Height="42" Width="42" Margin="0,0,4,0" Click="btnAlert4_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 4" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                         IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
                     <StackPanel Width="42">
                         <Image HorizontalAlignment="Center" Width="32" Height="30" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" />
@@ -149,6 +148,7 @@
                     </StackPanel>
                 </Button>
                 <Button x:Name="btnAlert5" Height="42" Width="42" Margin="0,0,4,0" Click="btnAlert5_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 5" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                         IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
                     <StackPanel Width="42">
                         <Image HorizontalAlignment="Center" Width="32" Height="30" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" />
@@ -156,6 +156,7 @@
                     </StackPanel>
                 </Button>
                 <Button x:Name="btnAlert6" Height="42" Width="42" Click="btnAlert6_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 6" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                         IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
                     <StackPanel Width="42">
                         <Image HorizontalAlignment="Center" Width="32" Height="30" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" />
@@ -167,48 +168,54 @@
 
                 <!-- Page Subscriber -->
                 <Button x:Name="btnPageSub" Height="42" Width="42" Click="PageRID_Click" ToolTip="Page Subscriber" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                         IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image HorizontalAlignment="Left" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/page.png" IsHitTestVisible="False" />
+                    <Image HorizontalAlignment="Center" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/page.png" IsHitTestVisible="False" />
                 </Button>
 
                 <Separator />
 
                 <!-- Select/Unselect All -->
                 <Button x:Name="btnSelectAll" Height="42" Width="42" Click="SelectAll_Click" ToolTip="Select/Unselect All On Current Tab" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                         IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image HorizontalAlignment="Left" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/select.png" IsHitTestVisible="False" />
+                    <Image HorizontalAlignment="Center" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/select.png" IsHitTestVisible="False" />
                 </Button>
 
                 <Separator />
 
                 <!-- Encryption Key Information -->
                 <Button x:Name="btnKeyStatus" Height="42" Width="42" Click="KeyStatus_Click" ToolTip="Encryption Key Information" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                         IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image HorizontalAlignment="Left" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/key.png" IsHitTestVisible="False" />
+                    <Image HorizontalAlignment="Center" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/key.png" IsHitTestVisible="False" />
                 </Button>
 
                 <Separator />
 
                 <!-- Event History -->
                 <Button x:Name="btnCallHistory" Height="42" Width="42" Click="CallHist_Click" ToolTip="Event History" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                         IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image HorizontalAlignment="Left" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/history.png" IsHitTestVisible="False" />
+                    <Image HorizontalAlignment="Center" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/history.png" IsHitTestVisible="False" />
                 </Button>
 
                 <Separator />
 
                 <!-- Groups -->
                 <Button x:Name="btnPatchGroups" Height="42" Width="42" Click="PatchGroups_Click" ToolTip="Groups" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                         IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image HorizontalAlignment="Left" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/patch_edit_off.png" IsHitTestVisible="False" />
+                    <Image HorizontalAlignment="Center" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/patch_edit_off.png" IsHitTestVisible="False" />
                 </Button>
 
                 <Separator />
 
                 <!-- Audio Settings -->
                 <Button x:Name="btnAudioSettings" Height="42" Width="42" Click="AudioSettings_Click" ToolTip="Audio Settings" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                         IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image HorizontalAlignment="Left" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/audio.png" IsHitTestVisible="False" />
+                    <Image HorizontalAlignment="Center" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/audio.png" IsHitTestVisible="False" />
                 </Button>
             </ToolBar>
 

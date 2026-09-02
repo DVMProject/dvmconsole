@@ -1022,9 +1022,9 @@ namespace dvmconsole.Controls
             VolumeSlider.Height = 21;
 
             BottomButtonsPanel.Margin = new Thickness(70, -8, -2, 0);
-            SetButtonSize(PageSelectButton, 38, 40, 34, 38);
-            SetButtonSize(ChannelMarkerBtn, 38, 40, 34, 38);
-            SetButtonSize(ChannelCallHistoryBtn, 38, 40, 30, 38);
+            SetButtonSize(PageSelectButton, 38, 40, 32, 32);
+            SetButtonSize(ChannelMarkerBtn, 38, 40, 32, 32);
+            SetButtonSize(ChannelCallHistoryBtn, 38, 40, 32, 32);
             ChannelMarkerBtn.Margin = new Thickness(5, 0, 0, 0);
             ChannelCallHistoryBtn.Margin = new Thickness(5, 0, 0, 0);
         }
@@ -1112,9 +1112,9 @@ namespace dvmconsole.Controls
             VolumeSlider.Height = 30;
 
             BottomButtonsPanel.Margin = new Thickness(104, -10, -2, 0);
-            SetButtonSize(PageSelectButton, 58, 54, 50, 52);
-            SetButtonSize(ChannelMarkerBtn, 58, 54, 50, 52);
-            SetButtonSize(ChannelCallHistoryBtn, 58, 54, 46, 52);
+            SetButtonSize(PageSelectButton, 58, 54, 46, 46);
+            SetButtonSize(ChannelMarkerBtn, 58, 54, 46, 46);
+            SetButtonSize(ChannelCallHistoryBtn, 58, 54, 46, 46);
             ChannelMarkerBtn.Margin = new Thickness(6, 0, 0, 0);
             ChannelCallHistoryBtn.Margin = new Thickness(6, 0, 0, 0);
         }
@@ -1141,6 +1141,11 @@ namespace dvmconsole.Controls
             {
                 image.Width = imageWidth;
                 image.Height = imageHeight;
+                image.Stretch = Stretch.Uniform;
+                image.HorizontalAlignment = System.Windows.HorizontalAlignment.Center;
+                image.VerticalAlignment = VerticalAlignment.Center;
+                image.SnapsToDevicePixels = true;
+                image.Margin = new Thickness(0);
             }
         }
 

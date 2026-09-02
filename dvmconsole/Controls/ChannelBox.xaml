@@ -98,7 +98,7 @@
                         <Setter Property="CornerRadius" Value="2"/>
                     </Style>
                 </Button.Resources>
-                <Image Source="/dvmconsole;component/Assets/instantptt.png" Width="39" Height="40" Stretch="Fill" Margin="0,1,0,1"/>
+                <Image Source="/dvmconsole;component/Assets/instantptt.png" Width="39" Height="40" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" SnapsToDevicePixels="True" Margin="0"/>
             </Button>
 
             <!-- Volume Slider Background -->
@@ -171,15 +171,15 @@
             <StackPanel x:Name="BottomButtonsPanel" Grid.Column="1" Grid.Row="2" Orientation="Horizontal" Margin="87,-8,-2,0" Grid.RowSpan="2" Grid.ColumnSpan="2">
                 <Button x:Name="PageSelectButton" Width="38" Height="40" Click="PageSelectButton_Click" ToolTip="Select for Alert Tone" Padding="0"
                         Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image Source="/dvmconsole;component/Assets/pageselect.png" Width="36" Height="40" Margin="1.5,2,0,0"/>
+                    <Image Source="/dvmconsole;component/Assets/pageselect.png" Width="34" Height="34" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" SnapsToDevicePixels="True" Margin="0"/>
                 </Button>
                 <Button x:Name="ChannelMarkerBtn" Width="38" Height="40" Click="ChannelMarkerBtn_Click" Margin="5,0,0,0" ToolTip="Transmit Channel Marker" Padding="0"
                         Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image Source="/dvmconsole;component/Assets/channelmarker.png" Width="36" Height="40"/>
+                    <Image Source="/dvmconsole;component/Assets/channelmarker.png" Width="34" Height="34" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" SnapsToDevicePixels="True" Margin="0"/>
                 </Button>
                 <Button x:Name="ChannelCallHistoryBtn" Width="38" Height="40" Click="ChannelCallHistoryBtn_Click" Margin="5,0,0,0" ToolTip="Channel Call History" Padding="0"
                         Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image Source="/dvmconsole;component/Assets/history.png" Width="32" Height="40"/>
+                    <Image Source="/dvmconsole;component/Assets/history_card.png" Width="32" Height="32" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" SnapsToDevicePixels="True" Margin="0"/>
                 </Button>
             </StackPanel>
         </Grid>

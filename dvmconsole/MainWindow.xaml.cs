@@ -366,16 +366,18 @@ namespace dvmconsole
             // Create a custom header with text and optional audio icon
             Grid headerPanel = new Grid
             {
-                Margin = new Thickness(0, 0, 4, 0)
+                Margin = new Thickness(0, 0, 2, 0)
             };
             headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             
             TextBlock headerText = new TextBlock
             {
                 Text = "Tab 1",
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Center,
-                TextTrimming = TextTrimming.CharacterEllipsis
+                TextAlignment = TextAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(4, 0, 16, 0)
             };
             Grid.SetColumn(headerText, 0);
             headerPanel.Children.Add(headerText);
@@ -384,14 +386,16 @@ namespace dvmconsole
             Image audioIcon = new Image
             {
                 Source = new BitmapImage(new Uri($"{URI_RESOURCE_PATH}/Assets/audio_receive.png")),
-                Width = 16,
-                Height = 16,
-                Margin = new Thickness(6, 0, 0, 0),
+                Width = 14,
+                Height = 14,
+                Margin = new Thickness(0, 0, 1, 0),
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Center,
+                Opacity = 0.9,
                 Visibility = Visibility.Collapsed,
                 Name = "AudioIcon"
             };
-            Grid.SetColumn(audioIcon, 1);
+            Grid.SetColumn(audioIcon, 0);
             headerPanel.Children.Add(audioIcon);
             
             firstTab.Header = headerPanel;
@@ -473,17 +477,19 @@ namespace dvmconsole
             // Create a custom header with text and optional audio icon
             Grid headerPanel = new Grid
             {
-                Margin = new Thickness(0, 0, 4, 0)
+                Margin = new Thickness(0, 0, 2, 0)
             };
             headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 
                 TextBlock headerText = new TextBlock
                 {
                     Text = "Tab 1",
+                    HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch,
                     VerticalAlignment = VerticalAlignment.Center,
+                    TextAlignment = TextAlignment.Center,
                     Foreground = settingsManager.DarkMode ? Brushes.White : Brushes.Black,
-                    TextTrimming = TextTrimming.CharacterEllipsis
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    Margin = new Thickness(4, 0, 16, 0)
                 };
                 Grid.SetColumn(headerText, 0);
                 headerPanel.Children.Add(headerText);
@@ -492,14 +498,16 @@ namespace dvmconsole
                 Image audioIcon = new Image
                 {
                     Source = new BitmapImage(new Uri($"{URI_RESOURCE_PATH}/Assets/audio_receive.png")),
-                    Width = 16,
-                    Height = 16,
-                    Margin = new Thickness(6, 0, 0, 0),
+                    Width = 14,
+                    Height = 14,
+                    Margin = new Thickness(0, 0, 1, 0),
+                    HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
                     VerticalAlignment = VerticalAlignment.Center,
+                    Opacity = 0.9,
                     Visibility = Visibility.Collapsed,
                     Name = "AudioIcon"
                 };
-                Grid.SetColumn(audioIcon, 1);
+                Grid.SetColumn(audioIcon, 0);
                 headerPanel.Children.Add(audioIcon);
                 
                 firstTab.Header = headerPanel;
@@ -555,10 +563,9 @@ namespace dvmconsole
             // Create a custom header with text and optional audio icon
             Grid headerPanel = new Grid
             {
-                Margin = new Thickness(0, 0, 4, 0)
+                Margin = new Thickness(0, 0, 2, 0)
             };
             headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             Brush headerForeground;
 
@@ -581,9 +588,12 @@ namespace dvmconsole
             TextBlock headerText = new TextBlock
             {
                 Text = tabName,
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Center,
+                TextAlignment = TextAlignment.Center,
                 Foreground = headerForeground,
-                TextTrimming = TextTrimming.CharacterEllipsis
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(4, 0, 16, 0)
             };
             Grid.SetColumn(headerText, 0);
             headerPanel.Children.Add(headerText);
@@ -592,14 +602,16 @@ namespace dvmconsole
             Image audioIcon = new Image
             {
                 Source = new BitmapImage(new Uri($"{URI_RESOURCE_PATH}/Assets/audio_receive.png")),
-                Width = 16,
-                Height = 16,
-                Margin = new Thickness(6, 0, 0, 0),
+                Width = 14,
+                Height = 14,
+                Margin = new Thickness(0, 0, 1, 0),
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Center,
+                Opacity = 0.9,
                 Visibility = Visibility.Collapsed,
                 Name = "AudioIcon"
             };
-            Grid.SetColumn(audioIcon, 1);
+            Grid.SetColumn(audioIcon, 0);
             headerPanel.Children.Add(audioIcon);
             
             tab.Header = headerPanel;
@@ -699,9 +711,6 @@ namespace dvmconsole
             
             if (hasAudio)
             {
-                // Set tab background to green (using the same green as receiving channels)
-                tab.Background = ChannelBox.GREEN_GRADIENT;
-                
                 // Show audio icon
                 if (audioIcon != null)
                 {
@@ -710,9 +719,6 @@ namespace dvmconsole
             }
             else
             {
-                // Reset tab background to default
-                tab.Background = null;
-                
                 // Hide audio icon
                 if (audioIcon != null)
                 {
