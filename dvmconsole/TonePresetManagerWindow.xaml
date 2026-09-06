@@ -188,6 +188,12 @@
                         Margin="0,0,10,0"
                         Click="DeletePreset_Click"
                         Style="{StaticResource MaterialDesignOutlinedButton}" />
+                <Button Content="Import File"
+                        Width="110"
+                        Height="34"
+                        Margin="0,0,10,0"
+                        Click="ImportFile_Click"
+                        Style="{StaticResource MaterialDesignOutlinedButton}" />
                 <Button Content="Close"
                         Width="90"
                         Height="34"

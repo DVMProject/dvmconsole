@@ -15,10 +15,12 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using Microsoft.Win32;
 
 using dvmconsole.Controls;
 
@@ -252,6 +254,43 @@ namespace dvmconsole
             SelectedPreset = Presets.ElementAtOrDefault(Math.Min(removedIndex, Presets.Count - 1));
         }
 
+        private void ImportFile_Click(object sender, RoutedEventArgs e)
+        {
+            CommitGridEdits();
+            HideStatus();
+
+            OpenFileDialog dialog = new OpenFileDialog
+            {
+                Title = "Import Tone File",
+                Filter = "Tone files (*.mid;*.midi)|*.mid;*.midi|All files (*.*)|*.*",
+                CheckFileExists = true,
+                Multiselect = false
+            };
+
+            if (dialog.ShowDialog(this) != true)
+                return;
+
+            try
+            {
+                ImportedTonePreset importedPreset = TonePresetFileImporter.Import(dialog.FileName);
+                TonePresetManagerItem item = CreateImportedManagerItem(importedPreset);
+
+                Presets.Add(item);
+                SelectedPreset = item;
+                PresetGrid.SelectedItem = item;
+                PresetGrid.ScrollIntoView(item);
+                ToneStepGrid.SelectedIndex = item.Steps.Count > 0 ? 0 : -1;
+
+                string warningText = importedPreset.Warnings.Count > 0 ? $" {importedPreset.Warnings[0]}" : string.Empty;
+                StatusTextBlock.Text = $"Imported {item.Steps.Count} steps from {Path.GetFileName(dialog.FileName)}.{warningText}";
+                StatusTextBlock.Visibility = Visibility.Visible;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to import tone file: {ex.Message}", "Tone Presets", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
         private void AddTone_Click(object sender, RoutedEventArgs e)
         {
             if (SelectedPreset == null)
@@ -433,6 +472,43 @@ namespace dvmconsole
             }
 
             return selectedTarget ?? Targets.FirstOrDefault();
+        }
+
+        private TonePresetManagerItem CreateImportedManagerItem(ImportedTonePreset importedPreset)
+        {
+            TonePresetManagerItem item = new TonePresetManagerItem
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                DisplayName = GetUniquePresetName(importedPreset?.DisplayName),
+                TargetResourceKey = SelectedTarget?.Key ?? selectedPreset?.TargetResourceKey ?? string.Empty
+            };
+
+            foreach (ImportedTonePresetStep importedStep in importedPreset?.Steps ?? new List<ImportedTonePresetStep>())
+            {
+                item.Steps.Add(new TonePresetStepItem
+                {
+                    Kind = importedStep.IsHold ? "Hold" : "Tone",
+                    FrequencyHz = importedStep.IsHold ? 0 : importedStep.FrequencyHz,
+                    DurationSeconds = importedStep.DurationSeconds
+                });
+            }
+
+            return item;
+        }
+
+        private string GetUniquePresetName(string importedName)
+        {
+            string baseName = string.IsNullOrWhiteSpace(importedName) ? "Imported Tone" : importedName.Trim();
+            string candidate = baseName;
+            int suffix = 2;
+
+            while (Presets.Any(preset => string.Equals(preset.DisplayName, candidate, StringComparison.OrdinalIgnoreCase)))
+            {
+                candidate = $"{baseName} {suffix}";
+                suffix++;
+            }
+
+            return candidate;
         }
 
         private void CommitGridEdits()
