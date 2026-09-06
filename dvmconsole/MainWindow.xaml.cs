@@ -4765,12 +4765,63 @@ namespace dvmconsole
 
         private void SettingsTransfer_Click(object sender, RoutedEventArgs e)
         {
-            SettingsTransferWindow settingsTransferWindow = new SettingsTransferWindow(settingsManager, ApplyImportedSettingsToRuntime)
+            SettingsTransferWindow settingsTransferWindow = new SettingsTransferWindow(
+                settingsManager,
+                ApplyImportedSettingsToRuntime,
+                GetConfiguredZoneNames(),
+                BuildSettingsTransferScope)
             {
                 Owner = this
             };
 
             settingsTransferWindow.ShowDialog();
+        }
+
+        private IEnumerable<string> GetConfiguredZoneNames()
+        {
+            return (Codeplug?.Zones ?? new List<Codeplug.Zone>())
+                .Where(zone => !string.IsNullOrWhiteSpace(zone?.Name))
+                .Select(zone => zone.Name.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private SettingsManager.SettingsTransferScope BuildSettingsTransferScope(IEnumerable<string> zoneNames)
+        {
+            HashSet<string> selectedZoneNames = new HashSet<string>(
+                zoneNames?.Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => NormalizeZoneName(name)) ?? Enumerable.Empty<string>(),
+                StringComparer.OrdinalIgnoreCase);
+
+            SettingsManager.SettingsTransferScope scope = new SettingsManager.SettingsTransferScope
+            {
+                ZoneNames = selectedZoneNames.ToList()
+            };
+
+            if (Codeplug?.Zones == null || selectedZoneNames.Count == 0)
+                return scope;
+
+            foreach (Codeplug.Zone zone in Codeplug.Zones.Where(zone => selectedZoneNames.Contains(NormalizeZoneName(zone.Name))))
+            {
+                foreach (Codeplug.Channel channel in zone.Channels ?? new List<Codeplug.Channel>())
+                {
+                    if (!string.IsNullOrWhiteSpace(channel.Name))
+                        scope.ChannelNames.Add(channel.Name.Trim());
+                    if (!string.IsNullOrWhiteSpace(channel.Tgid))
+                        scope.TalkgroupIds.Add(channel.Tgid.Trim());
+
+                    string resourceKey = ResourceIdentity.Build(channel.System, channel.Tgid);
+                    if (!string.IsNullOrWhiteSpace(resourceKey))
+                        scope.ChannelResourceKeys.Add(resourceKey);
+                }
+
+                foreach (Codeplug.WebStream stream in zone.WebStreams ?? new List<Codeplug.WebStream>())
+                {
+                    if (!string.IsNullOrWhiteSpace(stream.Name))
+                        scope.WebStreamNames.Add(stream.Name.Trim());
+                }
+            }
+
+            return scope;
         }
 
         private void TabManager_Click(object sender, RoutedEventArgs e)

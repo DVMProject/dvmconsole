@@ -478,12 +478,32 @@ namespace dvmconsole
             public List<string> PropertyNames { get; set; } = new List<string>();
         }
 
+        public class SettingsTransferScope
+        {
+            public List<string> ZoneNames { get; set; } = new List<string>();
+            public List<string> ChannelResourceKeys { get; set; } = new List<string>();
+            public List<string> ChannelNames { get; set; } = new List<string>();
+            public List<string> TalkgroupIds { get; set; } = new List<string>();
+            public List<string> WebStreamNames { get; set; } = new List<string>();
+            public List<string> AlertToneIds { get; set; } = new List<string>();
+
+            [JsonIgnore]
+            public bool HasScope =>
+                ZoneNames?.Count > 0 ||
+                ChannelResourceKeys?.Count > 0 ||
+                ChannelNames?.Count > 0 ||
+                TalkgroupIds?.Count > 0 ||
+                WebStreamNames?.Count > 0 ||
+                AlertToneIds?.Count > 0;
+        }
+
         private class SettingsTransferFile
         {
             public string Format { get; set; } = SETTINGS_TRANSFER_FORMAT;
             public int Version { get; set; } = 1;
             public DateTime ExportedUtc { get; set; } = DateTime.UtcNow;
             public List<string> Categories { get; set; } = new List<string>();
+            public SettingsTransferScope Scope { get; set; }
             public JObject Settings { get; set; } = new JObject();
         }
 
@@ -918,6 +938,11 @@ namespace dvmconsole
 
         public void ExportSettingsTransfer(string filePath, IEnumerable<string> categoryIds)
         {
+            ExportSettingsTransfer(filePath, categoryIds, null);
+        }
+
+        public void ExportSettingsTransfer(string filePath, IEnumerable<string> categoryIds, SettingsTransferScope scope)
+        {
             if (string.IsNullOrWhiteSpace(filePath))
                 throw new ArgumentException("Export path is required.", nameof(filePath));
 
@@ -925,6 +950,8 @@ namespace dvmconsole
             if (selectedCategories.Count == 0)
                 throw new InvalidOperationException("Select at least one settings category to export.");
 
+            SettingsTransferScope normalizedScope = BuildExportSettingsTransferScope(scope);
+            bool scopedTransfer = normalizedScope?.HasScope == true;
             JObject settingsPayload = new JObject();
             foreach (string propertyName in selectedCategories.SelectMany(c => c.PropertyNames).Distinct(StringComparer.OrdinalIgnoreCase))
             {
@@ -933,15 +960,26 @@ namespace dvmconsole
                     continue;
 
                 object value = property.GetValue(this);
-                settingsPayload[propertyName] = value == null
-                    ? JValue.CreateNull()
-                    : JToken.FromObject(value);
+                if (scopedTransfer)
+                {
+                    if (!TryCreateScopedSettingsTransferToken(propertyName, value, normalizedScope, out JToken scopedToken))
+                        continue;
+
+                    settingsPayload[propertyName] = scopedToken;
+                }
+                else
+                {
+                    settingsPayload[propertyName] = value == null
+                        ? JValue.CreateNull()
+                        : JToken.FromObject(value);
+                }
             }
 
             SettingsTransferFile transferFile = new SettingsTransferFile
             {
                 ExportedUtc = DateTime.UtcNow,
                 Categories = selectedCategories.Select(c => c.Id).ToList(),
+                Scope = scopedTransfer ? normalizedScope : null,
                 Settings = settingsPayload
             };
 
@@ -953,6 +991,11 @@ namespace dvmconsole
         }
 
         public List<string> ImportSettingsTransfer(string filePath, IEnumerable<string> categoryIds)
+        {
+            return ImportSettingsTransfer(filePath, categoryIds, null);
+        }
+
+        public List<string> ImportSettingsTransfer(string filePath, IEnumerable<string> categoryIds, SettingsTransferScope scope)
         {
             if (string.IsNullOrWhiteSpace(filePath))
                 throw new ArgumentException("Import path is required.", nameof(filePath));
@@ -976,6 +1019,8 @@ namespace dvmconsole
             if (selectedCategories.Count == 0)
                 throw new InvalidOperationException("None of the selected categories exist in this transfer file.");
 
+            SettingsTransferScope normalizedScope = BuildImportSettingsTransferScope(scope, transferFile.Scope);
+            bool scopedTransfer = normalizedScope?.HasScope == true;
             foreach (string propertyName in selectedCategories.SelectMany(c => c.PropertyNames).Distinct(StringComparer.OrdinalIgnoreCase))
             {
                 if (!transferFile.Settings.TryGetValue(propertyName, StringComparison.OrdinalIgnoreCase, out JToken token))
@@ -986,12 +1031,642 @@ namespace dvmconsole
                     continue;
 
                 object value = ConvertSettingsTransferToken(token, property.PropertyType);
-                property.SetValue(this, value);
+                if (scopedTransfer)
+                    ApplyScopedSettingsTransferValue(propertyName, value, normalizedScope);
+                else
+                    property.SetValue(this, value);
             }
 
             NormalizeImportedSettings();
             SaveSettings();
             return selectedCategories.Select(c => c.DisplayName).ToList();
+        }
+
+        private bool TryCreateScopedSettingsTransferToken(string propertyName, object sourceValue, SettingsTransferScope scope, out JToken token)
+        {
+            token = null;
+            if (!TryCreateScopedSettingsTransferValue(propertyName, sourceValue, scope, out object scopedValue))
+                return false;
+
+            token = scopedValue == null
+                ? JValue.CreateNull()
+                : JToken.FromObject(scopedValue);
+            return true;
+        }
+
+        private SettingsTransferScope BuildExportSettingsTransferScope(SettingsTransferScope scope)
+        {
+            SettingsTransferScope normalized = NormalizeSettingsTransferScope(scope);
+            if (normalized == null)
+                return null;
+
+            HashSet<string> alertToneIds = BuildScopeSet(normalized.AlertToneIds);
+            HashSet<string> channelResourceKeys = BuildScopeSet(normalized.ChannelResourceKeys);
+            foreach (AlertToneScheduleConfig schedule in FilterAlertToneSchedulesByScope(AlertToneSchedules, channelResourceKeys))
+            {
+                if (!string.IsNullOrWhiteSpace(schedule.AlertToneId))
+                    alertToneIds.Add(schedule.AlertToneId.Trim());
+            }
+
+            normalized.AlertToneIds = alertToneIds.ToList();
+            return normalized;
+        }
+
+        private static SettingsTransferScope BuildImportSettingsTransferScope(SettingsTransferScope requestedScope, SettingsTransferScope fileScope)
+        {
+            SettingsTransferScope normalizedRequested = NormalizeSettingsTransferScope(requestedScope);
+            SettingsTransferScope normalizedFile = NormalizeSettingsTransferScope(fileScope);
+            if (normalizedRequested == null)
+                return normalizedFile;
+
+            if (normalizedFile?.AlertToneIds?.Count > 0)
+                normalizedRequested.AlertToneIds = NormalizeScopeList(normalizedRequested.AlertToneIds.Concat(normalizedFile.AlertToneIds));
+
+            return normalizedRequested;
+        }
+
+        private bool TryCreateScopedSettingsTransferValue(string propertyName, object sourceValue, SettingsTransferScope scope, out object scopedValue)
+        {
+            scopedValue = null;
+            scope = NormalizeSettingsTransferScope(scope);
+            if (scope?.HasScope != true)
+                return false;
+
+            HashSet<string> zoneNames = BuildScopeSet(scope.ZoneNames);
+            HashSet<string> channelResourceKeys = BuildScopeSet(scope.ChannelResourceKeys);
+            HashSet<string> channelNames = BuildScopeSet(scope.ChannelNames);
+            HashSet<string> talkgroupIds = BuildScopeSet(scope.TalkgroupIds);
+            HashSet<string> webStreamNames = BuildScopeSet(scope.WebStreamNames);
+            HashSet<string> channelSettingKeys = CombineScopeKeys(channelResourceKeys, channelNames, talkgroupIds);
+            HashSet<string> audioOutputKeys = CombineScopeKeys(channelResourceKeys, talkgroupIds, webStreamNames);
+
+            switch (propertyName)
+            {
+                case nameof(ChannelPositions):
+                    scopedValue = FilterDictionaryByKeys(sourceValue as Dictionary<string, ChannelPosition>, channelSettingKeys);
+                    return true;
+                case nameof(ChannelVolumes):
+                    scopedValue = FilterDictionaryByKeys(sourceValue as Dictionary<string, double>, channelSettingKeys);
+                    return true;
+                case nameof(ChannelOutputDevices):
+                    scopedValue = FilterDictionaryByKeys(sourceValue as Dictionary<string, int>, audioOutputKeys);
+                    return true;
+                case nameof(ChannelOutputDeviceKeys):
+                    scopedValue = FilterDictionaryByKeys(sourceValue as Dictionary<string, string>, audioOutputKeys);
+                    return true;
+                case nameof(TarChannelConfigs):
+                    scopedValue = FilterDictionaryByKeys(sourceValue as Dictionary<string, TarChannelConfig>, channelSettingKeys);
+                    return true;
+                case nameof(SelectableEncryptionStates):
+                    scopedValue = FilterDictionaryByKeys(sourceValue as Dictionary<string, bool>, channelResourceKeys);
+                    return true;
+                case nameof(WebStreamPositions):
+                    scopedValue = FilterDictionaryByKeys(sourceValue as Dictionary<string, ChannelPosition>, webStreamNames);
+                    return true;
+                case nameof(WebStreamVolumes):
+                    scopedValue = FilterDictionaryByKeys(sourceValue as Dictionary<string, double>, webStreamNames);
+                    return true;
+                case nameof(SelectedChannels):
+                    scopedValue = FilterListByKeys(sourceValue as List<string>, channelSettingKeys);
+                    return true;
+                case nameof(SelectedWebStreams):
+                    scopedValue = FilterListByKeys(sourceValue as List<string>, webStreamNames);
+                    return true;
+                case nameof(HiddenResourceZones):
+                    scopedValue = FilterListByKeys(sourceValue as List<string>, zoneNames);
+                    return true;
+                case nameof(AlertTones):
+                    scopedValue = FilterAlertTonesByScope(sourceValue as List<AlertToneConfig>, scope);
+                    return true;
+                case nameof(AlertToneSchedules):
+                    scopedValue = FilterAlertToneSchedulesByScope(sourceValue as List<AlertToneScheduleConfig>, channelResourceKeys);
+                    return true;
+                case nameof(TonePresets):
+                    scopedValue = FilterTonePresetsByScope(sourceValue as List<TonePresetConfig>, channelResourceKeys);
+                    return true;
+                case nameof(DtmfPresets):
+                    scopedValue = FilterDtmfPresetsByScope(sourceValue as List<DtmfPresetConfig>, channelResourceKeys);
+                    return true;
+                case nameof(PatchGroupMemberships):
+                    scopedValue = FilterPatchGroupMembershipsByScope(
+                        sourceValue as Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>,
+                        channelResourceKeys);
+                    return true;
+                case nameof(PatchGroupModes):
+                    scopedValue = FilterNestedBoolDictionaryByGroupNames(
+                        sourceValue as Dictionary<string, Dictionary<string, bool>>,
+                        GetScopedPatchGroupNames(channelResourceKeys));
+                    return true;
+                case nameof(PatchGroupEnabledStates):
+                    scopedValue = FilterNestedBoolDictionaryByGroupNames(
+                        sourceValue as Dictionary<string, Dictionary<string, bool>>,
+                        GetScopedPatchGroupNames(channelResourceKeys));
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private void ApplyScopedSettingsTransferValue(string propertyName, object importedValue, SettingsTransferScope scope)
+        {
+            if (!TryCreateScopedSettingsTransferValue(propertyName, importedValue, scope, out object scopedValue))
+                return;
+
+            scope = NormalizeSettingsTransferScope(scope);
+            HashSet<string> zoneNames = BuildScopeSet(scope.ZoneNames);
+            HashSet<string> channelResourceKeys = BuildScopeSet(scope.ChannelResourceKeys);
+            HashSet<string> channelNames = BuildScopeSet(scope.ChannelNames);
+            HashSet<string> talkgroupIds = BuildScopeSet(scope.TalkgroupIds);
+            HashSet<string> webStreamNames = BuildScopeSet(scope.WebStreamNames);
+            HashSet<string> channelSettingKeys = CombineScopeKeys(channelResourceKeys, channelNames, talkgroupIds);
+            HashSet<string> audioOutputKeys = CombineScopeKeys(channelResourceKeys, talkgroupIds, webStreamNames);
+
+            switch (propertyName)
+            {
+                case nameof(ChannelPositions):
+                    ChannelPositions = MergeDictionaryByKeys(ChannelPositions, scopedValue as Dictionary<string, ChannelPosition>, channelSettingKeys);
+                    break;
+                case nameof(ChannelVolumes):
+                    ChannelVolumes = MergeDictionaryByKeys(ChannelVolumes, scopedValue as Dictionary<string, double>, channelSettingKeys);
+                    break;
+                case nameof(ChannelOutputDevices):
+                    ChannelOutputDevices = MergeDictionaryByKeys(ChannelOutputDevices, scopedValue as Dictionary<string, int>, audioOutputKeys);
+                    break;
+                case nameof(ChannelOutputDeviceKeys):
+                    ChannelOutputDeviceKeys = MergeDictionaryByKeys(ChannelOutputDeviceKeys, scopedValue as Dictionary<string, string>, audioOutputKeys);
+                    break;
+                case nameof(TarChannelConfigs):
+                    TarChannelConfigs = MergeDictionaryByKeys(TarChannelConfigs, scopedValue as Dictionary<string, TarChannelConfig>, channelSettingKeys);
+                    break;
+                case nameof(SelectableEncryptionStates):
+                    SelectableEncryptionStates = MergeDictionaryByKeys(SelectableEncryptionStates, scopedValue as Dictionary<string, bool>, channelResourceKeys);
+                    break;
+                case nameof(WebStreamPositions):
+                    WebStreamPositions = MergeDictionaryByKeys(WebStreamPositions, scopedValue as Dictionary<string, ChannelPosition>, webStreamNames);
+                    break;
+                case nameof(WebStreamVolumes):
+                    WebStreamVolumes = MergeDictionaryByKeys(WebStreamVolumes, scopedValue as Dictionary<string, double>, webStreamNames);
+                    break;
+                case nameof(SelectedChannels):
+                    SelectedChannels = MergeListByKeys(SelectedChannels, scopedValue as List<string>, channelSettingKeys);
+                    break;
+                case nameof(SelectedWebStreams):
+                    SelectedWebStreams = MergeListByKeys(SelectedWebStreams, scopedValue as List<string>, webStreamNames);
+                    break;
+                case nameof(HiddenResourceZones):
+                    HiddenResourceZones = MergeListByKeys(HiddenResourceZones, scopedValue as List<string>, zoneNames);
+                    break;
+                case nameof(AlertTones):
+                    AlertTones = MergeAlertTonesByScope(AlertTones, scopedValue as List<AlertToneConfig>, scope);
+                    SyncLegacyAlertToneState();
+                    break;
+                case nameof(AlertToneSchedules):
+                    AlertToneSchedules = MergeAlertToneSchedulesByScope(AlertToneSchedules, scopedValue as List<AlertToneScheduleConfig>, channelResourceKeys);
+                    break;
+                case nameof(TonePresets):
+                    TonePresets = MergeTonePresetsByScope(TonePresets, scopedValue as List<TonePresetConfig>, channelResourceKeys);
+                    break;
+                case nameof(DtmfPresets):
+                    DtmfPresets = MergeDtmfPresetsByScope(DtmfPresets, scopedValue as List<DtmfPresetConfig>, channelResourceKeys);
+                    break;
+                case nameof(PatchGroupMemberships):
+                    PatchGroupMemberships = MergePatchGroupMembershipsByScope(
+                        PatchGroupMemberships,
+                        scopedValue as Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>,
+                        channelResourceKeys);
+                    break;
+                case nameof(PatchGroupModes):
+                    PatchGroupModes = MergeNestedBoolDictionaryByGroupNames(
+                        PatchGroupModes,
+                        scopedValue as Dictionary<string, Dictionary<string, bool>>,
+                        GetNestedBoolGroupNames(scopedValue as Dictionary<string, Dictionary<string, bool>>));
+                    break;
+                case nameof(PatchGroupEnabledStates):
+                    PatchGroupEnabledStates = MergeNestedBoolDictionaryByGroupNames(
+                        PatchGroupEnabledStates,
+                        scopedValue as Dictionary<string, Dictionary<string, bool>>,
+                        GetNestedBoolGroupNames(scopedValue as Dictionary<string, Dictionary<string, bool>>));
+                    break;
+            }
+        }
+
+        private static SettingsTransferScope NormalizeSettingsTransferScope(SettingsTransferScope scope)
+        {
+            if (scope == null)
+                return null;
+
+            SettingsTransferScope normalized = new SettingsTransferScope
+            {
+                ZoneNames = NormalizeScopeList(scope.ZoneNames),
+                ChannelResourceKeys = NormalizeScopeList(scope.ChannelResourceKeys),
+                ChannelNames = NormalizeScopeList(scope.ChannelNames),
+                TalkgroupIds = NormalizeScopeList(scope.TalkgroupIds),
+                WebStreamNames = NormalizeScopeList(scope.WebStreamNames),
+                AlertToneIds = NormalizeScopeList(scope.AlertToneIds)
+            };
+
+            return normalized.HasScope ? normalized : null;
+        }
+
+        private static List<string> NormalizeScopeList(IEnumerable<string> values)
+        {
+            return (values ?? Enumerable.Empty<string>())
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static HashSet<string> BuildScopeSet(IEnumerable<string> values)
+        {
+            return new HashSet<string>(NormalizeScopeList(values), StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static HashSet<string> CombineScopeKeys(params IEnumerable<string>[] keySets)
+        {
+            HashSet<string> keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (IEnumerable<string> keySet in keySets ?? Array.Empty<IEnumerable<string>>())
+            {
+                foreach (string key in NormalizeScopeList(keySet))
+                    keys.Add(key);
+            }
+
+            return keys;
+        }
+
+        private static Dictionary<string, TValue> FilterDictionaryByKeys<TValue>(Dictionary<string, TValue> source, HashSet<string> scopedKeys)
+        {
+            return (source ?? new Dictionary<string, TValue>())
+                .Where(kvp => !string.IsNullOrWhiteSpace(kvp.Key) && scopedKeys.Contains(kvp.Key.Trim()))
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static List<string> FilterListByKeys(IEnumerable<string> source, HashSet<string> scopedKeys)
+        {
+            return (source ?? Enumerable.Empty<string>())
+                .Where(value => !string.IsNullOrWhiteSpace(value) && scopedKeys.Contains(value.Trim()))
+                .Select(value => value.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static Dictionary<string, TValue> MergeDictionaryByKeys<TValue>(
+            Dictionary<string, TValue> current,
+            Dictionary<string, TValue> incoming,
+            HashSet<string> scopedKeys)
+        {
+            Dictionary<string, TValue> merged = new Dictionary<string, TValue>(
+                current ?? new Dictionary<string, TValue>(),
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (string key in merged.Keys.Where(key => scopedKeys.Contains(key)).ToList())
+                merged.Remove(key);
+
+            foreach (KeyValuePair<string, TValue> kvp in incoming ?? new Dictionary<string, TValue>())
+            {
+                if (!string.IsNullOrWhiteSpace(kvp.Key) && scopedKeys.Contains(kvp.Key.Trim()))
+                    merged[kvp.Key] = kvp.Value;
+            }
+
+            return merged;
+        }
+
+        private static List<string> MergeListByKeys(IEnumerable<string> current, IEnumerable<string> incoming, HashSet<string> scopedKeys)
+        {
+            List<string> merged = (current ?? Enumerable.Empty<string>())
+                .Where(value => !string.IsNullOrWhiteSpace(value) && !scopedKeys.Contains(value.Trim()))
+                .Select(value => value.Trim())
+                .ToList();
+
+            merged.AddRange((incoming ?? Enumerable.Empty<string>())
+                .Where(value => !string.IsNullOrWhiteSpace(value) && scopedKeys.Contains(value.Trim()))
+                .Select(value => value.Trim()));
+
+            return merged
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static List<AlertToneConfig> FilterAlertTonesByScope(IEnumerable<AlertToneConfig> source, SettingsTransferScope scope)
+        {
+            HashSet<string> zoneNames = BuildScopeSet(scope.ZoneNames);
+            HashSet<string> alertToneIds = BuildScopeSet(scope.AlertToneIds);
+
+            return (source ?? Enumerable.Empty<AlertToneConfig>())
+                .Where(tone =>
+                    tone != null &&
+                    ((!string.IsNullOrWhiteSpace(tone.TabName) && zoneNames.Contains(tone.TabName.Trim())) ||
+                     (!string.IsNullOrWhiteSpace(tone.Id) && alertToneIds.Contains(tone.Id.Trim()))))
+                .Select(tone => new AlertToneConfig
+                {
+                    Id = tone.Id,
+                    DisplayName = tone.DisplayName,
+                    FilePath = tone.FilePath,
+                    TabName = tone.TabName,
+                    Position = tone.Position
+                })
+                .ToList();
+        }
+
+        private static List<AlertToneScheduleConfig> FilterAlertToneSchedulesByScope(IEnumerable<AlertToneScheduleConfig> source, HashSet<string> channelResourceKeys)
+        {
+            return (source ?? Enumerable.Empty<AlertToneScheduleConfig>())
+                .Where(schedule => schedule != null &&
+                                   !string.IsNullOrWhiteSpace(schedule.TargetResourceKey) &&
+                                   channelResourceKeys.Contains(schedule.TargetResourceKey.Trim()))
+                .Select(schedule => new AlertToneScheduleConfig
+                {
+                    Id = schedule.Id,
+                    DisplayName = schedule.DisplayName,
+                    AlertToneId = schedule.AlertToneId,
+                    TargetResourceKey = schedule.TargetResourceKey,
+                    Enabled = schedule.Enabled,
+                    Mode = schedule.Mode,
+                    NextRunLocal = schedule.NextRunLocal,
+                    RepeatMinutes = schedule.RepeatMinutes,
+                    LastRunUtc = schedule.LastRunUtc
+                })
+                .ToList();
+        }
+
+        private static List<TonePresetConfig> FilterTonePresetsByScope(IEnumerable<TonePresetConfig> source, HashSet<string> channelResourceKeys)
+        {
+            return (source ?? Enumerable.Empty<TonePresetConfig>())
+                .Where(config => config != null &&
+                                 !string.IsNullOrWhiteSpace(config.TargetResourceKey) &&
+                                 channelResourceKeys.Contains(config.TargetResourceKey.Trim()))
+                .Select(config => new TonePresetConfig
+                {
+                    Id = config.Id,
+                    DisplayName = config.DisplayName,
+                    TargetResourceKey = config.TargetResourceKey,
+                    Steps = config.Steps
+                })
+                .ToList();
+        }
+
+        private static List<DtmfPresetConfig> FilterDtmfPresetsByScope(IEnumerable<DtmfPresetConfig> source, HashSet<string> channelResourceKeys)
+        {
+            return (source ?? Enumerable.Empty<DtmfPresetConfig>())
+                .Where(config => config != null &&
+                                 !string.IsNullOrWhiteSpace(config.TargetResourceKey) &&
+                                 channelResourceKeys.Contains(config.TargetResourceKey.Trim()))
+                .Select(config => new DtmfPresetConfig
+                {
+                    Id = config.Id,
+                    DisplayName = config.DisplayName,
+                    TargetResourceKey = config.TargetResourceKey,
+                    Steps = config.Steps
+                })
+                .ToList();
+        }
+
+        private static List<AlertToneConfig> MergeAlertTonesByScope(
+            IEnumerable<AlertToneConfig> current,
+            IEnumerable<AlertToneConfig> incoming,
+            SettingsTransferScope scope)
+        {
+            HashSet<string> zoneNames = BuildScopeSet(scope.ZoneNames);
+            List<AlertToneConfig> merged = (current ?? Enumerable.Empty<AlertToneConfig>())
+                .Where(tone => tone == null ||
+                               string.IsNullOrWhiteSpace(tone.TabName) ||
+                               !zoneNames.Contains(tone.TabName.Trim()))
+                .ToList();
+
+            merged.AddRange(FilterAlertTonesByScope(incoming, scope));
+            return merged;
+        }
+
+        private static List<AlertToneScheduleConfig> MergeAlertToneSchedulesByScope(
+            IEnumerable<AlertToneScheduleConfig> current,
+            IEnumerable<AlertToneScheduleConfig> incoming,
+            HashSet<string> channelResourceKeys)
+        {
+            List<AlertToneScheduleConfig> merged = (current ?? Enumerable.Empty<AlertToneScheduleConfig>())
+                .Where(schedule => schedule == null ||
+                                   string.IsNullOrWhiteSpace(schedule.TargetResourceKey) ||
+                                   !channelResourceKeys.Contains(schedule.TargetResourceKey.Trim()))
+                .ToList();
+
+            merged.AddRange(FilterAlertToneSchedulesByScope(incoming, channelResourceKeys));
+            return merged;
+        }
+
+        private static List<TonePresetConfig> MergeTonePresetsByScope(
+            IEnumerable<TonePresetConfig> current,
+            IEnumerable<TonePresetConfig> incoming,
+            HashSet<string> channelResourceKeys)
+        {
+            List<TonePresetConfig> merged = (current ?? Enumerable.Empty<TonePresetConfig>())
+                .Where(config => config == null ||
+                                 string.IsNullOrWhiteSpace(config.TargetResourceKey) ||
+                                 !channelResourceKeys.Contains(config.TargetResourceKey.Trim()))
+                .ToList();
+
+            merged.AddRange(FilterTonePresetsByScope(incoming, channelResourceKeys));
+            return merged;
+        }
+
+        private static List<DtmfPresetConfig> MergeDtmfPresetsByScope(
+            IEnumerable<DtmfPresetConfig> current,
+            IEnumerable<DtmfPresetConfig> incoming,
+            HashSet<string> channelResourceKeys)
+        {
+            List<DtmfPresetConfig> merged = (current ?? Enumerable.Empty<DtmfPresetConfig>())
+                .Where(config => config == null ||
+                                 string.IsNullOrWhiteSpace(config.TargetResourceKey) ||
+                                 !channelResourceKeys.Contains(config.TargetResourceKey.Trim()))
+                .ToList();
+
+            merged.AddRange(FilterDtmfPresetsByScope(incoming, channelResourceKeys));
+            return merged;
+        }
+
+        private HashSet<string> GetScopedPatchGroupNames(HashSet<string> channelResourceKeys)
+        {
+            return GetPatchGroupNames(FilterPatchGroupMembershipsByScope(PatchGroupMemberships, channelResourceKeys));
+        }
+
+        private static HashSet<string> GetPatchGroupNames(Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> memberships)
+        {
+            return new HashSet<string>(
+                (memberships ?? new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>())
+                    .SelectMany(context => context.Value?.Keys ?? Enumerable.Empty<string>())
+                    .Where(groupName => !string.IsNullOrWhiteSpace(groupName))
+                    .Select(groupName => groupName.Trim()),
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static HashSet<string> GetNestedBoolGroupNames(Dictionary<string, Dictionary<string, bool>> values)
+        {
+            return new HashSet<string>(
+                (values ?? new Dictionary<string, Dictionary<string, bool>>())
+                    .SelectMany(context => context.Value?.Keys ?? Enumerable.Empty<string>())
+                    .Where(groupName => !string.IsNullOrWhiteSpace(groupName))
+                    .Select(groupName => groupName.Trim()),
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> FilterPatchGroupMembershipsByScope(
+            Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> source,
+            HashSet<string> channelResourceKeys)
+        {
+            Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> filtered =
+                new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (KeyValuePair<string, Dictionary<string, List<PatchTalkgroupMember>>> context in source ?? new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>())
+            {
+                Dictionary<string, List<PatchTalkgroupMember>> scopedGroups = new Dictionary<string, List<PatchTalkgroupMember>>(StringComparer.OrdinalIgnoreCase);
+                foreach (KeyValuePair<string, List<PatchTalkgroupMember>> group in context.Value ?? new Dictionary<string, List<PatchTalkgroupMember>>())
+                {
+                    List<PatchTalkgroupMember> scopedMembers = (group.Value ?? new List<PatchTalkgroupMember>())
+                        .Where(member => IsPatchMemberInScope(member, channelResourceKeys))
+                        .Select(member => new PatchTalkgroupMember
+                        {
+                            SystemName = member.SystemName,
+                            Tgid = member.Tgid
+                        })
+                        .ToList();
+
+                    if (scopedMembers.Count > 0 && !string.IsNullOrWhiteSpace(group.Key))
+                        scopedGroups[group.Key] = scopedMembers;
+                }
+
+                if (scopedGroups.Count > 0 && !string.IsNullOrWhiteSpace(context.Key))
+                    filtered[context.Key] = scopedGroups;
+            }
+
+            return filtered;
+        }
+
+        private static Dictionary<string, Dictionary<string, bool>> FilterNestedBoolDictionaryByGroupNames(
+            Dictionary<string, Dictionary<string, bool>> source,
+            HashSet<string> groupNames)
+        {
+            Dictionary<string, Dictionary<string, bool>> filtered =
+                new Dictionary<string, Dictionary<string, bool>>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (KeyValuePair<string, Dictionary<string, bool>> context in source ?? new Dictionary<string, Dictionary<string, bool>>())
+            {
+                Dictionary<string, bool> scopedGroups = (context.Value ?? new Dictionary<string, bool>())
+                    .Where(kvp => !string.IsNullOrWhiteSpace(kvp.Key) && groupNames.Contains(kvp.Key.Trim()))
+                    .ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase);
+
+                if (scopedGroups.Count > 0 && !string.IsNullOrWhiteSpace(context.Key))
+                    filtered[context.Key] = scopedGroups;
+            }
+
+            return filtered;
+        }
+
+        private static Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> MergePatchGroupMembershipsByScope(
+            Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> current,
+            Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> incoming,
+            HashSet<string> channelResourceKeys)
+        {
+            Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> merged =
+                ClonePatchGroupMemberships(current);
+
+            foreach (Dictionary<string, List<PatchTalkgroupMember>> groups in merged.Values)
+            {
+                foreach (string groupName in groups.Keys.ToList())
+                {
+                    groups[groupName] = (groups[groupName] ?? new List<PatchTalkgroupMember>())
+                        .Where(member => !IsPatchMemberInScope(member, channelResourceKeys))
+                        .ToList();
+
+                    if (groups[groupName].Count == 0)
+                        groups.Remove(groupName);
+                }
+            }
+
+            foreach (KeyValuePair<string, Dictionary<string, List<PatchTalkgroupMember>>> context in incoming ?? new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>())
+            {
+                if (!merged.TryGetValue(context.Key, out Dictionary<string, List<PatchTalkgroupMember>> groups))
+                {
+                    groups = new Dictionary<string, List<PatchTalkgroupMember>>(StringComparer.OrdinalIgnoreCase);
+                    merged[context.Key] = groups;
+                }
+
+                foreach (KeyValuePair<string, List<PatchTalkgroupMember>> group in context.Value ?? new Dictionary<string, List<PatchTalkgroupMember>>())
+                {
+                    List<PatchTalkgroupMember> scopedMembers = (group.Value ?? new List<PatchTalkgroupMember>())
+                        .Where(member => IsPatchMemberInScope(member, channelResourceKeys))
+                        .ToList();
+                    if (scopedMembers.Count == 0)
+                        continue;
+
+                    groups[group.Key] = NormalizePatchMembers(scopedMembers);
+                }
+            }
+
+            return merged
+                .Where(context => context.Value?.Count > 0)
+                .ToDictionary(context => context.Key, context => context.Value, StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static Dictionary<string, Dictionary<string, bool>> MergeNestedBoolDictionaryByGroupNames(
+            Dictionary<string, Dictionary<string, bool>> current,
+            Dictionary<string, Dictionary<string, bool>> incoming,
+            HashSet<string> groupNames)
+        {
+            Dictionary<string, Dictionary<string, bool>> merged =
+                CloneNestedBoolDictionary(current);
+
+            foreach (KeyValuePair<string, Dictionary<string, bool>> context in incoming ?? new Dictionary<string, Dictionary<string, bool>>())
+            {
+                if (!merged.TryGetValue(context.Key, out Dictionary<string, bool> groups))
+                {
+                    groups = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                    merged[context.Key] = groups;
+                }
+
+                foreach (KeyValuePair<string, bool> group in context.Value ?? new Dictionary<string, bool>())
+                {
+                    if (!string.IsNullOrWhiteSpace(group.Key) && groupNames.Contains(group.Key.Trim()))
+                        groups[group.Key] = group.Value;
+                }
+            }
+
+            return merged;
+        }
+
+        private static Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> ClonePatchGroupMemberships(
+            Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> source)
+        {
+            Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> clone =
+                new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (KeyValuePair<string, Dictionary<string, List<PatchTalkgroupMember>>> context in source ?? new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>())
+            {
+                Dictionary<string, List<PatchTalkgroupMember>> groups = new Dictionary<string, List<PatchTalkgroupMember>>(StringComparer.OrdinalIgnoreCase);
+                foreach (KeyValuePair<string, List<PatchTalkgroupMember>> group in context.Value ?? new Dictionary<string, List<PatchTalkgroupMember>>())
+                    groups[group.Key] = NormalizePatchMembers(group.Value);
+
+                clone[context.Key] = groups;
+            }
+
+            return clone;
+        }
+
+        private static Dictionary<string, Dictionary<string, bool>> CloneNestedBoolDictionary(Dictionary<string, Dictionary<string, bool>> source)
+        {
+            Dictionary<string, Dictionary<string, bool>> clone =
+                new Dictionary<string, Dictionary<string, bool>>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (KeyValuePair<string, Dictionary<string, bool>> context in source ?? new Dictionary<string, Dictionary<string, bool>>())
+                clone[context.Key] = new Dictionary<string, bool>(context.Value ?? new Dictionary<string, bool>(), StringComparer.OrdinalIgnoreCase);
+
+            return clone;
+        }
+
+        private static bool IsPatchMemberInScope(PatchTalkgroupMember member, HashSet<string> channelResourceKeys)
+        {
+            if (member == null)
+                return false;
+
+            string resourceKey = ResourceIdentity.Build(member.SystemName, member.Tgid);
+            return !string.IsNullOrWhiteSpace(resourceKey) && channelResourceKeys.Contains(resourceKey);
         }
 
         private static IEnumerable<SettingsTransferCategoryDefinition> ResolveTransferCategories(IEnumerable<string> categoryIds)

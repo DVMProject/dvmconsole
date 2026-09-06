@@ -4,9 +4,9 @@
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
         Title="Import / Export Settings"
         Width="760"
-        Height="560"
+        Height="680"
         MinWidth="660"
-        MinHeight="500"
+        MinHeight="580"
         WindowStartupLocation="CenterOwner"
         Style="{StaticResource MaterialDesignWindow}"
         Background="{DynamicResource MaterialDesignPaper}"
@@ -22,6 +22,8 @@
             <RowDefinition Height="*" />
             <RowDefinition Height="8" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="8" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="16" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
@@ -33,7 +35,7 @@
             <TextBlock Margin="0,6,0,0"
                        Opacity="0.8"
                        TextWrapping="Wrap"
-                       Text="Choose which settings to export into a portable JSON file, or choose what to import from another console profile. Press Ctrl+A to select all categories." />
+                       Text="Choose which settings to export into a portable JSON file, or choose what to import from another console profile. Press Ctrl+A to select all categories and zones." />
         </StackPanel>
 
         <Border Grid.Row="2"
@@ -69,13 +71,85 @@
             </ListBox>
         </Border>
 
-        <TextBlock Grid.Row="4"
+        <Border Grid.Row="4"
+                Padding="12"
+                CornerRadius="8"
+                BorderBrush="{DynamicResource MaterialDesignDivider}"
+                BorderThickness="1"
+                Background="{DynamicResource MaterialDesignCardBackground}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <DockPanel Grid.Row="0" LastChildFill="True">
+                    <StackPanel Orientation="Horizontal"
+                                DockPanel.Dock="Right"
+                                Margin="12,0,0,0">
+                        <Button Content="All Zones"
+                                Width="92"
+                                Height="28"
+                                Padding="8,0"
+                                Margin="0,0,8,0"
+                                Click="SelectAllZones_Click"
+                                Style="{StaticResource MaterialDesignOutlinedButton}" />
+                        <Button Content="No Zones"
+                                Width="92"
+                                Height="28"
+                                Padding="8,0"
+                                Click="SelectNoZones_Click"
+                                Style="{StaticResource MaterialDesignOutlinedButton}" />
+                    </StackPanel>
+
+                    <CheckBox x:Name="LimitToZonesCheckBox"
+                              Content="Limit transfer to selected zone tabs"
+                              FontWeight="SemiBold"
+                              IsEnabled="{Binding HasZoneItems}"
+                              Checked="LimitToZones_CheckedChanged"
+                              Unchecked="LimitToZones_CheckedChanged" />
+                </DockPanel>
+
+                <TextBlock Grid.Row="1"
+                           Margin="0,6,0,8"
+                           Opacity="0.72"
+                           FontSize="12"
+                           TextWrapping="Wrap"
+                           Text="{Binding ZoneScopeHint}" />
+
+                <ListBox x:Name="ZoneListBox"
+                         Grid.Row="2"
+                         ItemsSource="{Binding ZoneItems}"
+                         Height="104"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         SelectionMode="Extended"
+                         IsEnabled="{Binding ElementName=LimitToZonesCheckBox, Path=IsChecked}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <DockPanel Margin="4,3">
+                                <CheckBox DockPanel.Dock="Left"
+                                          Margin="0,0,10,0"
+                                          VerticalAlignment="Center"
+                                          IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBlock Text="{Binding ZoneName}"
+                                           VerticalAlignment="Center"
+                                           FontWeight="SemiBold" />
+                            </DockPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
+
+        <TextBlock Grid.Row="6"
                    x:Name="StatusTextBlock"
                    Visibility="Collapsed"
                    TextWrapping="Wrap"
                    Foreground="#FF2E7D32" />
 
-        <DockPanel Grid.Row="6"
+        <DockPanel Grid.Row="8"
                    LastChildFill="False">
             <StackPanel Orientation="Horizontal"
                         DockPanel.Dock="Left">

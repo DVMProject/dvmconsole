@@ -50,17 +50,50 @@ namespace dvmconsole
             public event PropertyChangedEventHandler PropertyChanged;
         }
 
+        public sealed class SettingsTransferZoneItem : INotifyPropertyChanged
+        {
+            private bool isSelected = true;
+
+            public string ZoneName { get; init; } = string.Empty;
+
+            public bool IsSelected
+            {
+                get => isSelected;
+                set
+                {
+                    if (isSelected == value)
+                        return;
+
+                    isSelected = value;
+                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected)));
+                }
+            }
+
+            public event PropertyChangedEventHandler PropertyChanged;
+        }
+
         public ObservableCollection<SettingsTransferCategoryItem> CategoryItems { get; }
+        public ObservableCollection<SettingsTransferZoneItem> ZoneItems { get; }
+        public bool HasZoneItems => ZoneItems.Count > 0;
+        public string ZoneScopeHint => HasZoneItems
+            ? "Leave this unchecked for a full profile transfer. Enable it to export/import only resource-scoped settings for the checked zone tabs."
+            : "Load a codeplug before opening this window to limit a transfer to specific zone tabs.";
 
         private readonly SettingsManager settingsManager;
         private readonly Action importedCallback;
+        private readonly Func<IEnumerable<string>, SettingsManager.SettingsTransferScope> zoneScopeFactory;
 
-        public SettingsTransferWindow(SettingsManager settingsManager, Action importedCallback)
+        public SettingsTransferWindow(
+            SettingsManager settingsManager,
+            Action importedCallback,
+            IEnumerable<string> zoneNames = null,
+            Func<IEnumerable<string>, SettingsManager.SettingsTransferScope> zoneScopeFactory = null)
         {
             InitializeComponent();
 
             this.settingsManager = settingsManager;
             this.importedCallback = importedCallback;
+            this.zoneScopeFactory = zoneScopeFactory;
 
             CategoryItems = new ObservableCollection<SettingsTransferCategoryItem>(
                 SettingsManager.GetSettingsTransferCategories()
@@ -69,6 +102,16 @@ namespace dvmconsole
                     Id = category.Id,
                     DisplayName = category.DisplayName,
                     Description = category.Description,
+                    IsSelected = true
+                }));
+
+            ZoneItems = new ObservableCollection<SettingsTransferZoneItem>(
+                (zoneNames ?? Enumerable.Empty<string>())
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(name => new SettingsTransferZoneItem
+                {
+                    ZoneName = name.Trim(),
                     IsSelected = true
                 }));
 
@@ -83,6 +126,16 @@ namespace dvmconsole
         private void SelectNone_Click(object sender, RoutedEventArgs e)
         {
             SetAllCategoriesSelected(false);
+        }
+
+        private void SelectAllZones_Click(object sender, RoutedEventArgs e)
+        {
+            SetAllZonesSelected(true);
+        }
+
+        private void SelectNoZones_Click(object sender, RoutedEventArgs e)
+        {
+            SetAllZonesSelected(false);
         }
 
         private void ExportSelected_Click(object sender, RoutedEventArgs e)
@@ -109,8 +162,12 @@ namespace dvmconsole
 
             try
             {
-                settingsManager.ExportSettingsTransfer(dialog.FileName, selectedCategories);
-                ShowStatus($"Exported {selectedCategories.Count} settings categories to {dialog.FileName}");
+                SettingsManager.SettingsTransferScope zoneScope = GetSelectedZoneScope();
+                settingsManager.ExportSettingsTransfer(dialog.FileName, selectedCategories, zoneScope);
+                string scopeText = zoneScope?.HasScope == true
+                    ? $" scoped to {zoneScope.ZoneNames.Count} zone tab(s)"
+                    : string.Empty;
+                ShowStatus($"Exported {selectedCategories.Count} settings categories{scopeText} to {dialog.FileName}");
             }
             catch (Exception ex)
             {
@@ -149,9 +206,13 @@ namespace dvmconsole
 
             try
             {
-                List<string> importedCategories = settingsManager.ImportSettingsTransfer(dialog.FileName, selectedCategories);
+                SettingsManager.SettingsTransferScope zoneScope = GetSelectedZoneScope();
+                List<string> importedCategories = settingsManager.ImportSettingsTransfer(dialog.FileName, selectedCategories, zoneScope);
                 importedCallback?.Invoke();
-                ShowStatus($"Imported: {string.Join(", ", importedCategories)}");
+                string scopeText = zoneScope?.HasScope == true
+                    ? $" scoped to {zoneScope.ZoneNames.Count} zone tab(s)"
+                    : string.Empty;
+                ShowStatus($"Imported{scopeText}: {string.Join(", ", importedCategories)}");
             }
             catch (Exception ex)
             {
@@ -170,6 +231,7 @@ namespace dvmconsole
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.A)
             {
                 SetAllCategoriesSelected(true);
+                SetAllZonesSelected(true);
                 e.Handled = true;
             }
         }
@@ -188,6 +250,41 @@ namespace dvmconsole
             foreach (SettingsTransferCategoryItem item in CategoryItems)
                 item.IsSelected = selected;
 
+            HideStatus();
+        }
+
+        private void SetAllZonesSelected(bool selected)
+        {
+            foreach (SettingsTransferZoneItem item in ZoneItems)
+                item.IsSelected = selected;
+
+            HideStatus();
+        }
+
+        private SettingsManager.SettingsTransferScope GetSelectedZoneScope()
+        {
+            if (LimitToZonesCheckBox.IsChecked != true)
+                return null;
+
+            List<string> selectedZones = ZoneItems
+                .Where(item => item.IsSelected)
+                .Select(item => item.ZoneName)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .ToList();
+
+            if (selectedZones.Count == 0)
+                throw new InvalidOperationException("Select at least one zone tab, or turn off zone-scoped transfer.");
+
+            SettingsManager.SettingsTransferScope scope = zoneScopeFactory?.Invoke(selectedZones) ??
+                new SettingsManager.SettingsTransferScope { ZoneNames = selectedZones };
+            if (scope?.HasScope != true)
+                throw new InvalidOperationException("The selected zone tabs do not contain any scoped settings targets.");
+
+            return scope;
+        }
+
+        private void LimitToZones_CheckedChanged(object sender, RoutedEventArgs e)
+        {
             HideStatus();
         }
 

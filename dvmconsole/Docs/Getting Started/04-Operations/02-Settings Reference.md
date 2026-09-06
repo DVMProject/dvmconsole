@@ -98,7 +98,11 @@ The transfer file is a portable JSON file. You can choose which categories to ex
 - call history window preferences
 - keybinds and selectable encryption state
 
-Press `Ctrl+A` in the transfer window to select all categories.
+Press `Ctrl+A` in the transfer window to select all categories and zone tabs.
+
+To share only part of a console layout, enable **Limit transfer to selected zone tabs** and check the zones you want to include. Zone-scoped transfers only include resource/tab-scoped data, such as resource positions, per-resource volume/routing, TAR settings, selectable encryption state, selected resources, web streams, tone presets, timed announcements, and patch/multi-select memberships for those resources.
+
+Global settings are intentionally skipped during a zone-scoped transfer so an imported file does not overwrite the other console's window size, global audio devices, clocks, keybinds, theme, startup behavior, or unrelated tabs.
 
 On import, only the selected categories are replaced. The console reloads the current codeplug/widgets after import so layout and routing changes take effect immediately.
 
