@@ -41,6 +41,8 @@ Zones become tabs across the top of the main console.
 
 Use zones to group resources by dispatch area, agency, site, or operational role.
 
+Zones can also be hidden from the main tab strip with **Settings > Tab Manager**. Hidden zones are collected behind a **More** tab and their resources stay off until the zone is shown again.
+
 ## Resources
 
 Resources are channel cards inside a zone.
@@ -91,6 +93,16 @@ Settings > Audio Settings
 ```
 
 Used to select the global microphone input, master output device, per-resource output overrides, and AGC behavior.
+
+## Tab Manager
+
+Open from:
+
+```
+Settings > Tab Manager
+```
+
+Used to choose which codeplug zones are shown across the top of the main console. Hidden zones retain saved layout and configuration, but their resources and web stream chips are not active while hidden.
 
 ## Alert Tone Manager
 

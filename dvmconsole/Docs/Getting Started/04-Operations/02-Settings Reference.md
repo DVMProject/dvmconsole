@@ -87,7 +87,7 @@ Use this to move console preferences between machines without manually copying `
 
 The transfer file is a portable JSON file. You can choose which categories to export or import, including:
 
-- console layout and widget positions
+- console layout, widget positions, and hidden zone tabs
 - audio routing and volumes
 - TAR configuration
 - patch and multi-select group state
@@ -111,6 +111,16 @@ Use with care. This can remove saved window layout, widget positions, audio rout
 ## Select Widgets to Display
 
 Controls whether major widget categories are shown.
+
+## Tab Manager
+
+Opens the Tab Manager window.
+
+Use this to choose which codeplug zones are shown in the main top tab strip.
+
+Hidden zones are moved behind the **More** tab. Their resources and web stream chips stay off while hidden, but saved layout and per-resource configuration are kept so the zone can be shown again later.
+
+At least one zone must remain visible.
 
 ## Commands > Tones > Manage Custom Alert Tones
 

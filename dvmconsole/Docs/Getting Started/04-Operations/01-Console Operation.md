@@ -94,6 +94,24 @@ Tabs show an audio activity icon when a resource on that tab is receiving. Long 
 
 ---
 
+# Hidden Zone Tabs
+
+Use **Settings > Tab Manager** to choose which codeplug zones appear across the top of the main console.
+
+Hidden zones are removed from the main tab strip and collected behind a **More** tab. The **More** tab lists hidden zones using their configured tab colors. Click a hidden zone in **More** to show that zone again.
+
+When a zone is hidden:
+
+- channel cards in that zone are not created
+- web stream chips in that zone are not created
+- selected-channel and active-web-stream restore state for that zone is cleared
+- patch and multi-select runtime activity ignores resources in that zone
+- timed announcements targeting that zone are skipped while hidden
+
+Saved layout, audio routing, TAR configuration, tone presets, and other per-resource settings are retained. If the zone is shown again, the resources come back using their saved settings.
+
+---
+
 # Web Stream Chips
 
 Codeplug-defined web stream chips appear on the zone tab where they are configured.

@@ -206,6 +206,8 @@ namespace dvmconsole
         private bool selectAll = false;
         private const double RESOURCE_TAB_HEIGHT = 36.0;
         private const double RESOURCE_TAB_HEADER_HEIGHT = 32.0;
+        private const double HIDDEN_ZONES_OVERFLOW_TAB_WIDTH = 92.0;
+        private const string HIDDEN_ZONES_OVERFLOW_TAB_TAG = "__hidden_zones_overflow__";
         private KeyboardManager keyboardManager;
 
         private CancellationTokenSource maintainenceCancelToken = new CancellationTokenSource();
@@ -450,6 +452,7 @@ namespace dvmconsole
         {
             // Clear existing tabs
             resourceTabs.Items.Clear();
+            tabScrollViewers.Clear();
             tabCanvases.Clear();
             tabHeaders.Clear();
             tabTextColors.Clear();
@@ -458,8 +461,32 @@ namespace dvmconsole
             // Create tabs from zones
             if (Codeplug.Zones != null && Codeplug.Zones.Count > 0)
             {
-                foreach (var zone in Codeplug.Zones)
+                List<Codeplug.Zone> zones = Codeplug.Zones
+                    .Where(zone => !string.IsNullOrWhiteSpace(zone?.Name))
+                    .ToList();
+                settingsManager.PruneHiddenResourceZones(zones.Select(zone => zone.Name));
+
+                HashSet<string> hiddenZoneNames = GetHiddenResourceZoneSet();
+                List<Codeplug.Zone> visibleZones = zones
+                    .Where(zone => !IsZoneHidden(zone, hiddenZoneNames))
+                    .ToList();
+
+                // Never leave the operator with an empty tab strip if an imported profile hid everything.
+                if (visibleZones.Count == 0 && zones.Count > 0)
+                {
+                    hiddenZoneNames.Remove(NormalizeZoneName(zones[0].Name));
+                    settingsManager.SaveHiddenResourceZones(hiddenZoneNames);
+                    visibleZones.Add(zones[0]);
+                }
+
+                foreach (var zone in visibleZones)
                     CreateNewTab(zone.Name, zone.TabColor, zone.TabTextColor);
+
+                List<Codeplug.Zone> hiddenZones = zones
+                    .Where(zone => IsZoneHidden(zone, hiddenZoneNames))
+                    .ToList();
+                if (hiddenZones.Count > 0)
+                    CreateHiddenZonesOverflowTab(hiddenZones);
 
                 // Apply current background to all newly created tabs
                 ApplyCurrentBackgroundToAllTabs();
@@ -540,6 +567,158 @@ namespace dvmconsole
             }
 
             UpdateResourceTabWidths();
+        }
+
+        private TabItem CreateHiddenZonesOverflowTab(List<Codeplug.Zone> hiddenZones)
+        {
+            TabItem tab = new TabItem
+            {
+                Tag = HIDDEN_ZONES_OVERFLOW_TAB_TAG
+            };
+
+            if (resourceTabs.Resources["TabItemStyle"] is Style tabStyle)
+                tab.Style = tabStyle;
+
+            Grid headerPanel = new Grid
+            {
+                Margin = new Thickness(0, 0, 2, 0)
+            };
+            headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            TextBlock headerText = new TextBlock
+            {
+                Text = $"More ({hiddenZones.Count})",
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextAlignment = TextAlignment.Center,
+                Foreground = settingsManager.DarkMode ? Brushes.White : Brushes.Black,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(4, 0, 4, 0)
+            };
+            Grid.SetColumn(headerText, 0);
+            headerPanel.Children.Add(headerText);
+
+            tab.Header = headerPanel;
+            ApplyCompactResourceTabChrome(tab, headerPanel);
+            tabHeaders[tab] = headerPanel;
+            tabTextColors[tab] = null;
+
+            ScrollViewer scrollViewer = new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch
+            };
+
+            StackPanel panel = new StackPanel
+            {
+                Margin = new Thickness(24),
+                MaxWidth = 760
+            };
+
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Hidden Zones",
+                FontSize = 20,
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 0, 6)
+            });
+            panel.Children.Add(new TextBlock
+            {
+                Text = "These zones are hidden from the main tab strip and their resources are kept off. Click a zone to show it again, or open the manager for bulk changes.",
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 18)
+            });
+
+            WrapPanel zoneButtons = new WrapPanel
+            {
+                Margin = new Thickness(0, 0, 0, 20)
+            };
+            Style buttonStyle = TryFindResource("MaterialDesignPaperDarkButton") as Style;
+            foreach (Codeplug.Zone hiddenZone in hiddenZones)
+            {
+                int channelCount = hiddenZone.Channels?.Count ?? 0;
+                int streamCount = hiddenZone.WebStreams?.Count ?? 0;
+                string streamText = streamCount == 1 ? "stream" : "streams";
+                string channelText = channelCount == 1 ? "channel" : "channels";
+                Brush zoneBackground = ResolveTabColorBrush(hiddenZone.TabColor, new SolidColorBrush(Color.FromRgb(48, 48, 48)));
+                Brush zoneForeground = ResolveTabColorBrush(hiddenZone.TabTextColor, settingsManager.DarkMode ? Brushes.White : Brushes.Black);
+                System.Windows.Controls.Button showButton = new System.Windows.Controls.Button
+                {
+                    Content = $"{hiddenZone.Name}  ({channelCount} {channelText}, {streamCount} {streamText})",
+                    Tag = hiddenZone.Name,
+                    MinWidth = 190,
+                    Height = 40,
+                    Margin = new Thickness(0, 0, 8, 8),
+                    Padding = new Thickness(12, 0, 12, 0),
+                    Background = zoneBackground,
+                    BorderBrush = zoneBackground,
+                    Foreground = zoneForeground,
+                    Style = buttonStyle
+                };
+                showButton.Click += ShowHiddenZone_Click;
+                zoneButtons.Children.Add(showButton);
+            }
+            panel.Children.Add(zoneButtons);
+
+            System.Windows.Controls.Button managerButton = new System.Windows.Controls.Button
+            {
+                Content = "Open Tab Manager",
+                Width = 180,
+                Height = 38,
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
+                Style = buttonStyle
+            };
+            managerButton.Click += TabManager_Click;
+            panel.Children.Add(managerButton);
+
+            scrollViewer.Content = panel;
+            tab.Content = scrollViewer;
+            tabScrollViewers[tab] = scrollViewer;
+            resourceTabs.Items.Add(tab);
+            UpdateResourceTabWidths();
+            return tab;
+        }
+
+        private HashSet<string> GetHiddenResourceZoneSet()
+        {
+            return new HashSet<string>(
+                settingsManager.GetHiddenResourceZones().Select(NormalizeZoneName),
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static bool IsZoneHidden(Codeplug.Zone zone, HashSet<string> hiddenZoneNames)
+        {
+            if (zone == null || hiddenZoneNames == null || hiddenZoneNames.Count == 0)
+                return false;
+
+            return hiddenZoneNames.Contains(NormalizeZoneName(zone.Name));
+        }
+
+        private static string NormalizeZoneName(string zoneName)
+        {
+            return zoneName?.Trim() ?? string.Empty;
+        }
+
+        private static bool IsHiddenZonesOverflowTab(TabItem tab)
+        {
+            return string.Equals(tab?.Tag as string, HIDDEN_ZONES_OVERFLOW_TAB_TAG, StringComparison.Ordinal);
+        }
+
+        private static Brush ResolveTabColorBrush(string color, Brush fallback)
+        {
+            if (string.IsNullOrWhiteSpace(color))
+                return fallback;
+
+            try
+            {
+                return (Brush)new BrushConverter().ConvertFrom(color.Trim());
+            }
+            catch
+            {
+                return fallback;
+            }
         }
 
         /// <summary>
@@ -854,6 +1033,7 @@ namespace dvmconsole
             bool hasPatchGroups = Codeplug?.Groups?.Any(pg => !string.IsNullOrWhiteSpace(pg?.Name)) == true;
             btnPatchGroups.IsEnabled = hasPatchGroups;
             menuPatchGroups.IsEnabled = hasPatchGroups;
+            menuTabManager.IsEnabled = Codeplug?.Zones?.Any(zone => !string.IsNullOrWhiteSpace(zone?.Name)) == true;
         }
 
         /// <summary>
@@ -891,6 +1071,7 @@ namespace dvmconsole
             btnCallHistory.IsEnabled = false;
             btnPatchGroups.IsEnabled = false;
             menuPatchGroups.IsEnabled = false;
+            menuTabManager.IsEnabled = false;
         }
 
         /// <summary>
@@ -1044,7 +1225,13 @@ namespace dvmconsole
         /// </summary>
         private void GenerateChannelWidgets()
         {
+            List<string> activeChannelKeys = CaptureActiveSelectedChannelKeys();
+            List<string> activeWebStreamNames = CaptureActiveWebStreamNames();
+
             StopAllWebStreams();
+            StopAllTonePlayback();
+            StopAllPatchPttTargets();
+            ClearRuntimeSelectedResourcesForWidgetRebuild();
 
             // Clear all canvases
             foreach (var canvas in tabCanvases.Values)
@@ -1064,11 +1251,19 @@ namespace dvmconsole
             // Create tabs from codeplug configuration (if codeplug exists)
             if (Codeplug != null)
                 CreateTabsFromCodeplug();
+
+            HashSet<string> hiddenZoneNames = Codeplug != null
+                ? GetHiddenResourceZoneSet()
+                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            PruneHiddenZoneSelectedResourceState(hiddenZoneNames);
             
             // Create a dictionary to map tab names to TabItems
             Dictionary<string, TabItem> tabNameToTabItem = new Dictionary<string, TabItem>();
             foreach (TabItem tab in resourceTabs.Items)
             {
+                if (IsHiddenZonesOverflowTab(tab))
+                    continue;
+
                 string tabName = null;
                 
                 // Check if header is a string (legacy) or a custom panel header
@@ -1159,6 +1354,9 @@ namespace dvmconsole
                 // iterate through the codeplug zones and begin building channel widgets
                 foreach (var zone in Codeplug.Zones ?? new List<Codeplug.Zone>())
                 {
+                    if (IsZoneHidden(zone, hiddenZoneNames))
+                        continue;
+
                     // Get the tab for this zone (zone name = tab name)
                     TabItem targetTab = defaultTab;
                     if (tabNameToTabItem.TryGetValue(zone.Name, out TabItem zoneTab))
@@ -1405,6 +1603,7 @@ namespace dvmconsole
 
             RestoreSelectedChannels();
             RestoreSelectedWebStreams();
+            RestoreRuntimeSelectedResourceSnapshot(activeChannelKeys, activeWebStreamNames, hiddenZoneNames);
             Cursor = Cursors.Arrow;
         }
 
@@ -1450,6 +1649,30 @@ namespace dvmconsole
                 streamChip.Stop();
         }
 
+        private void StopAllTonePlayback()
+        {
+            foreach (ChannelBox channel in GetAllCanvases()
+                .SelectMany(canvas => canvas.Children.OfType<ChannelBox>())
+                .ToList())
+            {
+                StopTonePlaybackForChannel(channel, sendFallbackEndSignal: channel.PageState || channel.HoldState);
+            }
+        }
+
+        private void ClearRuntimeSelectedResourcesForWidgetRebuild()
+        {
+            bool previousSuppressPersistence = suppressSelectedResourcePersistence;
+            suppressSelectedResourcePersistence = true;
+            try
+            {
+                selectedChannelsManager.ClearSelections();
+            }
+            finally
+            {
+                suppressSelectedResourcePersistence = previousSuppressPersistence;
+            }
+        }
+
         private IEnumerable<WebStreamChip> GetAllWebStreamChips()
         {
             return GetAllCanvases()
@@ -1474,6 +1697,84 @@ namespace dvmconsole
             foreach (WebStreamChip streamChip in GetAllWebStreamChips())
             {
                 if (!selectedStreams.Contains(streamChip.DisplayName))
+                    continue;
+
+                if (settingsManager.WebStreamVolumes.TryGetValue(streamChip.DisplayName, out double savedVolume))
+                    streamChip.SetInitialVolume(savedVolume);
+
+                streamChip.ApplyCurrentVolume();
+                streamChip.StartPlayback();
+            }
+        }
+
+        private List<string> CaptureActiveSelectedChannelKeys()
+        {
+            return GetSelectedChannelsForPersistence()
+                .Where(channel => channel.SystemName != PLAYBACKSYS &&
+                                  channel.ChannelName != PLAYBACKCHNAME &&
+                                  channel.DstId != PLAYBACKTG)
+                .Select(BuildChannelSelectionKey)
+                .Where(key => !string.IsNullOrWhiteSpace(key))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private List<string> CaptureActiveWebStreamNames()
+        {
+            return GetAllWebStreamChips()
+                .Where(stream => stream.IsActive)
+                .Select(stream => stream.DisplayName)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private void RestoreRuntimeSelectedResourceSnapshot(
+            IEnumerable<string> activeChannelKeys,
+            IEnumerable<string> activeWebStreamNames,
+            HashSet<string> hiddenZoneNames)
+        {
+            HashSet<string> hiddenChannelKeys = GetHiddenZoneChannelKeys(hiddenZoneNames);
+            HashSet<string> visibleActiveChannelKeys = new HashSet<string>(
+                (activeChannelKeys ?? Enumerable.Empty<string>())
+                    .Where(key => !string.IsNullOrWhiteSpace(key) && !hiddenChannelKeys.Contains(key.Trim()))
+                    .Select(key => key.Trim()),
+                StringComparer.OrdinalIgnoreCase);
+
+            if (visibleActiveChannelKeys.Count > 0)
+            {
+                bool previousSuppressPersistence = suppressSelectedResourcePersistence;
+                suppressSelectedResourcePersistence = true;
+                try
+                {
+                    foreach (ChannelBox channel in GetAllCanvases().SelectMany(canvas => canvas.Children.OfType<ChannelBox>()))
+                    {
+                        if (!visibleActiveChannelKeys.Contains(BuildChannelSelectionKey(channel)))
+                            continue;
+                        if (channel.IsSelected)
+                            continue;
+
+                        channel.IsSelected = true;
+                        selectedChannelsManager.AddSelectedChannel(channel);
+                        channel.ApplyCurrentVolume();
+                    }
+                }
+                finally
+                {
+                    suppressSelectedResourcePersistence = previousSuppressPersistence;
+                }
+            }
+
+            HashSet<string> hiddenWebStreamNames = GetHiddenZoneWebStreamNames(hiddenZoneNames);
+            HashSet<string> visibleActiveWebStreamNames = new HashSet<string>(
+                (activeWebStreamNames ?? Enumerable.Empty<string>())
+                    .Where(name => !string.IsNullOrWhiteSpace(name) && !hiddenWebStreamNames.Contains(name.Trim()))
+                    .Select(name => name.Trim()),
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (WebStreamChip streamChip in GetAllWebStreamChips())
+            {
+                if (!visibleActiveWebStreamNames.Contains(streamChip.DisplayName) || streamChip.IsActive)
                     continue;
 
                 if (settingsManager.WebStreamVolumes.TryGetValue(streamChip.DisplayName, out double savedVolume))
@@ -1545,6 +1846,7 @@ namespace dvmconsole
         {
             List<string> tabNames = resourceTabs.Items
                 .OfType<TabItem>()
+                .Where(tab => !IsHiddenZonesOverflowTab(tab))
                 .Select(GetTabDisplayName)
                 .Where(name => !string.IsNullOrWhiteSpace(name))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -1560,6 +1862,7 @@ namespace dvmconsole
         {
             return resourceTabs.Items
                 .OfType<TabItem>()
+                .Where(tab => !IsHiddenZonesOverflowTab(tab))
                 .GroupBy(GetTabDisplayName, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         }
@@ -1575,6 +1878,9 @@ namespace dvmconsole
             foreach (SettingsManager.AlertToneConfig alertToneConfig in settingsManager.GetAlertToneConfigs())
             {
                 if (string.IsNullOrWhiteSpace(alertToneConfig?.FilePath))
+                    continue;
+                if (!string.IsNullOrWhiteSpace(alertToneConfig.TabName) &&
+                    settingsManager.IsResourceZoneHidden(alertToneConfig.TabName))
                     continue;
 
                 AlertTone alertTone = new AlertTone(alertToneConfig.Id, alertToneConfig.FilePath, alertToneConfig.DisplayName);
@@ -2375,6 +2681,14 @@ namespace dvmconsole
                     continue;
                 }
 
+                if (IsHiddenResourceTarget(schedule.TargetResourceKey))
+                {
+                    schedulesChanged = true;
+                    AdvanceAlertToneSchedule(schedule, nowLocal);
+                    Log.WriteWarning($"Timed announcement '{schedule.DisplayName}' skipped because its target resource is in a hidden zone.");
+                    continue;
+                }
+
                 ChannelBox targetChannel = FindAlertToneScheduleTarget(schedule.TargetResourceKey);
                 if (targetChannel == null)
                 {
@@ -2401,6 +2715,15 @@ namespace dvmconsole
 
             if (schedulesChanged)
                 settingsManager.SaveAlertToneScheduleConfigs(schedules);
+        }
+
+        private bool IsHiddenResourceTarget(string targetResourceKey)
+        {
+            if (string.IsNullOrWhiteSpace(targetResourceKey) || Codeplug?.Zones == null)
+                return false;
+
+            HashSet<string> hiddenZoneNames = GetHiddenResourceZoneSet();
+            return GetHiddenZoneChannelKeys(hiddenZoneNames).Contains(targetResourceKey.Trim());
         }
 
         private ChannelBox FindAlertToneScheduleTarget(string targetResourceKey)
@@ -3246,7 +3569,7 @@ namespace dvmconsole
         }
 
         /// <summary>
-        /// Sizes resource tabs to the current window width without bolting on overflow chrome.
+        /// Sizes resource tabs to the current window width while keeping the overflow tab compact.
         /// </summary>
         private void UpdateResourceTabWidths()
         {
@@ -3256,6 +3579,8 @@ namespace dvmconsole
             List<TabItem> tabs = resourceTabs.Items.OfType<TabItem>().ToList();
             if (tabs.Count == 0)
                 return;
+            List<TabItem> overflowTabs = tabs.Where(IsHiddenZonesOverflowTab).ToList();
+            List<TabItem> visibleZoneTabs = tabs.Where(tab => !IsHiddenZonesOverflowTab(tab)).ToList();
 
             double availableWidth = resourceTabs.ActualWidth;
             if (availableWidth < 200)
@@ -3267,10 +3592,17 @@ namespace dvmconsole
             double computedWidth = Math.Floor((availableWidth - 8) / tabs.Count);
             computedWidth = Math.Max(72, computedWidth);
 
-            foreach (TabItem tab in tabs)
+            foreach (TabItem tab in visibleZoneTabs)
             {
                 tab.Width = computedWidth;
                 tab.MinWidth = 72;
+                tab.ClearValue(FrameworkElement.MaxWidthProperty);
+            }
+
+            foreach (TabItem tab in overflowTabs)
+            {
+                tab.Width = Math.Min(HIDDEN_ZONES_OVERFLOW_TAB_WIDTH, computedWidth);
+                tab.MinWidth = 78;
                 tab.ClearValue(FrameworkElement.MaxWidthProperty);
             }
         }
@@ -4439,6 +4771,77 @@ namespace dvmconsole
             };
 
             settingsTransferWindow.ShowDialog();
+        }
+
+        private void TabManager_Click(object sender, RoutedEventArgs e)
+        {
+            if (Codeplug?.Zones?.Any(zone => !string.IsNullOrWhiteSpace(zone?.Name)) != true)
+            {
+                MessageBox.Show("Load a codeplug before managing tabs.", "Tab Manager", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            TabManagerWindow tabManagerWindow = new TabManagerWindow(BuildTabManagerZoneItems())
+            {
+                Owner = this
+            };
+
+            if (tabManagerWindow.ShowDialog() != true)
+                return;
+
+            settingsManager.SaveHiddenResourceZones(tabManagerWindow.HiddenZoneNames);
+            GenerateChannelWidgets();
+        }
+
+        private List<TabManagerWindow.ZoneVisibilityItem> BuildTabManagerZoneItems()
+        {
+            HashSet<string> hiddenZoneNames = GetHiddenResourceZoneSet();
+
+            return (Codeplug?.Zones ?? new List<Codeplug.Zone>())
+                .Where(zone => !string.IsNullOrWhiteSpace(zone?.Name))
+                .GroupBy(zone => NormalizeZoneName(zone.Name), StringComparer.OrdinalIgnoreCase)
+                .Select(group => new TabManagerWindow.ZoneVisibilityItem
+                {
+                    ZoneName = group.First().Name,
+                    IsVisible = !hiddenZoneNames.Contains(NormalizeZoneName(group.Key)),
+                    ChannelCount = group.Sum(zone => zone.Channels?.Count ?? 0),
+                    WebStreamCount = group.Sum(zone => zone.WebStreams?.Count ?? 0)
+                })
+                .ToList();
+        }
+
+        private void ShowHiddenZone_Click(object sender, RoutedEventArgs e)
+        {
+            if ((sender as FrameworkElement)?.Tag is not string zoneName || string.IsNullOrWhiteSpace(zoneName))
+                return;
+
+            List<string> hiddenZoneNames = settingsManager.GetHiddenResourceZones();
+            int removed = hiddenZoneNames.RemoveAll(hiddenZone =>
+                string.Equals(NormalizeZoneName(hiddenZone), NormalizeZoneName(zoneName), StringComparison.OrdinalIgnoreCase));
+
+            if (removed == 0)
+                return;
+
+            settingsManager.SaveHiddenResourceZones(hiddenZoneNames);
+            GenerateChannelWidgets();
+            SelectResourceTabByName(zoneName);
+        }
+
+        private void SelectResourceTabByName(string tabName)
+        {
+            if (string.IsNullOrWhiteSpace(tabName))
+                return;
+
+            foreach (TabItem tab in resourceTabs.Items.OfType<TabItem>())
+            {
+                if (IsHiddenZonesOverflowTab(tab))
+                    continue;
+                if (!string.Equals(GetTabDisplayName(tab), tabName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                resourceTabs.SelectedItem = tab;
+                return;
+            }
         }
 
         private void ApplyImportedSettingsToRuntime()
@@ -6020,6 +6423,96 @@ namespace dvmconsole
             return selectedChannelsManager.GetSelectedChannels();
         }
 
+        private bool PruneHiddenZoneSelectedResourceState(HashSet<string> hiddenZoneNames, bool saveSettings = true)
+        {
+            if (Codeplug?.Zones == null || hiddenZoneNames == null || hiddenZoneNames.Count == 0)
+                return false;
+
+            HashSet<string> hiddenChannelKeys = GetHiddenZoneChannelKeys(hiddenZoneNames);
+            HashSet<string> hiddenChannelNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> hiddenWebStreamNames = GetHiddenZoneWebStreamNames(hiddenZoneNames);
+
+            foreach (Codeplug.Zone zone in Codeplug.Zones.Where(zone => IsZoneHidden(zone, hiddenZoneNames)))
+            {
+                foreach (Codeplug.Channel channel in zone.Channels ?? new List<Codeplug.Channel>())
+                {
+                    if (!string.IsNullOrWhiteSpace(channel.Name))
+                        hiddenChannelNames.Add(channel.Name.Trim());
+                }
+            }
+
+            bool changed = false;
+            if (settingsManager.SelectedChannels != null)
+            {
+                List<string> selectedChannels = settingsManager.SelectedChannels
+                    .Where(key => !string.IsNullOrWhiteSpace(key) &&
+                                  !hiddenChannelKeys.Contains(key.Trim()) &&
+                                  !hiddenChannelNames.Contains(key.Trim()))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (!settingsManager.SelectedChannels.SequenceEqual(selectedChannels, StringComparer.OrdinalIgnoreCase))
+                {
+                    settingsManager.SelectedChannels = selectedChannels;
+                    changed = true;
+                }
+            }
+
+            if (settingsManager.SelectedWebStreams != null)
+            {
+                List<string> selectedWebStreams = settingsManager.SelectedWebStreams
+                    .Where(name => !string.IsNullOrWhiteSpace(name) && !hiddenWebStreamNames.Contains(name.Trim()))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (!settingsManager.SelectedWebStreams.SequenceEqual(selectedWebStreams, StringComparer.OrdinalIgnoreCase))
+                {
+                    settingsManager.SelectedWebStreams = selectedWebStreams;
+                    changed = true;
+                }
+            }
+
+            if (changed && saveSettings)
+                settingsManager.SaveSettings();
+
+            return changed;
+        }
+
+        private HashSet<string> GetHiddenZoneChannelKeys(HashSet<string> hiddenZoneNames)
+        {
+            HashSet<string> hiddenChannelKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (Codeplug?.Zones == null || hiddenZoneNames == null || hiddenZoneNames.Count == 0)
+                return hiddenChannelKeys;
+
+            foreach (Codeplug.Channel channel in Codeplug.Zones
+                .Where(zone => IsZoneHidden(zone, hiddenZoneNames))
+                .SelectMany(zone => zone.Channels ?? new List<Codeplug.Channel>()))
+            {
+                string resourceKey = ResourceIdentity.Build(channel.System, channel.Tgid);
+                if (!string.IsNullOrWhiteSpace(resourceKey))
+                    hiddenChannelKeys.Add(resourceKey);
+            }
+
+            return hiddenChannelKeys;
+        }
+
+        private HashSet<string> GetHiddenZoneWebStreamNames(HashSet<string> hiddenZoneNames)
+        {
+            HashSet<string> hiddenWebStreamNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (Codeplug?.Zones == null || hiddenZoneNames == null || hiddenZoneNames.Count == 0)
+                return hiddenWebStreamNames;
+
+            foreach (Codeplug.WebStream stream in Codeplug.Zones
+                .Where(zone => IsZoneHidden(zone, hiddenZoneNames))
+                .SelectMany(zone => zone.WebStreams ?? new List<Codeplug.WebStream>()))
+            {
+                if (!string.IsNullOrWhiteSpace(stream.Name))
+                    hiddenWebStreamNames.Add(stream.Name.Trim());
+            }
+
+            return hiddenWebStreamNames;
+        }
+
         private void PruneSettingsForLoadedCodeplug()
         {
             IEnumerable<Codeplug.Channel> channels = GetConfiguredChannels().ToList();
@@ -6035,6 +6528,7 @@ namespace dvmconsole
                 .Where(c => c.SelectableEncryption && c.GetChannelMode() == Codeplug.ChannelMode.P25 && c.HasEncryptionConfig())
                 .Select(c => BuildSelectableEncryptionStateKey(c.System, c.Tgid));
 
+            settingsManager.PruneHiddenResourceZones(Codeplug?.Zones?.Select(z => z.Name) ?? Enumerable.Empty<string>());
             settingsManager.PruneResourceSettings(validChannelNames, validTalkgroupIds, validSystemNames, validWebStreamNames, validSelectableEncryptionKeys, validResourceKeys);
         }
 
@@ -6134,6 +6628,7 @@ namespace dvmconsole
         {
             Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> result =
                 new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> hiddenZoneNames = GetHiddenResourceZoneSet();
 
             foreach (KeyValuePair<string, List<SettingsManager.PatchTalkgroupMember>> kvp in
                 memberships ?? new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>())
@@ -6141,8 +6636,14 @@ namespace dvmconsole
                 Codeplug.Group group = Codeplug?.Groups?
                     .FirstOrDefault(g => string.Equals(g.Name, kvp.Key, StringComparison.OrdinalIgnoreCase));
 
-                if (group != null && group.IsMultiselectGroup())
-                    result[kvp.Key] = kvp.Value ?? new List<SettingsManager.PatchTalkgroupMember>();
+                if (group == null || !group.IsMultiselectGroup())
+                    continue;
+
+                List<SettingsManager.PatchTalkgroupMember> visibleMembers = (kvp.Value ?? new List<SettingsManager.PatchTalkgroupMember>())
+                    .Where(member => IsPatchMemberVisible(member, hiddenZoneNames))
+                    .ToList();
+                if (visibleMembers.Count > 0)
+                    result[kvp.Key] = visibleMembers;
             }
 
             return result;
@@ -6237,6 +6738,7 @@ namespace dvmconsole
                     .Where(g => !string.IsNullOrWhiteSpace(g?.Name) && g.IsPatchGroup())
                     .Select(g => g.Name),
                 StringComparer.OrdinalIgnoreCase);
+            HashSet<string> hiddenZoneNames = GetHiddenResourceZoneSet();
 
             Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> filtered = new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>();
             foreach (KeyValuePair<string, List<SettingsManager.PatchTalkgroupMember>> kvp in memberships ?? new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>())
@@ -6245,10 +6747,29 @@ namespace dvmconsole
                     continue;
                 if (enabledStates != null && (!enabledStates.TryGetValue(kvp.Key, out bool isEnabled) || !isEnabled))
                     continue;
-                filtered[kvp.Key] = kvp.Value ?? new List<SettingsManager.PatchTalkgroupMember>();
+
+                List<SettingsManager.PatchTalkgroupMember> visibleMembers = (kvp.Value ?? new List<SettingsManager.PatchTalkgroupMember>())
+                    .Where(member => IsPatchMemberVisible(member, hiddenZoneNames))
+                    .ToList();
+                if (visibleMembers.Count > 0)
+                    filtered[kvp.Key] = visibleMembers;
             }
 
             return filtered;
+        }
+
+        private bool IsPatchMemberVisible(SettingsManager.PatchTalkgroupMember member, HashSet<string> hiddenZoneNames)
+        {
+            if (member == null || string.IsNullOrWhiteSpace(member.SystemName) || string.IsNullOrWhiteSpace(member.Tgid))
+                return false;
+            if (Codeplug?.Zones == null)
+                return true;
+
+            return Codeplug.Zones.Any(zone =>
+                !IsZoneHidden(zone, hiddenZoneNames) &&
+                (zone.Channels ?? new List<Codeplug.Channel>()).Any(channel =>
+                    ResourceIdentity.SystemMatches(channel.System, member.SystemName) &&
+                    string.Equals(channel.Tgid?.Trim() ?? string.Empty, member.Tgid.Trim(), StringComparison.OrdinalIgnoreCase)));
         }
 
         /// <summary>

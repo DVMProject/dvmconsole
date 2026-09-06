@@ -390,6 +390,10 @@ namespace dvmconsole
         /// Full path to a user defined background image.
         /// </summary>
         public string UserBackgroundImage { get; set; } = null;
+        /// <summary>
+        /// Codeplug zones hidden from the main tab strip.
+        /// </summary>
+        public List<string> HiddenResourceZones { get; set; } = new List<string>();
 
         /// <summary>
         /// Flag enabling trace logging.
@@ -489,7 +493,7 @@ namespace dvmconsole
             {
                 Id = "layout",
                 DisplayName = "Console Layout",
-                Description = "Resource, system status, alert tone, web stream, window, canvas, and background placement.",
+                Description = "Resource, system status, alert tone, web stream, tab visibility, window, canvas, and background placement.",
                 PropertyNames = new List<string>
                 {
                     nameof(ChannelPositions),
@@ -501,7 +505,8 @@ namespace dvmconsole
                     nameof(CanvasWidth),
                     nameof(CanvasHeight),
                     nameof(Maximized),
-                    nameof(UserBackgroundImage)
+                    nameof(UserBackgroundImage),
+                    nameof(HiddenResourceZones)
                 }
             },
             new SettingsTransferCategoryDefinition
@@ -748,6 +753,7 @@ namespace dvmconsole
                         CanvasHeight = WindowHeight;
 
                     UserBackgroundImage = loadedSettings.UserBackgroundImage;
+                    HiddenResourceZones = NormalizeHiddenResourceZones(loadedSettings.HiddenResourceZones);
 
                     SaveTraceLog = loadedSettings.SaveTraceLog;
                     GlobalPTTShortcut = loadedSettings.GlobalPTTShortcut;
@@ -1064,10 +1070,57 @@ namespace dvmconsole
                 DEFAULT_CALL_HISTORY_WINDOW_WIDTH,
                 DEFAULT_CALL_HISTORY_WINDOW_HEIGHT);
             CallHistoryColumns = NormalizeCallHistoryColumns(CallHistoryColumns);
+            HiddenResourceZones = NormalizeHiddenResourceZones(HiddenResourceZones);
 
             if (AlertTones.Count == 0)
                 AlertTones = MigrateLegacyAlertTones();
             SyncLegacyAlertToneState();
+        }
+
+        public List<string> GetHiddenResourceZones()
+        {
+            HiddenResourceZones = NormalizeHiddenResourceZones(HiddenResourceZones);
+            return HiddenResourceZones.ToList();
+        }
+
+        public void SaveHiddenResourceZones(IEnumerable<string> zoneNames)
+        {
+            HiddenResourceZones = NormalizeHiddenResourceZones(zoneNames);
+            SaveSettings();
+        }
+
+        public bool IsResourceZoneHidden(string zoneName)
+        {
+            if (string.IsNullOrWhiteSpace(zoneName))
+                return false;
+
+            return GetHiddenResourceZones().Contains(zoneName.Trim(), StringComparer.OrdinalIgnoreCase);
+        }
+
+        public void PruneHiddenResourceZones(IEnumerable<string> validZoneNames)
+        {
+            HashSet<string> validZones = new HashSet<string>(
+                validZoneNames?.Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => name.Trim()) ?? Enumerable.Empty<string>(),
+                StringComparer.OrdinalIgnoreCase);
+
+            List<string> normalized = NormalizeHiddenResourceZones(HiddenResourceZones)
+                .Where(zoneName => validZones.Contains(zoneName))
+                .ToList();
+
+            if (HiddenResourceZones.SequenceEqual(normalized, StringComparer.OrdinalIgnoreCase))
+                return;
+
+            HiddenResourceZones = normalized;
+            SaveSettings();
+        }
+
+        private static List<string> NormalizeHiddenResourceZones(IEnumerable<string> zoneNames)
+        {
+            return (zoneNames ?? Enumerable.Empty<string>())
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Select(name => name.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
 
         /// <summary>
