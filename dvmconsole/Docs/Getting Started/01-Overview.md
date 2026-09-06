@@ -97,10 +97,10 @@ Used to select the global microphone input, master output device, per-resource o
 Open from:
 
 ```
-Settings > Alerts > Manage Alert Tones
+Commands > Tones > Manage Custom Alert Tones
 ```
 
-Used to add, rename, delete, replace, and assign custom alert tones to tabs.
+Used to add, rename, delete, replace, assign custom alert tones to tabs, and schedule timed announcements.
 
 ## Talkgroup Audio Recorder (TAR)
 

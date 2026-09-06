@@ -200,6 +200,8 @@ namespace dvmconsole
         private readonly Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> activeAlertToneGroupTargets = new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>(StringComparer.OrdinalIgnoreCase);
         private readonly object toneTransmitSync = new object();
         private readonly Dictionary<string, CancellationTokenSource> activeToneTransmitCancels = new Dictionary<string, CancellationTokenSource>(StringComparer.OrdinalIgnoreCase);
+        private System.Windows.Threading.DispatcherTimer alertToneScheduleTimer;
+        private bool alertToneScheduleCheckInProgress;
 
         private bool selectAll = false;
         private const double RESOURCE_TAB_HEIGHT = 36.0;
@@ -354,6 +356,7 @@ namespace dvmconsole
             // Initialize first tab
             InitializeFirstTab();
             InitializeToolbarClocks();
+            InitializeAlertToneScheduler();
         }
         
         /// <summary>
@@ -2306,6 +2309,132 @@ namespace dvmconsole
             await SendAlertToneAsync(e.AlertFilePath);
         }
 
+        private void InitializeAlertToneScheduler()
+        {
+            alertToneScheduleTimer = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background)
+            {
+                Interval = TimeSpan.FromSeconds(15)
+            };
+            alertToneScheduleTimer.Tick += AlertToneScheduleTimer_Tick;
+            alertToneScheduleTimer.Start();
+        }
+
+        private void ShutdownAlertToneScheduler()
+        {
+            if (alertToneScheduleTimer == null)
+                return;
+
+            alertToneScheduleTimer.Stop();
+            alertToneScheduleTimer.Tick -= AlertToneScheduleTimer_Tick;
+            alertToneScheduleTimer = null;
+        }
+
+        private async void AlertToneScheduleTimer_Tick(object sender, EventArgs e)
+        {
+            if (alertToneScheduleCheckInProgress || isShuttingDown)
+                return;
+
+            alertToneScheduleCheckInProgress = true;
+            try
+            {
+                await ProcessDueAlertToneSchedulesAsync();
+            }
+            finally
+            {
+                alertToneScheduleCheckInProgress = false;
+            }
+        }
+
+        private async Task ProcessDueAlertToneSchedulesAsync()
+        {
+            if (Codeplug == null)
+                return;
+
+            List<SettingsManager.AlertToneScheduleConfig> schedules = settingsManager.GetAlertToneScheduleConfigs();
+            if (schedules.Count == 0)
+                return;
+
+            Dictionary<string, SettingsManager.AlertToneConfig> alertTones = settingsManager.GetAlertToneConfigs()
+                .Where(tone => !string.IsNullOrWhiteSpace(tone.Id))
+                .ToDictionary(tone => tone.Id, StringComparer.OrdinalIgnoreCase);
+
+            DateTime nowLocal = DateTime.Now;
+            bool schedulesChanged = false;
+
+            foreach (SettingsManager.AlertToneScheduleConfig schedule in schedules
+                .Where(schedule => schedule.Enabled && schedule.NextRunLocal <= nowLocal)
+                .OrderBy(schedule => schedule.NextRunLocal))
+            {
+                if (!alertTones.TryGetValue(schedule.AlertToneId, out SettingsManager.AlertToneConfig alertTone) ||
+                    string.IsNullOrWhiteSpace(alertTone.FilePath) ||
+                    !File.Exists(alertTone.FilePath))
+                {
+                    schedule.Enabled = false;
+                    schedulesChanged = true;
+                    Log.WriteWarning($"Timed announcement '{schedule.DisplayName}' disabled because its alert tone file is missing.");
+                    continue;
+                }
+
+                ChannelBox targetChannel = FindAlertToneScheduleTarget(schedule.TargetResourceKey);
+                if (targetChannel == null)
+                {
+                    schedule.Enabled = false;
+                    schedulesChanged = true;
+                    Log.WriteWarning($"Timed announcement '{schedule.DisplayName}' disabled because its target resource was not found.");
+                    continue;
+                }
+
+                schedulesChanged = true;
+                bool sent = await SendAlertToneAsync(alertTone.FilePath, forHold: false, targetChannel);
+                schedule.LastRunUtc = DateTime.UtcNow;
+                if (sent)
+                {
+                    AdvanceAlertToneSchedule(schedule, nowLocal);
+                    Log.WriteLine($"Timed announcement '{schedule.DisplayName}' sent to {targetChannel.ChannelName}.");
+                }
+                else
+                {
+                    schedule.Enabled = false;
+                    Log.WriteWarning($"Timed announcement '{schedule.DisplayName}' disabled because the alert tone send failed.");
+                }
+            }
+
+            if (schedulesChanged)
+                settingsManager.SaveAlertToneScheduleConfigs(schedules);
+        }
+
+        private ChannelBox FindAlertToneScheduleTarget(string targetResourceKey)
+        {
+            if (string.IsNullOrWhiteSpace(targetResourceKey))
+                return null;
+
+            return GetAllCanvases()
+                .SelectMany(canvas => canvas.Children.OfType<ChannelBox>())
+                .FirstOrDefault(channel =>
+                    IsAlertToneScheduleTargetEligible(channel) &&
+                    string.Equals(BuildChannelSelectionKey(channel), targetResourceKey, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static void AdvanceAlertToneSchedule(SettingsManager.AlertToneScheduleConfig schedule, DateTime nowLocal)
+        {
+            if (!string.Equals(schedule.Mode, SettingsManager.ALERT_TONE_SCHEDULE_MODE_RECURRING, StringComparison.OrdinalIgnoreCase))
+            {
+                schedule.Enabled = false;
+                return;
+            }
+
+            double repeatMinutes = Math.Max(SettingsManager.ALERT_TONE_SCHEDULE_MIN_REPEAT_MINUTES, schedule.RepeatMinutes);
+            DateTime nextRun = schedule.NextRunLocal;
+            do
+            {
+                nextRun = nextRun.AddMinutes(repeatMinutes);
+            }
+            while (nextRun <= nowLocal);
+
+            schedule.NextRunLocal = nextRun;
+            schedule.RepeatMinutes = repeatMinutes;
+        }
+
         private async Task SendBuiltInAlertToneAsync(int alertNumber)
         {
             try
@@ -2357,18 +2486,17 @@ namespace dvmconsole
             _ = SendAlertToneAsync(filePath, forHold, targetChannel);
         }
 
-        private async Task SendAlertToneAsync(string filePath, bool forHold = false, ChannelBox targetChannel = null)
+        private async Task<bool> SendAlertToneAsync(string filePath, bool forHold = false, ChannelBox targetChannel = null)
         {
             if (!Dispatcher.CheckAccess())
             {
-                await await Dispatcher.InvokeAsync(() => SendAlertToneAsync(filePath, forHold, targetChannel));
-                return;
+                return await await Dispatcher.InvokeAsync(() => SendAlertToneAsync(filePath, forHold, targetChannel));
             }
 
             if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
             {
                 MessageBox.Show("Alert file not set or file not found.", "Alert", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
+                return false;
             }
 
             try
@@ -2381,11 +2509,13 @@ namespace dvmconsole
                     clearPageStateAfterSend: !forHold,
                     sendStartSignal: !forHold,
                     "Alert Tone");
+                return true;
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"Failed to process alert tone: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 Log.StackTrace(ex, false);
+                return false;
             }
         }
 
@@ -3367,6 +3497,7 @@ namespace dvmconsole
                 PersistSelectedResourceState(saveSettings: false);
 
             isShuttingDown = true;
+            ShutdownAlertToneScheduler();
             CancelKeyboardPttWatchdog();
             StopAllPatchPttTargets();
             tarManager.StopAllSessions();
@@ -3976,6 +4107,7 @@ namespace dvmconsole
         private void MainWindow_Closed(object sender, EventArgs e)
         {
             StopAllWebStreams();
+            ShutdownAlertToneScheduler();
             ShutdownToolbarClocks();
         }
 
@@ -4388,7 +4520,12 @@ namespace dvmconsole
                 })
                 .ToList();
 
-            AlertToneManagerWindow managerWindow = new AlertToneManagerWindow(alertTones, GetAlertToneTabNames(), items =>
+            AlertToneManagerWindow managerWindow = new AlertToneManagerWindow(
+                alertTones,
+                GetAlertToneTabNames(),
+                settingsManager.GetAlertToneScheduleConfigs(),
+                BuildAlertToneScheduleTargetOptions(),
+                (items, schedules) =>
             {
                 Dictionary<string, SettingsManager.AlertToneConfig> existingConfigs =
                     settingsManager.GetAlertToneConfigs()
@@ -4414,6 +4551,9 @@ namespace dvmconsole
                     .ToList();
 
                 settingsManager.SaveAlertToneConfigs(updatedConfigs);
+                settingsManager.SaveAlertToneScheduleConfigs((schedules ?? Array.Empty<AlertToneManagerWindow.AlertToneScheduleManagerItem>())
+                    .Where(schedule => updatedConfigs.Any(tone => string.Equals(tone.Id, schedule.AlertToneId, StringComparison.OrdinalIgnoreCase)))
+                    .Select(ToAlertToneScheduleConfig));
                 RefreshAlertToneWidgets();
             })
             {
@@ -4421,6 +4561,50 @@ namespace dvmconsole
             };
 
             managerWindow.ShowDialog();
+        }
+
+        private List<AlertToneManagerWindow.AlertToneTargetItem> BuildAlertToneScheduleTargetOptions()
+        {
+            return GetAllCanvases()
+                .SelectMany(canvas => canvas.Children.OfType<ChannelBox>())
+                .Where(IsAlertToneScheduleTargetEligible)
+                .GroupBy(BuildChannelSelectionKey, StringComparer.OrdinalIgnoreCase)
+                .Select(group =>
+                {
+                    ChannelBox channel = group.First();
+                    return new AlertToneManagerWindow.AlertToneTargetItem
+                    {
+                        Key = group.Key,
+                        DisplayName = $"{channel.ChannelName} ({NormalizeChannelSystemName(channel.SystemName)} TG {channel.DstId})"
+                    };
+                })
+                .OrderBy(target => target.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static bool IsAlertToneScheduleTargetEligible(ChannelBox channel)
+        {
+            return channel != null &&
+                   !channel.IsRxOnly &&
+                   channel.SystemName != PLAYBACKSYS &&
+                   channel.ChannelName != PLAYBACKCHNAME &&
+                   channel.DstId != PLAYBACKTG;
+        }
+
+        private static SettingsManager.AlertToneScheduleConfig ToAlertToneScheduleConfig(AlertToneManagerWindow.AlertToneScheduleManagerItem item)
+        {
+            return new SettingsManager.AlertToneScheduleConfig
+            {
+                Id = string.IsNullOrWhiteSpace(item?.Id) ? Guid.NewGuid().ToString("N") : item.Id,
+                DisplayName = string.IsNullOrWhiteSpace(item?.DisplayName) ? "Timed Announcement" : item.DisplayName.Trim(),
+                AlertToneId = item?.AlertToneId ?? string.Empty,
+                TargetResourceKey = item?.TargetResourceKey ?? string.Empty,
+                Enabled = item?.Enabled ?? true,
+                Mode = item?.Mode ?? SettingsManager.ALERT_TONE_SCHEDULE_MODE_ONCE,
+                NextRunLocal = item?.NextRunLocal ?? DateTime.Now.AddMinutes(5),
+                RepeatMinutes = item?.RepeatMinutes ?? 60.0,
+                LastRunUtc = item?.LastRunUtc
+            };
         }
 
         private void TonePresets_Click(object sender, RoutedEventArgs e)

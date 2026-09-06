@@ -25,7 +25,7 @@ Target TG unavailable on FNE
 Open from:
 
 ```
-Settings > Alerts > Manage Alert Tones
+Commands > Tones > Manage Custom Alert Tones
 ```
 
 The Alert Tone Manager allows operators or admins to:
@@ -35,10 +35,28 @@ The Alert Tone Manager allows operators or admins to:
 - rename an alert tone
 - replace the backing audio file
 - assign a tone to a tab
+- schedule one-time or recurring timed announcements
 - delete a custom alert tone
 - save changes without closing the manager
 
 Changes are saved through the normal settings system.
+
+---
+
+# Timed Announcements
+
+The Timed Announcements tab lets a custom alert tone play automatically on a specific resource.
+
+Each scheduled announcement stores:
+
+- enabled/disabled state
+- alert tone
+- target resource
+- one-time or recurring mode
+- next run time using the PC's local time
+- repeat interval in minutes for recurring announcements
+
+One-time announcements disable themselves after they run. Recurring announcements advance to the next future run time after each send.
 
 ---
 

@@ -112,9 +112,9 @@ Use with care. This can remove saved window layout, widget positions, audio rout
 
 Controls whether major widget categories are shown.
 
-## Alerts > Manage Alert Tones
+## Commands > Tones > Manage Custom Alert Tones
 
-Opens the Alert Tone Manager.
+Opens the Alert Tone Manager for custom WAV alert tones and timed announcements.
 
 ## Keyboard Shortcuts > Set Global PTT Keybind
 

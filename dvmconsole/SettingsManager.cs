@@ -43,6 +43,9 @@ namespace dvmconsole
         public const double TONE_PRESET_MIN_DURATION_SECONDS = 0.25;
         public const double TONE_PRESET_MAX_DURATION_SECONDS = 10.0;
         public const string DTMF_PRESET_STEP_KIND_DIGIT = "digit";
+        public const string ALERT_TONE_SCHEDULE_MODE_ONCE = "once";
+        public const string ALERT_TONE_SCHEDULE_MODE_RECURRING = "recurring";
+        public const double ALERT_TONE_SCHEDULE_MIN_REPEAT_MINUTES = 1.0;
         public const double AUDIO_INPUT_GAIN_MIN = 0.25;
         public const double AUDIO_INPUT_GAIN_MAX = 3.0;
         public const double AUDIO_INPUT_EQ_GAIN_DB_MIN = -12.0;
@@ -120,6 +123,10 @@ namespace dvmconsole
         /// Saved alert tone configurations using a stable ID.
         /// </summary>
         public List<AlertToneConfig> AlertTones { get; set; } = new List<AlertToneConfig>();
+        /// <summary>
+        /// Saved timed custom alert tone announcements.
+        /// </summary>
+        public List<AlertToneScheduleConfig> AlertToneSchedules { get; set; } = new List<AlertToneScheduleConfig>();
         /// <summary>
         /// Saved generated tone presets using a stable ID.
         /// </summary>
@@ -253,6 +260,22 @@ namespace dvmconsole
             public string FilePath { get; set; } = string.Empty;
             public string TabName { get; set; } = string.Empty;
             public ChannelPosition Position { get; set; } = new ChannelPosition { X = 20, Y = 20 };
+        }
+
+        /// <summary>
+        /// Persisted timed announcement for a custom alert tone.
+        /// </summary>
+        public class AlertToneScheduleConfig
+        {
+            public string Id { get; set; } = Guid.NewGuid().ToString("N");
+            public string DisplayName { get; set; } = string.Empty;
+            public string AlertToneId { get; set; } = string.Empty;
+            public string TargetResourceKey { get; set; } = string.Empty;
+            public bool Enabled { get; set; } = true;
+            public string Mode { get; set; } = ALERT_TONE_SCHEDULE_MODE_ONCE;
+            public DateTime NextRunLocal { get; set; } = DateTime.Now.AddMinutes(5);
+            public double RepeatMinutes { get; set; } = 60.0;
+            public DateTime? LastRunUtc { get; set; }
         }
 
         /// <summary>
@@ -533,10 +556,11 @@ namespace dvmconsole
             {
                 Id = "alerts",
                 DisplayName = "Alert Tones and Tone Presets",
-                Description = "Custom tone list, labels, file paths, tab assignments, tone positions, generated tone presets, and DTMF presets.",
+                Description = "Custom tone list, labels, file paths, tab assignments, tone positions, timed announcements, generated tone presets, and DTMF presets.",
                 PropertyNames = new List<string>
                 {
                     nameof(AlertTones),
+                    nameof(AlertToneSchedules),
                     nameof(AlertToneFilePaths),
                     nameof(AlertToneTabs),
                     nameof(AlertTonePositions),
@@ -663,6 +687,7 @@ namespace dvmconsole
                     WebStreamPositions = loadedSettings.WebStreamPositions ?? new Dictionary<string, ChannelPosition>();
                     AlertToneTabs = loadedSettings.AlertToneTabs ?? new Dictionary<string, string>();
                     AlertTones = loadedSettings.AlertTones ?? new List<AlertToneConfig>();
+                    AlertToneSchedules = NormalizeAlertToneScheduleConfigs(loadedSettings.AlertToneSchedules);
                     TonePresets = NormalizeTonePresetConfigs(loadedSettings.TonePresets);
                     DtmfPresets = NormalizeDtmfPresetConfigs(loadedSettings.DtmfPresets);
                     ChannelOutputDevices = loadedSettings.ChannelOutputDevices ?? new Dictionary<string, int>();
@@ -1002,6 +1027,7 @@ namespace dvmconsole
             WebStreamPositions ??= new Dictionary<string, ChannelPosition>();
             AlertToneTabs ??= new Dictionary<string, string>();
             AlertTones ??= new List<AlertToneConfig>();
+            AlertToneSchedules = NormalizeAlertToneScheduleConfigs(AlertToneSchedules);
             TonePresets = NormalizeTonePresetConfigs(TonePresets);
             DtmfPresets = NormalizeDtmfPresetConfigs(DtmfPresets);
             ChannelOutputDevices ??= new Dictionary<string, int>();
@@ -1141,6 +1167,81 @@ namespace dvmconsole
 
             SyncLegacyAlertToneState();
             SaveSettings();
+        }
+
+        /// <summary>
+        /// Returns a normalized copy of persisted timed alert announcements.
+        /// </summary>
+        public List<AlertToneScheduleConfig> GetAlertToneScheduleConfigs()
+        {
+            AlertToneSchedules = NormalizeAlertToneScheduleConfigs(AlertToneSchedules);
+            return CopyAlertToneScheduleConfigs(AlertToneSchedules);
+        }
+
+        /// <summary>
+        /// Saves timed alert announcements.
+        /// </summary>
+        public void SaveAlertToneScheduleConfigs(IEnumerable<AlertToneScheduleConfig> configs)
+        {
+            AlertToneSchedules = NormalizeAlertToneScheduleConfigs(configs);
+            SaveSettings();
+        }
+
+        private static List<AlertToneScheduleConfig> NormalizeAlertToneScheduleConfigs(IEnumerable<AlertToneScheduleConfig> configs)
+        {
+            return (configs ?? Enumerable.Empty<AlertToneScheduleConfig>())
+                .Where(config => config != null)
+                .Select(config =>
+                {
+                    string mode = NormalizeAlertToneScheduleMode(config.Mode);
+                    return new AlertToneScheduleConfig
+                    {
+                        Id = string.IsNullOrWhiteSpace(config.Id) ? Guid.NewGuid().ToString("N") : config.Id,
+                        DisplayName = string.IsNullOrWhiteSpace(config.DisplayName) ? "Timed Announcement" : config.DisplayName.Trim(),
+                        AlertToneId = config.AlertToneId?.Trim() ?? string.Empty,
+                        TargetResourceKey = config.TargetResourceKey?.Trim() ?? string.Empty,
+                        Enabled = config.Enabled,
+                        Mode = mode,
+                        NextRunLocal = NormalizeScheduleDateTime(config.NextRunLocal),
+                        RepeatMinutes = Math.Max(ALERT_TONE_SCHEDULE_MIN_REPEAT_MINUTES, config.RepeatMinutes),
+                        LastRunUtc = config.LastRunUtc
+                    };
+                })
+                .Where(config => !string.IsNullOrWhiteSpace(config.AlertToneId) && !string.IsNullOrWhiteSpace(config.TargetResourceKey))
+                .ToList();
+        }
+
+        public static string NormalizeAlertToneScheduleMode(string mode)
+        {
+            return string.Equals(mode, ALERT_TONE_SCHEDULE_MODE_RECURRING, StringComparison.OrdinalIgnoreCase)
+                ? ALERT_TONE_SCHEDULE_MODE_RECURRING
+                : ALERT_TONE_SCHEDULE_MODE_ONCE;
+        }
+
+        private static DateTime NormalizeScheduleDateTime(DateTime value)
+        {
+            if (value == default)
+                return DateTime.Now.AddMinutes(5);
+
+            return DateTime.SpecifyKind(value, DateTimeKind.Local);
+        }
+
+        private static List<AlertToneScheduleConfig> CopyAlertToneScheduleConfigs(IEnumerable<AlertToneScheduleConfig> configs)
+        {
+            return NormalizeAlertToneScheduleConfigs(configs)
+                .Select(config => new AlertToneScheduleConfig
+                {
+                    Id = config.Id,
+                    DisplayName = config.DisplayName,
+                    AlertToneId = config.AlertToneId,
+                    TargetResourceKey = config.TargetResourceKey,
+                    Enabled = config.Enabled,
+                    Mode = config.Mode,
+                    NextRunLocal = config.NextRunLocal,
+                    RepeatMinutes = config.RepeatMinutes,
+                    LastRunUtc = config.LastRunUtc
+                })
+                .ToList();
         }
 
         /// <summary>
@@ -1945,6 +2046,7 @@ namespace dvmconsole
             changed |= PruneDictionary(WebStreamPositions, webStreamNames);
             changed |= PruneDictionary(WebStreamVolumes, webStreamNames);
             changed |= PruneList(SelectedWebStreams, webStreamNames);
+            changed |= PruneAlertToneSchedules(resourceKeys);
 
             HashSet<string> selectableEncryptionKeys = new HashSet<string>(
                 validSelectableEncryptionKeys?.Where(v => !string.IsNullOrWhiteSpace(v)) ?? Enumerable.Empty<string>(),
@@ -1953,6 +2055,26 @@ namespace dvmconsole
 
             if (changed)
                 SaveSettings();
+        }
+
+        private bool PruneAlertToneSchedules(HashSet<string> validResourceKeys)
+        {
+            if (AlertToneSchedules == null || validResourceKeys == null)
+                return false;
+
+            int originalCount = AlertToneSchedules.Count;
+            HashSet<string> validAlertToneIds = new HashSet<string>(
+                (AlertTones ?? new List<AlertToneConfig>())
+                    .Where(tone => !string.IsNullOrWhiteSpace(tone?.Id))
+                    .Select(tone => tone.Id),
+                StringComparer.OrdinalIgnoreCase);
+
+            AlertToneSchedules = NormalizeAlertToneScheduleConfigs(AlertToneSchedules)
+                .Where(schedule => validAlertToneIds.Contains(schedule.AlertToneId) &&
+                                   validResourceKeys.Contains(schedule.TargetResourceKey))
+                .ToList();
+
+            return AlertToneSchedules.Count != originalCount;
         }
 
         private static bool PruneList(List<string> list, HashSet<string> validKeys)

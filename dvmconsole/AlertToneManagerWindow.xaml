@@ -3,10 +3,10 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
         Title="Alert Tone Manager"
-        Width="860"
-        Height="500"
-        MinWidth="720"
-        MinHeight="420"
+        Width="1220"
+        Height="650"
+        MinWidth="980"
+        MinHeight="560"
         WindowStartupLocation="CenterOwner"
         Style="{StaticResource MaterialDesignWindow}"
         Background="{DynamicResource MaterialDesignPaper}"
@@ -31,62 +31,162 @@
                        Text="Manage Custom Alert Tones" />
             <TextBlock Margin="0,6,0,0"
                        Opacity="0.8"
-                       Text="Add, remove, and assign custom alert tones to a tab." />
+                       Text="Add custom alert tones, assign them to tabs, and schedule timed announcements on specific resources." />
         </StackPanel>
 
-        <Border Grid.Row="2"
-                Padding="1"
-                CornerRadius="8"
-                BorderBrush="{DynamicResource MaterialDesignDivider}"
-                BorderThickness="1"
-                Background="{DynamicResource MaterialDesignCardBackground}">
-            <DataGrid x:Name="AlertToneGrid"
-                      ItemsSource="{Binding AlertTones}"
-                      AutoGenerateColumns="False"
-                      CanUserAddRows="False"
-                      CanUserDeleteRows="False"
-                      HeadersVisibility="Column"
-                      IsReadOnly="False"
-                      Margin="0"
-                      GridLinesVisibility="Horizontal"
-                      SelectionMode="Single"
-                      SelectionUnit="FullRow">
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="Name"
-                                        Binding="{Binding DisplayName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                        Width="180"
-                                        IsReadOnly="False" />
-                    <DataGridTemplateColumn Header="File"
-                                            Width="*">
-                        <DataGridTemplateColumn.CellTemplate>
-                            <DataTemplate>
-                                <DockPanel LastChildFill="True">
-                                    <Button Content="Browse"
-                                            Width="72"
-                                            Height="28"
-                                            Margin="0,0,10,0"
-                                            DockPanel.Dock="Left"
-                                            Click="Browse_Click"
-                                            Style="{StaticResource MaterialDesignOutlinedButton}" />
-                                    <TextBlock Text="{Binding FilePath}"
-                                               VerticalAlignment="Center"
-                                               TextTrimming="CharacterEllipsis" />
-                                </DockPanel>
-                            </DataTemplate>
-                        </DataGridTemplateColumn.CellTemplate>
-                    </DataGridTemplateColumn>
-                    <DataGridTemplateColumn Header="Tab"
-                                            Width="180">
-                        <DataGridTemplateColumn.CellTemplate>
-                            <DataTemplate>
-                                <ComboBox ItemsSource="{Binding DataContext.AvailableTabs, RelativeSource={RelativeSource AncestorType=Window}}"
-                                          SelectedItem="{Binding TabName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            </DataTemplate>
-                        </DataGridTemplateColumn.CellTemplate>
-                    </DataGridTemplateColumn>
-                </DataGrid.Columns>
-            </DataGrid>
-        </Border>
+        <TabControl Grid.Row="2">
+            <TabItem Header="Alert Tones">
+                <Border Padding="1"
+                        CornerRadius="8"
+                        BorderBrush="{DynamicResource MaterialDesignDivider}"
+                        BorderThickness="1"
+                        Background="{DynamicResource MaterialDesignCardBackground}">
+                    <DataGrid x:Name="AlertToneGrid"
+                              ItemsSource="{Binding AlertTones}"
+                              AutoGenerateColumns="False"
+                              CanUserAddRows="False"
+                              CanUserDeleteRows="False"
+                              HeadersVisibility="Column"
+                              IsReadOnly="False"
+                              Margin="0"
+                              GridLinesVisibility="Horizontal"
+                              SelectionMode="Single"
+                              SelectionUnit="FullRow">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Name"
+                                                Binding="{Binding DisplayName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                Width="180"
+                                                IsReadOnly="False" />
+                            <DataGridTemplateColumn Header="File"
+                                                    Width="*">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <DockPanel LastChildFill="True">
+                                            <Button Content="Browse"
+                                                    Width="72"
+                                                    Height="28"
+                                                    Margin="0,0,10,0"
+                                                    DockPanel.Dock="Left"
+                                                    Click="Browse_Click"
+                                                    Style="{StaticResource MaterialDesignOutlinedButton}" />
+                                            <TextBlock Text="{Binding FilePath}"
+                                                       VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </DockPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="Tab"
+                                                    Width="180">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <ComboBox ItemsSource="{Binding DataContext.AvailableTabs, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                  SelectedItem="{Binding TabName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Border>
+            </TabItem>
+
+            <TabItem Header="Timed Announcements">
+                <Grid Margin="0,10,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="8" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <DockPanel Grid.Row="0"
+                               LastChildFill="False">
+                        <TextBlock DockPanel.Dock="Left"
+                                   VerticalAlignment="Center"
+                                   Opacity="0.8"
+                                   Text="Schedule a custom alert tone for a specific resource. Times use this PC's local time." />
+
+                        <StackPanel Orientation="Horizontal"
+                                    DockPanel.Dock="Right">
+                            <Button Content="Add Announcement"
+                                    Width="150"
+                                    Height="32"
+                                    Margin="0,0,10,0"
+                                    Click="AddSchedule_Click"
+                                    Style="{StaticResource MaterialDesignRaisedButton}" />
+                            <Button Content="Delete Announcement"
+                                    Width="165"
+                                    Height="32"
+                                    Click="DeleteSchedule_Click"
+                                    Style="{StaticResource MaterialDesignOutlinedButton}" />
+                        </StackPanel>
+                    </DockPanel>
+
+                    <Border Grid.Row="2"
+                            Padding="1"
+                            CornerRadius="8"
+                            BorderBrush="{DynamicResource MaterialDesignDivider}"
+                            BorderThickness="1"
+                            Background="{DynamicResource MaterialDesignCardBackground}">
+                        <DataGrid x:Name="ScheduleGrid"
+                                  ItemsSource="{Binding Schedules}"
+                                  AutoGenerateColumns="False"
+                                  CanUserAddRows="False"
+                                  CanUserDeleteRows="False"
+                                  HeadersVisibility="Column"
+                                  IsReadOnly="False"
+                                  GridLinesVisibility="Horizontal"
+                                  SelectionMode="Single"
+                                  SelectionUnit="FullRow">
+                            <DataGrid.Columns>
+                                <DataGridCheckBoxColumn Header="On"
+                                                        Binding="{Binding Enabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                        Width="54" />
+                                <DataGridTextColumn Header="Name"
+                                                    Binding="{Binding DisplayName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                    Width="170" />
+                                <DataGridTemplateColumn Header="Alert Tone"
+                                                        Width="200">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <ComboBox ItemsSource="{Binding DataContext.AlertTones, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                      DisplayMemberPath="DisplayName"
+                                                      SelectedValuePath="Id"
+                                                      SelectedValue="{Binding AlertToneId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Header="Resource"
+                                                        Width="240">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <ComboBox ItemsSource="{Binding DataContext.TargetResources, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                      DisplayMemberPath="DisplayName"
+                                                      SelectedValuePath="Key"
+                                                      SelectedValue="{Binding TargetResourceKey, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Header="Mode"
+                                                        Width="120">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <ComboBox ItemsSource="{Binding DataContext.ScheduleModes, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                      SelectedItem="{Binding ModeDisplay, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTextColumn Header="Next Run"
+                                                    Binding="{Binding NextRunDisplay, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                    Width="150" />
+                                <DataGridTextColumn Header="Repeat Min"
+                                                    Binding="{Binding RepeatMinutes, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, StringFormat=F0}"
+                                                    Width="100" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Border>
+                </Grid>
+            </TabItem>
+        </TabControl>
 
         <TextBlock Grid.Row="4"
                    x:Name="StatusTextBlock"
@@ -97,14 +197,14 @@
                    LastChildFill="False">
             <StackPanel Orientation="Horizontal"
                         DockPanel.Dock="Left">
-                <Button Content="Add"
+                <Button Content="Add Tone"
                         Width="90"
                         Height="34"
                         Margin="0,0,10,0"
                         Click="Add_Click"
                         Style="{StaticResource MaterialDesignRaisedButton}" />
-                <Button Content="Delete"
-                        Width="90"
+                <Button Content="Delete Tone"
+                        Width="105"
                         Height="34"
                         Margin="0,0,10,0"
                         Click="Delete_Click"
