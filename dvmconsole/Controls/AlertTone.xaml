@@ -15,8 +15,8 @@
             </Grid.RowDefinitions>
 
             <Button Click="PlayAlert_Click" Height="28" Width="48" Margin="46,20,0,0" Padding="0" Grid.RowSpan="2"
-                    Style="{StaticResource MaterialDesignPaperDarkButton}">
-                <Image Height="28" Width="48" Source="/dvmconsole;component/Assets/alerttone.png" />
+                    Style="{StaticResource ConsoleToolbarButton}">
+                <Control Height="24" Width="28" Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Alert}" />
             </Button>
             <TextBlock Width="100" Height="24" HorizontalAlignment="Center" VerticalAlignment="Top" FontWeight="Bold" FontSize="10" TextWrapping="Wrap" TextAlignment="Center" Text="{Binding AlertFileName}" Background="{x:Null}" Margin="0,4,0,0" Grid.RowSpan="2" Foreground="White" />
         </Grid>

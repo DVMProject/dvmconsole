@@ -100,8 +100,8 @@
                 <!-- Open Codeplug -->
                 <Button Height="42" Width="42" Click="OpenCodeplug_Click" ToolTip="Open Codeplug" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image HorizontalAlignment="Center" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/config.png" IsHitTestVisible="False" />
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource ConsoleToolbarButton}">
+                    <Control Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Config}" />
                 </Button>
 
                 <Separator />
@@ -109,8 +109,8 @@
                 <!-- Global PTT -->
                 <Button x:Name="btnGlobalPtt" Height="42" Width="110" ToolTip="Global PTT" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image HorizontalAlignment="Center" VerticalAlignment="Center" Width="38" Height="34" Stretch="Uniform" Source="/dvmconsole;component/Assets/instantptt_toolbar.png" IsHitTestVisible="False" />
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource ConsoleToolbarButton}">
+                    <Control Width="38" Height="34" Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Ptt}" />
                 </Button>
 
                 <Separator />
@@ -118,49 +118,49 @@
                 <!-- Alert Tones -->
                 <Button x:Name="btnAlert1" Height="42" Width="42" Margin="0,0,4,0" Click="btnAlert1_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 1" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource ConsoleToolbarButton}">
                     <StackPanel Width="42">
-                        <Image HorizontalAlignment="Center" Width="32" Height="30" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" />
+                        <Control Height="28" Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Alert}" />
                         <TextBlock TextAlignment="Center">1</TextBlock>
                     </StackPanel>
                 </Button>
                 <Button x:Name="btnAlert2" Height="42" Width="42" Margin="0,0,4,0" Click="btnAlert2_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 2" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource ConsoleToolbarButton}">
                     <StackPanel Width="42">
-                        <Image HorizontalAlignment="Center" Width="32" Height="30" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" />
+                        <Control Height="28" Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Alert}" />
                         <TextBlock TextAlignment="Center">2</TextBlock>
                     </StackPanel>
                 </Button>
                 <Button x:Name="btnAlert3" Height="42" Width="42" Margin="0,0,4,0" Click="btnAlert3_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 3" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource ConsoleToolbarButton}">
                     <StackPanel Width="42">
-                        <Image HorizontalAlignment="Center" Width="32" Height="30" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" />
+                        <Control Height="28" Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Alert}" />
                         <TextBlock TextAlignment="Center">3</TextBlock>
                     </StackPanel>
                 </Button>
                 <Button x:Name="btnAlert4" Height="42" Width="42" Margin="0,0,4,0" Click="btnAlert4_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 4" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource ConsoleToolbarButton}">
                     <StackPanel Width="42">
-                        <Image HorizontalAlignment="Center" Width="32" Height="30" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" />
+                        <Control Height="28" Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Alert}" />
                         <TextBlock TextAlignment="Center">4</TextBlock>
                     </StackPanel>
                 </Button>
                 <Button x:Name="btnAlert5" Height="42" Width="42" Margin="0,0,4,0" Click="btnAlert5_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 5" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource ConsoleToolbarButton}">
                     <StackPanel Width="42">
-                        <Image HorizontalAlignment="Center" Width="32" Height="30" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" />
+                        <Control Height="28" Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Alert}" />
                         <TextBlock TextAlignment="Center">5</TextBlock>
                     </StackPanel>
                 </Button>
                 <Button x:Name="btnAlert6" Height="42" Width="42" Click="btnAlert6_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 6" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource ConsoleToolbarButton}">
                     <StackPanel Width="42">
-                        <Image HorizontalAlignment="Center" Width="32" Height="30" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" />
+                        <Control Height="28" Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Alert}" />
                         <TextBlock TextAlignment="Center">6</TextBlock>
                     </StackPanel>
                 </Button>
@@ -170,8 +170,8 @@
                 <!-- Page Subscriber -->
                 <Button x:Name="btnPageSub" Height="42" Width="42" Click="PageRID_Click" ToolTip="Page Subscriber" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image HorizontalAlignment="Center" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/page.png" IsHitTestVisible="False" />
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource ConsoleToolbarButton}">
+                    <Control Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Page}" />
                 </Button>
 
                 <Separator />
@@ -179,8 +179,8 @@
                 <!-- Select/Unselect All -->
                 <Button x:Name="btnSelectAll" Height="42" Width="42" Click="SelectAll_Click" ToolTip="Select/Unselect All On Current Tab" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image HorizontalAlignment="Center" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/select.png" IsHitTestVisible="False" />
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource ConsoleToolbarButton}">
+                    <Control Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Select}" />
                 </Button>
 
                 <Separator />
@@ -188,8 +188,8 @@
                 <!-- Encryption Key Information -->
                 <Button x:Name="btnKeyStatus" Height="42" Width="42" Click="KeyStatus_Click" ToolTip="Encryption Key Information" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image HorizontalAlignment="Center" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/key.png" IsHitTestVisible="False" />
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource ConsoleToolbarButton}">
+                    <Control Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Key}" />
                 </Button>
 
                 <Separator />
@@ -197,8 +197,8 @@
                 <!-- Event History -->
                 <Button x:Name="btnCallHistory" Height="42" Width="42" Click="CallHist_Click" ToolTip="Event History" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image HorizontalAlignment="Center" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/history.png" IsHitTestVisible="False" />
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource ConsoleToolbarButton}">
+                    <Control Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.History}" />
                 </Button>
 
                 <Separator />
@@ -206,8 +206,8 @@
                 <!-- Groups -->
                 <Button x:Name="btnPatchGroups" Height="42" Width="42" Click="PatchGroups_Click" ToolTip="Groups" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image HorizontalAlignment="Center" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/patch_edit_off.png" IsHitTestVisible="False" />
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource ConsoleToolbarButton}">
+                    <Control Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Groups}" />
                 </Button>
 
                 <Separator />
@@ -215,8 +215,8 @@
                 <!-- Audio Settings -->
                 <Button x:Name="btnAudioSettings" Height="42" Width="42" Click="AudioSettings_Click" ToolTip="Audio Settings" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image HorizontalAlignment="Center" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/audio.png" IsHitTestVisible="False" />
+                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource ConsoleToolbarButton}">
+                    <Control Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Audio}" />
                 </Button>
             </ToolBar>
 

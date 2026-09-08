@@ -165,7 +165,6 @@ namespace dvmconsole
         private SelectedChannelsManager selectedChannelsManager;
         private FlashingBackgroundManager flashingManager;
 
-        private Brush btnGlobalPttDefaultBg;
 
         private ChannelBox playbackChannelBox;
 
@@ -3719,6 +3718,7 @@ namespace dvmconsole
                 theme.SetBaseTheme(BaseTheme.Light);
 
             paletteHelper.SetTheme(theme);
+            ConsoleTheme.Apply(settingsManager.DarkMode);
 
             // Update tab text colors and selected background based on dark mode
             UpdateTabTextColors();
@@ -4384,7 +4384,6 @@ namespace dvmconsole
             menuDarkMode.IsChecked = settingsManager.DarkMode;
             UpdateBackground();
 
-            btnGlobalPttDefaultBg = btnGlobalPtt.Background;
 
             maintainenceTask = Task.Factory.StartNew(Maintainence, maintainenceCancelToken.Token);
 
@@ -7405,6 +7404,21 @@ namespace dvmconsole
 
         /** WPF Ribbon Controls */
 
+        private void SetGlobalPttVisualState(bool transmitting)
+        {
+            if (transmitting)
+            {
+                btnGlobalPtt.Background = ChannelBox.RED_GRADIENT;
+                btnGlobalPtt.Foreground = Brushes.White;
+            }
+            else
+            {
+                // Restore the style resources so a theme change also updates the idle button.
+                btnGlobalPtt.ClearValue(System.Windows.Controls.Control.BackgroundProperty);
+                btnGlobalPtt.ClearValue(System.Windows.Controls.Control.ForegroundProperty);
+            }
+        }
+
         /// <summary>
         /// 
         /// </summary>
@@ -7418,7 +7432,7 @@ namespace dvmconsole
             if (globalPttState && !CanStartPttOutsidePatchEditMode())
             {
                 globalPttState = false;
-                Dispatcher.Invoke(() => btnGlobalPtt.Background = btnGlobalPttDefaultBg);
+                Dispatcher.Invoke(() => SetGlobalPttVisualState(false));
                 return;
             }
 
@@ -7435,23 +7449,23 @@ namespace dvmconsole
                 if (globalPttState && primaryChannel.IsRxOnly)
                 {
                     globalPttState = false;
-                    Dispatcher.Invoke(() => btnGlobalPtt.Background = btnGlobalPttDefaultBg);
+                    Dispatcher.Invoke(() => SetGlobalPttVisualState(false));
                     return;
                 }
 
                 Dispatcher.Invoke(() =>
                 {
                     if (globalPttState)
-                        btnGlobalPtt.Background = ChannelBox.RED_GRADIENT;
+                        SetGlobalPttVisualState(true);
                     else
-                        btnGlobalPtt.Background = btnGlobalPttDefaultBg;
+                        SetGlobalPttVisualState(false);
                 });
                 
                 primaryChannel.TriggerPTTState(globalPttState);
                 if (globalPttState && !primaryChannel.PttState)
                 {
                     globalPttState = false;
-                    Dispatcher.Invoke(() => btnGlobalPtt.Background = btnGlobalPttDefaultBg);
+                    Dispatcher.Invoke(() => SetGlobalPttVisualState(false));
                 }
 
                 return;
@@ -7513,14 +7527,14 @@ namespace dvmconsole
                 {
                     Dispatcher.Invoke(() =>
                     {
-                        btnGlobalPtt.Background = ChannelBox.RED_GRADIENT;
+                        SetGlobalPttVisualState(true);
                     });
                 }
                 else
                 {
                     Dispatcher.Invoke(() =>
                     {
-                        btnGlobalPtt.Background = btnGlobalPttDefaultBg;
+                        SetGlobalPttVisualState(false);
                     });
                 }
 
@@ -7532,7 +7546,7 @@ namespace dvmconsole
             if (globalPttState && !anyGlobalPttChannelStarted)
             {
                 globalPttState = false;
-                Dispatcher.Invoke(() => btnGlobalPtt.Background = btnGlobalPttDefaultBg);
+                Dispatcher.Invoke(() => SetGlobalPttVisualState(false));
                 MessageBox.Show(FNE_DISCONNECTED_MESSAGE, "FNE Disconnected", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
