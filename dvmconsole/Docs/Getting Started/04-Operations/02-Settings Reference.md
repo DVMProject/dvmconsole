@@ -144,7 +144,7 @@ Chooses a custom background image for the main console.
 
 ## Dark Mode
 
-Toggles the app theme.
+Toggles the app theme. Dark mode is the default for new settings; your saved theme preference is restored on startup.
 
 ## Lock Widgets
 

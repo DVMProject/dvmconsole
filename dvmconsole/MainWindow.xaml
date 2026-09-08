@@ -275,7 +275,7 @@
         <ScrollViewer x:Name="canvasScrollViewer" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" Visibility="Collapsed">
             <Canvas x:Name="channelsCanvas" VerticalAlignment="Top">
                 <Canvas.Background>
-                    <ImageBrush x:Name="channelsCanvasBg" ImageSource="/dvmconsole;component/Assets/bg_main_hd_light.png" Stretch="UniformToFill" />
+                    <ImageBrush x:Name="channelsCanvasBg" ImageSource="/dvmconsole;component/Assets/bg_main_hd_dark.png" Stretch="UniformToFill" />
                 </Canvas.Background>
             </Canvas>
         </ScrollViewer>

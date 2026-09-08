@@ -368,7 +368,7 @@ namespace dvmconsole
         /// <summary>
         /// Flag indicating whether or not the window operates in dark mode.
         /// </summary>
-        public bool DarkMode { get; set; } = false;
+        public bool DarkMode { get; set; } = true;
         /// <summary>
         /// Last width of the console window.
         /// </summary>
