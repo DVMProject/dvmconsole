@@ -3,9 +3,9 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
         Title="FNE Connection Manager"
-        Width="760"
+        Width="1000"
         Height="420"
-        MinWidth="680"
+        MinWidth="940"
         MinHeight="320"
         WindowStartupLocation="CenterOwner"
         Style="{StaticResource MaterialDesignWindow}"
@@ -36,10 +36,10 @@
                 <ListView.View>
                     <GridView>
                         <GridViewColumn Header="System Name"
-                                        Width="240"
+                                        Width="180"
                                         DisplayMemberBinding="{Binding SystemName}" />
                         <GridViewColumn Header="Status"
-                                        Width="140">
+                                        Width="120">
                             <GridViewColumn.CellTemplate>
                                 <DataTemplate>
                                     <TextBlock Text="{Binding StatusText}"
@@ -50,7 +50,7 @@
                             </GridViewColumn.CellTemplate>
                         </GridViewColumn>
                         <GridViewColumn Header="Controls"
-                                        Width="280">
+                                        Width="340">
                             <GridViewColumn.CellTemplate>
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal">
@@ -67,7 +67,23 @@
                                                 Click="Restart_Click"
                                                 IsEnabled="{Binding ButtonsEnabled}"
                                                 Style="{StaticResource MaterialDesignRaisedButton}" />
+                                        <Button Content="Sync Aliases"
+                                                Width="120"
+                                                Height="30"
+                                                Margin="8,0,0,0"
+                                                Click="SyncAliases_Click"
+                                                IsEnabled="{Binding CanSyncAliases}"
+                                                ToolTip="Refresh RID aliases. Requires syncRadioAliases: true for this system in the codeplug."
+                                                Style="{StaticResource MaterialDesignRaisedButton}" />
                                     </StackPanel>
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+                        <GridViewColumn Header="RID Aliases" Width="220">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding AliasStatus}" ToolTip="{Binding AliasStatus}"
+                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                 </DataTemplate>
                             </GridViewColumn.CellTemplate>
                         </GridViewColumn>

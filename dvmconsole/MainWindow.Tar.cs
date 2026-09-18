@@ -315,7 +315,7 @@ namespace dvmconsole
         {
             try
             {
-                return AliasTools.GetAliasByRid(system?.RidAlias, subscriberId);
+                return AliasTools.ResolveAlias(system, subscriberId);
             }
             catch
             {

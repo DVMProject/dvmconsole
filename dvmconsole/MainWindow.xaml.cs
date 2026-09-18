@@ -1333,8 +1333,7 @@ namespace dvmconsole
                     }
 
                     // do we have aliases for this system?
-                    if (File.Exists(system.AliasPath))
-                        system.RidAlias = AliasTools.LoadAliases(system.AliasPath);
+                    LoadSystemAliases(system);
 
                     RegisterFneConnection(system, systemStatusBox, autoStart: true);
 

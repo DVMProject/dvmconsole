@@ -193,6 +193,8 @@ See **Configurations > Talkgroup Audio Recorder** for TAR recording, retention, 
 
 Opens manual connection controls for configured FNE systems.
 
+For systems configured with `syncRadioAliases: true`, **Sync Aliases** refreshes the FNE's RID alias list without restarting the connection. **RID Aliases** shows the sync status and alias count. Automatic refresh also runs after connecting; failures retain the previous list. See **Configurations > RID Aliases** for FNE and codeplug requirements.
+
 ---
 
 # Help Menu

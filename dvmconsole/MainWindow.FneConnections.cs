@@ -24,6 +24,8 @@ namespace dvmconsole
         public bool IsConnected { get; init; }
         public bool IsBusy { get; init; }
         public bool IsStarted { get; init; }
+        public bool CanSyncAliases { get; init; }
+        public string AliasStatus { get; init; } = string.Empty;
         public string StatusText => IsConnected ? "Connected" : "Disconnected";
     }
 
@@ -40,6 +42,8 @@ namespace dvmconsole
             public bool DesiredStarted { get; set; }
             public bool IsInitialAutoStartPending { get; set; }
             public bool SuppressNextDisconnectChime { get; set; }
+            public CancellationTokenSource AliasSyncCancellation { get; set; }
+            public string AliasStatus { get; set; } = string.Empty;
             public int LastHealthPingsSent { get; set; }
             public int LastHealthPingsAcked { get; set; }
             public DateTime LastHealthProgressUtc { get; set; } = DateTime.UtcNow;
@@ -230,6 +234,7 @@ namespace dvmconsole
             {
                 SystemName = system.Name,
                 SystemConfig = system,
+                AliasStatus = GetSavedAliasStatus(system),
                 StatusBox = statusBox,
                 IsConnected = false,
                 IsBusy = false,
@@ -309,6 +314,7 @@ namespace dvmconsole
                     PublishConnectionState(entry);
                     ScheduleDeferredStartupKeyRequests(entry.SystemName);
                     PlayFneConnectedChime(entry);
+                    _ = SyncFneAliasesAsync(entry.SystemName);
                 });
             };
 
@@ -333,6 +339,7 @@ namespace dvmconsole
 
         private void RemovePeerForEntry(FneConnectionEntry entry)
         {
+            CancelFneAliasSync(entry);
             if (entry?.Peer?.peer != null)
             {
                 if (entry.PeerConnectedHandler != null)
@@ -352,6 +359,7 @@ namespace dvmconsole
 
         private void ApplyDisconnectedState(FneConnectionEntry entry, bool recordEvent = false)
         {
+            CancelFneAliasSync(entry);
             bool wasConnected = entry.IsConnected;
             entry.IsConnected = false;
             if (recordEvent && wasConnected)
@@ -673,7 +681,9 @@ namespace dvmconsole
                 SystemName = entry.SystemName,
                 IsConnected = entry.IsConnected,
                 IsBusy = entry.IsBusy,
-                IsStarted = entry.Peer?.IsStarted == true
+                IsStarted = entry.Peer?.IsStarted == true,
+                CanSyncAliases = entry.SystemConfig.SyncRadioAliases && entry.IsConnected && !entry.IsBusy && entry.AliasSyncCancellation == null,
+                AliasStatus = entry.AliasStatus
             };
         }
     }

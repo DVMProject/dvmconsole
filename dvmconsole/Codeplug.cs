@@ -124,6 +124,16 @@ namespace dvmconsole
             /// </summary>
             public string AliasPath { get; set; } = "./alias.yml";
             /// <summary>
+            /// Automatically download RID aliases from the connected FNE.
+            /// </summary>
+            public bool SyncRadioAliases { get; set; } = false;
+            /// <summary>
+            /// Last complete FNE alias snapshot. Published snapshots are never modified.
+            /// </summary>
+            [YamlIgnore]
+            [Newtonsoft.Json.JsonIgnore]
+            public IReadOnlyDictionary<int, string> NetworkRidAliases { get; set; }
+            /// <summary>
             /// 
             /// </summary>
             public List<RadioAlias> RidAlias { get; set; } = null;

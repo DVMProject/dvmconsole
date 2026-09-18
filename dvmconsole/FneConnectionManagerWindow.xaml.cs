@@ -23,6 +23,20 @@ namespace dvmconsole
         {
             private bool isConnected;
             private bool isBusy;
+            private bool canSyncAliases;
+            private string aliasStatus;
+
+            public bool CanSyncAliases
+            {
+                get => canSyncAliases;
+                set { canSyncAliases = value; NotifyPropertyChanged(); }
+            }
+
+            public string AliasStatus
+            {
+                get => aliasStatus;
+                set { aliasStatus = value; NotifyPropertyChanged(); }
+            }
 
             public string SystemName { get; init; } = string.Empty;
 
@@ -116,6 +130,12 @@ namespace dvmconsole
             await mainWindow.RestartFneSystemAsync(row.SystemName);
         }
 
+        private async void SyncAliases_Click(object sender, RoutedEventArgs e)
+        {
+            if (Owner is MainWindow mainWindow && sender is FrameworkElement element && element.DataContext is FneConnectionRow row)
+                await mainWindow.SyncFneAliasesAsync(row.SystemName);
+        }
+
         private void MainWindow_FneConnectionStateChanged(FneConnectionSnapshot snapshot)
         {
             Dispatcher.BeginInvoke(() =>
@@ -136,6 +156,8 @@ namespace dvmconsole
 
                 row.IsConnected = snapshot.IsConnected;
                 row.IsBusy = snapshot.IsBusy;
+                row.CanSyncAliases = snapshot.CanSyncAliases;
+                row.AliasStatus = snapshot.AliasStatus;
             });
         }
 
@@ -148,7 +170,9 @@ namespace dvmconsole
                 {
                     SystemName = snapshot.SystemName,
                     IsConnected = snapshot.IsConnected,
-                    IsBusy = snapshot.IsBusy
+                    IsBusy = snapshot.IsBusy,
+                    CanSyncAliases = snapshot.CanSyncAliases,
+                    AliasStatus = snapshot.AliasStatus
                 });
             }
         }

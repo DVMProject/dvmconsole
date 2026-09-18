@@ -75,6 +75,7 @@ Fields:
 - `encrypted`: whether the FNE connection uses transport encryption.
 - `presharedKey`: key used when `encrypted` is enabled.
 - `aliasPath`: optional RID alias YAML file.
+- `syncRadioAliases`: optional, defaults to `false`. Download and cache this system's RID aliases from a supporting FNE after connecting. See **RID Aliases** for requirements and local-file fallback.
 
 ---
 
