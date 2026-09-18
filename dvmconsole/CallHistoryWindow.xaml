@@ -10,9 +10,14 @@
         mc:Ignorable="d" Icon="/dvmconsole;component/Assets/history.png"
         Title="Call History" Height="450" Width="551" WindowStartupLocation="CenterOwner">
     <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
         <DataGrid x:Name="CallHistoryGrid" ItemsSource="{Binding CallHistory}" AutoGenerateColumns="False" IsReadOnly="True" Margin="10">
             <DataGrid.RowStyle>
                 <Style TargetType="DataGridRow">
+                    <EventSetter Event="MouseDoubleClick" Handler="CallHistoryRow_MouseDoubleClick" />
                     <Setter Property="Background" Value="{Binding BackgroundColor}" />
                     <Setter Property="Foreground" Value="{Binding ForegroundColor}" />
                 </Style>
@@ -25,5 +30,11 @@
                 <DataGridTextColumn x:Name="TgidColumn" Header="TGID" Binding="{Binding DstIdText}" Width="80" />
             </DataGrid.Columns>
         </DataGrid>
+        <DockPanel Grid.Row="1" Margin="10,0,10,10">
+            <Button x:Name="StopPlaybackButton" DockPanel.Dock="Right" Content="Stop" Margin="10,0,0,0"
+                    IsEnabled="False" Click="StopPlayback_Click" ToolTip="Stop TAR playback" />
+            <TextBlock x:Name="PlaybackStatusText" Text="Double-click a recorded call to play TAR audio."
+                       VerticalAlignment="Center" TextWrapping="Wrap" />
+        </DockPanel>
     </Grid>
 </Window>

@@ -15,10 +15,14 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
+
+using NAudio.Wave;
 
 namespace dvmconsole
 {
@@ -83,6 +87,11 @@ namespace dvmconsole
         public uint? StreamId { get; set; }
 
         /// <summary>
+        /// The exact TAR session for this call, completed after its recording is saved.
+        /// </summary>
+        public Task<TarRecordingMetadata> Recording { get; set; }
+
+        /// <summary>
         /// Background color for call entry.
         /// </summary>
         public Brush BackgroundColor
@@ -138,6 +147,8 @@ namespace dvmconsole
         private SettingsManager settingsManager;
         private Dictionary<string, DataGridColumn> columnsByKey;
         private bool eventHistoryMode;
+        private WaveOut playbackOutput;
+        private AudioFileReader playbackReader;
 
         /*
         ** Properties
@@ -193,9 +204,109 @@ namespace dvmconsole
         /// <param name="e"></param>
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
+            StopPlayback();
             SaveWindowSettings();
             e.Cancel = true;
             this.Hide();
+        }
+
+        /// <summary>
+        /// Plays the recording belonging to the clicked call, ignoring headers and event rows.
+        /// </summary>
+        private void CallHistoryRow_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton != MouseButton.Left || sender is not DataGridRow row || row.Item is not CallEntry entry || entry.IsEvent)
+                return;
+
+            e.Handled = true;
+            PlayRecording(entry);
+        }
+
+        private void PlayRecording(CallEntry entry)
+        {
+            StopPlayback();
+            if (entry.Recording == null)
+            {
+                PlaybackStatusText.Text = "No TAR recording was captured for this call.";
+                return;
+            }
+
+            if (!entry.Recording.IsCompleted)
+            {
+                PlaybackStatusText.Text = "This call is still recording or being saved. Try again shortly.";
+                return;
+            }
+
+            TarRecordingMetadata recording = entry.Recording.IsCompletedSuccessfully ? entry.Recording.Result : null;
+            if (recording == null)
+            {
+                PlaybackStatusText.Text = "No TAR audio was saved for this call.";
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(recording.FilePath) || !File.Exists(recording.FilePath))
+            {
+                PlaybackStatusText.Text = "The TAR recording for this call is no longer available.";
+                return;
+            }
+
+            try
+            {
+                playbackReader = new AudioFileReader(recording.FilePath);
+                playbackOutput = new WaveOut();
+                playbackOutput.PlaybackStopped += PlaybackOutput_PlaybackStopped;
+                playbackOutput.Init(playbackReader);
+                playbackOutput.Play();
+                StopPlaybackButton.IsEnabled = true;
+                PlaybackStatusText.Text = $"Playing {entry.Channel} / RID {entry.SrcIdText} at {entry.Timestamp}";
+            }
+            catch (Exception ex)
+            {
+                StopPlayback();
+                PlaybackStatusText.Text = $"Unable to play TAR recording. {ex.Message}";
+            }
+        }
+
+        private void PlaybackOutput_PlaybackStopped(object sender, StoppedEventArgs e)
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                // A queued completion from the previous call must not stop a newer playback.
+                if (!ReferenceEquals(sender, playbackOutput))
+                    return;
+
+                StopPlayback();
+                PlaybackStatusText.Text = e.Exception == null ? "Playback finished." : $"Unable to play TAR recording. {e.Exception.Message}";
+            }));
+        }
+
+        private void StopPlayback_Click(object sender, RoutedEventArgs e)
+        {
+            StopPlayback();
+        }
+
+        private void StopPlayback()
+        {
+            if (playbackOutput != null)
+            {
+                playbackOutput.PlaybackStopped -= PlaybackOutput_PlaybackStopped;
+                try
+                {
+                    playbackOutput.Stop();
+                }
+                catch
+                {
+                    /* best effort */
+                }
+
+                playbackOutput.Dispose();
+                playbackOutput = null;
+            }
+
+            playbackReader?.Dispose();
+            playbackReader = null;
+            StopPlaybackButton.IsEnabled = false;
+            PlaybackStatusText.Text = "Double-click a recorded call to play TAR audio.";
         }
 
         private void ApplyWindowPlacement()
@@ -291,7 +402,9 @@ namespace dvmconsole
         /// <param name="srcId"></param>
         /// <param name="dstId"></param>
         /// <param name="ridAlias"></param>
-        public void AddCall(string channel, int srcId, int dstId, string ridAlias, string timestamp)
+        /// <param name="timestamp"></param>
+        /// <param name="recording"></param>
+        public void AddCall(string channel, int srcId, int dstId, string ridAlias, string timestamp, Task<TarRecordingMetadata> recording = null)
         {
             Dispatcher.Invoke(() =>
             {
@@ -306,6 +419,7 @@ namespace dvmconsole
                     DstIdText = dstId.ToString(),
                     RidAlias = ridAlias ?? string.Empty,
                     Timestamp = timestamp,
+                    Recording = recording,
                     IsEvent = false,
                     BackgroundColor = Brushes.Transparent
                 });
@@ -349,7 +463,8 @@ namespace dvmconsole
         /// <param name="ridAlias"></param>
         /// <param name="timestamp"></param>
         /// <param name="streamId"></param>
-        public void AddConsoleTransmission(string channel, int srcId, int dstId, string ridAlias, string timestamp, uint streamId)
+        /// <param name="recording"></param>
+        public void AddConsoleTransmission(string channel, int srcId, int dstId, string ridAlias, string timestamp, uint streamId, Task<TarRecordingMetadata> recording = null)
         {
             if (!eventHistoryMode || string.IsNullOrWhiteSpace(channel) || streamId == 0)
                 return;
@@ -369,6 +484,7 @@ namespace dvmconsole
                     Timestamp = timestamp,
                     IsConsoleTx = true,
                     StreamId = streamId,
+                    Recording = recording,
                     ForegroundColor = Brushes.White,
                     BackgroundColor = Brushes.Red
                 });

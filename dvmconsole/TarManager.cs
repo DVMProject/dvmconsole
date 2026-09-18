@@ -44,6 +44,7 @@ namespace dvmconsole
             public string SessionKey { get; init; } = string.Empty;
             public string ChannelName { get; init; } = string.Empty;
             public TarRecordingMetadata Metadata { get; init; }
+            public TaskCompletionSource<TarRecordingMetadata> Completion { get; } = new TaskCompletionSource<TarRecordingMetadata>(TaskCreationOptions.RunContinuationsAsynchronously);
             public MemoryStream PcmBuffer { get; } = new MemoryStream();
             public object SyncRoot { get; } = new object();
         }
@@ -100,7 +101,11 @@ namespace dvmconsole
             return GetChannelConfig(resourceKey, legacyChannelName, talkgroupId).Enabled;
         }
 
-        public void StartRxRecording(
+        /// <summary>
+        /// Starts or reuses an RX recording and returns its saved result for call history.
+        /// Returns null when recording is disabled or skipped; the result is null if no audio is saved.
+        /// </summary>
+        public Task<TarRecordingMetadata> StartRxRecording(
             Codeplug.System system,
             Codeplug.Channel channel,
             uint streamId,
@@ -111,8 +116,8 @@ namespace dvmconsole
             ushort? encryptionKeyId,
             DateTime startTimeUtc)
         {
-            if (!TryCreateRxSession(system, channel, streamId, subscriberId, subscriberAlias, isEncrypted, encryptionAlgorithm, encryptionKeyId, startTimeUtc))
-                return;
+            TarActiveSession session = GetOrCreateRxSession(system, channel, streamId, subscriberId, subscriberAlias, isEncrypted, encryptionAlgorithm, encryptionKeyId, startTimeUtc);
+            return session?.Completion.Task;
         }
 
         public void AppendRxAudio(string systemName, string talkgroupId, uint streamId, byte[] pcmData)
@@ -150,7 +155,11 @@ namespace dvmconsole
             FinalizeSessionAsync(session, endTimeUtc);
         }
 
-        public void StartTxRecording(
+        /// <summary>
+        /// Starts or reuses a TX recording and returns its saved result for call history.
+        /// Returns null when recording is disabled or skipped; the result is null if no audio is saved.
+        /// </summary>
+        public Task<TarRecordingMetadata> StartTxRecording(
             Codeplug.System system,
             Codeplug.Channel channel,
             uint streamId,
@@ -160,20 +169,20 @@ namespace dvmconsole
             DateTime startTimeUtc)
         {
             if (system == null || channel == null || streamId == 0)
-                return;
+                return null;
 
             TarChannelConfig config = GetChannelConfig(system, channel);
             if (!config.Enabled)
-                return;
+                return null;
 
             if (!TryEnsureRecordingRoot(GetConfiguredRecordingRoot(), out _, out _))
-                return;
+                return null;
 
             string sessionKey = BuildTxSessionKey(system.Name, channel.Tgid, streamId);
             lock (syncRoot)
             {
-                if (activeSessions.ContainsKey(sessionKey))
-                    return;
+                if (activeSessions.TryGetValue(sessionKey, out TarActiveSession existingSession))
+                    return existingSession.Completion.Task;
 
                 uint? consoleId = TryParseUInt(system.Rid);
                 TarRecordingMetadata metadata = new TarRecordingMetadata
@@ -202,6 +211,7 @@ namespace dvmconsole
                     ChannelName = channel.Name ?? string.Empty,
                     Metadata = metadata
                 };
+                return activeSessions[sessionKey].Completion.Task;
             }
         }
 
@@ -399,7 +409,7 @@ namespace dvmconsole
             }
         }
 
-        private bool TryCreateRxSession(
+        private TarActiveSession GetOrCreateRxSession(
             Codeplug.System system,
             Codeplug.Channel channel,
             uint streamId,
@@ -411,29 +421,29 @@ namespace dvmconsole
             DateTime startTimeUtc)
         {
             if (system == null || channel == null || streamId == 0)
-                return false;
+                return null;
 
             TarChannelConfig config = GetChannelConfig(system, channel);
             if (!config.Enabled)
-                return false;
+                return null;
 
             if (config.IgnoredSubscriberIds.Contains(subscriberId))
             {
                 Log.WriteLine($"TAR RX skipped for {system.Name} TG {channel.Tgid} stream {streamId}: RID {subscriberId} is ignored for this resource.");
-                return false;
+                return null;
             }
 
             if (!TryEnsureRecordingRoot(GetConfiguredRecordingRoot(), out _, out _))
             {
                 Log.WriteWarning($"TAR RX skipped for {system.Name} TG {channel.Tgid} stream {streamId}: recording root is unavailable.");
-                return false;
+                return null;
             }
 
             string sessionKey = BuildRxSessionKey(system.Name, channel.Tgid, streamId);
             lock (syncRoot)
             {
-                if (activeSessions.ContainsKey(sessionKey))
-                    return false;
+                if (activeSessions.TryGetValue(sessionKey, out TarActiveSession existingSession))
+                    return existingSession;
 
                 TarRecordingMetadata metadata = new TarRecordingMetadata
                 {
@@ -463,9 +473,8 @@ namespace dvmconsole
                 };
 
                 Log.WriteLine($"TAR RX started for {metadata.SystemName} TG {metadata.TalkgroupId} RID {subscriberId} stream {streamId}.");
+                return activeSessions[sessionKey];
             }
-
-            return true;
         }
 
         private void AppendAudio(string sessionKey, byte[] pcmData)
@@ -564,6 +573,8 @@ namespace dvmconsole
                 string json = JsonConvert.SerializeObject(session.Metadata, Formatting.Indented);
                 File.WriteAllText(metadataPath, json, Encoding.UTF8);
                 UpdateRecordingIndexEntry(rootPath, metadataPath, session.Metadata);
+                // History keeps this session's result so repeated calls cannot resolve to another recording.
+                session.Completion.TrySetResult(session.Metadata);
                 Log.WriteLine($"TAR recording saved: {session.Metadata.FileName}");
             }
             catch (Exception ex)
@@ -573,6 +584,7 @@ namespace dvmconsole
             }
             finally
             {
+                session.Completion.TrySetResult(null);
                 session.PcmBuffer.Dispose();
             }
         }

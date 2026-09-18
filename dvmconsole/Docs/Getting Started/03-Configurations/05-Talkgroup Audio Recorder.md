@@ -127,6 +127,19 @@ Viewer actions:
 
 ---
 
+# Playback From History
+
+Double-click a call in **Event History** or a channel's **Call History** to play that call's TAR recording without opening the Viewer.
+
+- TAR must have captured the call while recording was enabled for that talkgroup.
+- Playback is available after the call ends and its recording is saved.
+- Console transmit calls in Event History can also be played when TAR recorded them.
+- Use **Stop** to stop playback. Playing another call in the same history window replaces the current playback, and closing the window stops it.
+- Calls without saved audio, ignored RIDs, and recordings removed by retention or deletion cannot be played. The history window shows a status message when audio is unavailable.
+- Playback uses local system audio output, like the TAR Viewer.
+
+---
+
 # Advanced Filters
 
 Expand **Advanced Filters** in the TAR Viewer to narrow results.

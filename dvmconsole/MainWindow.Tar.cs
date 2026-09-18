@@ -82,7 +82,7 @@ namespace dvmconsole
                 playbackChannelBox.SetTarRecordingIndicator(false);
         }
 
-        private void BeginTarRxRecording(
+        private Task<TarRecordingMetadata> BeginTarRxRecording(
             Codeplug.System system,
             Codeplug.Channel channel,
             uint streamId,
@@ -93,7 +93,7 @@ namespace dvmconsole
             ushort? encryptionKeyId,
             DateTime packetTime)
         {
-            tarManager.StartRxRecording(
+            return tarManager.StartRxRecording(
                 system,
                 channel,
                 streamId,
@@ -231,13 +231,12 @@ namespace dvmconsole
             if (channelBox == null || system == null || channel == null || streamId == 0)
                 return;
 
-            AddConsoleTxHistoryEntry(channelBox, system, channel, streamId);
-
             bool isEncrypted = channelBox.IsTxEncrypted;
             string algorithm = DescribeTxEncryptionAlgorithm(channel);
             ushort? keyId = isEncrypted && channel.GetKeyId() > 0 ? channel.GetKeyId() : null;
 
-            tarManager.StartTxRecording(system, channel, streamId, isEncrypted, algorithm, keyId, DateTime.UtcNow);
+            Task<TarRecordingMetadata> recording = tarManager.StartTxRecording(system, channel, streamId, isEncrypted, algorithm, keyId, DateTime.UtcNow);
+            AddConsoleTxHistoryEntry(channelBox, system, channel, streamId, recording);
         }
 
         private void AppendTarTxAudio(string systemName, string talkgroupId, uint streamId, byte[] pcmData)
@@ -259,7 +258,7 @@ namespace dvmconsole
             tarManager.StopTxRecording(system, channel, channelBox.TxStreamId, isEncrypted, algorithm, keyId, DateTime.UtcNow);
         }
 
-        private void AddConsoleTxHistoryEntry(ChannelBox channelBox, Codeplug.System system, Codeplug.Channel channel, uint streamId)
+        private void AddConsoleTxHistoryEntry(ChannelBox channelBox, Codeplug.System system, Codeplug.Channel channel, uint streamId, Task<TarRecordingMetadata> recording)
         {
             if (callHistoryWindow == null || !TryResolveConsoleTxHistoryIds(system, channel, out int sourceId, out int destinationId))
                 return;
@@ -270,7 +269,8 @@ namespace dvmconsole
                 destinationId,
                 ResolveConsoleHistoryDisplayName(system),
                 DateTime.Now.ToString("HH:mm:ss"),
-                streamId);
+                streamId,
+                recording);
         }
 
         private void ClearConsoleTxHistoryEntry(ChannelBox channelBox, Codeplug.System system, Codeplug.Channel channel)

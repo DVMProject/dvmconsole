@@ -1329,9 +1329,9 @@ namespace dvmconsole.Controls
         /// <param name="channel"></param>
         /// <param name="srcId"></param>
         /// <param name="dstId"></param>
-        public void AddCall(string channel, int srcId, int dstId, string ridAlias, string timestamp)
+        public void AddCall(string channel, int srcId, int dstId, string ridAlias, string timestamp, Task<TarRecordingMetadata> recording = null)
         {
-            callHistoryWindow.AddCall(channel, srcId, dstId, ridAlias, timestamp);
+            callHistoryWindow.AddCall(channel, srcId, dstId, ridAlias, timestamp, recording);
         }
 
         /// <summary>

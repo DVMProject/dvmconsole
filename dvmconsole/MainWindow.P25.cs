@@ -530,13 +530,7 @@ namespace dvmconsole
                         if (channel.algId == 0 && channel.kId == 0)
                             channel.algId = P25Defines.P25_ALGO_UNENCRYPT;
 
-                        if (!isConsoleRid)
-                        {
-                            callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"));
-                            channel.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"));
-                        }
-                        callHistoryWindow.ChannelKeyed(cpgChannel.Name, (int)e.SrcId, encrypted);
-                        BeginTarRxRecording(
+                        Task<TarRecordingMetadata> recording = BeginTarRxRecording(
                             system,
                             cpgChannel,
                             e.StreamId,
@@ -546,6 +540,13 @@ namespace dvmconsole
                             DescribeP25EncryptionAlgorithm(channel.algId),
                             channel.kId > 0 ? channel.kId : null,
                             pktTime);
+
+                        if (!isConsoleRid)
+                        {
+                            callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"), recording);
+                            channel.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"), recording);
+                        }
+                        callHistoryWindow.ChannelKeyed(cpgChannel.Name, (int)e.SrcId, encrypted);
 
                         if (channel.algId != P25Defines.P25_ALGO_UNENCRYPT)
                             Log.WriteLine($"({system.Name}) P25D: Traffic *CALL ENC PARMS * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
