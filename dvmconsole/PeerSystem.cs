@@ -170,13 +170,14 @@ namespace dvmconsole
             if (!isDmr)
                 return matchingEntries.Any(entry => !entry.Invalid);
 
-            byte desiredSlot = NormalizeChannelSlot(channel.Slot);
+            // Announced TG rules use slots 1/2, not the 0/1 voice-packet slot index.
+            int desiredSlot = NormalizeChannelSlot(channel.Slot);
             if (matchingEntries.Any(entry => !entry.Invalid && NormalizeAnnouncedSlot(entry.Slot) == desiredSlot))
                 return true;
 
             // Some rule pushes may not carry a meaningful DMR slot for every entry.
             // If the matching TG has no standard slot information at all, allow any active entry.
-            bool hasStandardSlotInfo = matchingEntries.Any(entry => NormalizeAnnouncedSlot(entry.Slot) <= 1);
+            bool hasStandardSlotInfo = matchingEntries.Any(entry => NormalizeAnnouncedSlot(entry.Slot) is 1 or 2);
             if (!hasStandardSlotInfo)
                 return matchingEntries.Any(entry => !entry.Invalid);
 
@@ -220,15 +221,15 @@ namespace dvmconsole
             if (!string.Equals(channel.Mode, "dmr", StringComparison.OrdinalIgnoreCase))
                 return $"TG {talkgroupId} entries: {matches}";
 
-            return $"TG {talkgroupId} requested on DMR slot {NormalizeChannelSlot(channel.Slot) + 1}; entries: {matches}";
+            return $"TG {talkgroupId} requested on DMR slot {NormalizeChannelSlot(channel.Slot)}; entries: {matches}";
         }
 
-        private static byte NormalizeChannelSlot(int slot)
+        private static int NormalizeChannelSlot(int slot)
         {
             if (slot <= 1)
-                return 0;
+                return 1;
 
-            return (byte)(slot - 1);
+            return slot;
         }
 
         private static byte NormalizeAnnouncedSlot(byte slot)
