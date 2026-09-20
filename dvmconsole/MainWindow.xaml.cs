@@ -2063,6 +2063,8 @@ namespace dvmconsole
 
             e.dmrSeqNo = 0;
             e.dmrN = 0;
+            e.ambeCount = 0;
+            Array.Clear(e.ambeBuffer);
 
             e.pktSeq = 0;
 
@@ -2509,7 +2511,7 @@ namespace dvmconsole
             if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                 fne.SendP25TDU(srcId, dstId, false);
             else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                fne.SendDMRTerminator(srcId, dstId, 1, channel.dmrSeqNo, channel.dmrN, channel.embeddedData);
+                fne.SendDMRTerminator(srcId, dstId, (byte)Math.Max(1, cpgChannel.Slot), channel.dmrSeqNo, channel.dmrN, channel.embeddedData, channel.TxStreamId, channel.pktSeq);
 
             ResetChannel(channel);
         }
@@ -3429,7 +3431,7 @@ namespace dvmconsole
                     if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                         fne.SendP25TDU(srcId, dstId, false);
                     else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                        fne.SendDMRTerminator(srcId, dstId, 1, channel.dmrSeqNo, channel.dmrN, channel.embeddedData);
+                        fne.SendDMRTerminator(srcId, dstId, (byte)Math.Max(1, cpgChannel.Slot), channel.dmrSeqNo, channel.dmrN, channel.embeddedData, channel.TxStreamId, channel.pktSeq);
 
                     ResetChannel(channel);
                 }
@@ -5889,7 +5891,7 @@ namespace dvmconsole
                     if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                         fne.SendP25TDU(srcId, dstId, false);
                     else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                        fne.SendDMRTerminator(srcId, dstId, 1, e.dmrSeqNo, e.dmrN, e.embeddedData);
+                        fne.SendDMRTerminator(srcId, dstId, (byte)Math.Max(1, cpgChannel.Slot), e.dmrSeqNo, e.dmrN, e.embeddedData, e.TxStreamId, e.pktSeq);
                 }
                 else
                 {
@@ -6055,7 +6057,7 @@ namespace dvmconsole
                     if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                         fne.SendP25TDU(srcId, dstId, false);
                     else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                        fne.SendDMRTerminator(srcId, dstId, 1, e.dmrSeqNo, e.dmrN, e.embeddedData);
+                        fne.SendDMRTerminator(srcId, dstId, (byte)Math.Max(1, cpgChannel.Slot), e.dmrSeqNo, e.dmrN, e.embeddedData, e.TxStreamId, e.pktSeq);
                 }
                 else
                 {
@@ -7087,7 +7089,7 @@ namespace dvmconsole
                 if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                     session.Fne.SendP25TDU(session.SourceId, dstId, false);
                 else if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                    session.Fne.SendDMRTerminator(session.SourceId, dstId, 1, session.Channel.dmrSeqNo, session.Channel.dmrN, session.Channel.embeddedData);
+                    session.Fne.SendDMRTerminator(session.SourceId, dstId, (byte)Math.Max(1, session.CodeplugChannel.Slot), session.Channel.dmrSeqNo, session.Channel.dmrN, session.Channel.embeddedData, session.Channel.TxStreamId, session.Channel.pktSeq);
             }
             else
             {
@@ -7248,7 +7250,7 @@ namespace dvmconsole
                 if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                     fne.SendP25TDU(sourceId, dstId, false);
                 else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                    fne.SendDMRTerminator(sourceId, dstId, 1, channelBox.dmrSeqNo, channelBox.dmrN, channelBox.embeddedData);
+                    fne.SendDMRTerminator(sourceId, dstId, (byte)Math.Max(1, cpgChannel.Slot), channelBox.dmrSeqNo, channelBox.dmrN, channelBox.embeddedData, channelBox.TxStreamId, channelBox.pktSeq);
             }
             else
             {

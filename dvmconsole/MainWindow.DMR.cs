@@ -41,16 +41,18 @@ namespace dvmconsole
         {
             // make sure we have a valid stream ID
             if (channel.TxStreamId == 0)
+            {
                 Log.WriteWarning($"({channel.SystemName}) DMRD: Traffic *VOICE FRAME    * Stream ID not set for traffic? Shouldn't happen.");
+                return;
+            }
 
             try
             {
-                byte slot = (byte)(cpgChannel.Slot - 1);
+                byte slot = (byte)Math.Max(1, cpgChannel.Slot);
                 uint srcId = sourceIdOverride ?? uint.Parse(system.Rid);
                 uint dstId = uint.Parse(cpgChannel.Tgid);
 
                 byte[] data = null, dmrpkt = null;
-                channel.dmrN = (byte)(channel.dmrSeqNo % 6);
                 if (channel.ambeCount == FneSystemBase.AMBE_PER_SLOT)
                 {
                     // is this the intitial sequence?
@@ -77,7 +79,7 @@ namespace dvmconsole
 
                         // generate DMR network frame
                         dmrpkt = new byte[FneSystemBase.DMR_PACKET_SIZE];
-                        fne.CreateDMRMessage(ref dmrpkt, srcId, dstId, slot, FrameType.VOICE_SYNC, (byte)channel.dmrSeqNo, 0);
+                        fne.CreateDMRMessage(ref dmrpkt, srcId, dstId, slot, FrameType.DATA_SYNC, (byte)channel.dmrSeqNo, 0, DMRDataType.VOICE_LC_HEADER);
                         Buffer.BlockCopy(data, 0, dmrpkt, 20, FneSystemBase.DMR_FRAME_LENGTH_BYTES);
 
                         fne.peer.SendMasterTraffic(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_DMR), dmrpkt, channel.pktSeq, channel.TxStreamId);
@@ -85,7 +87,8 @@ namespace dvmconsole
                         channel.dmrSeqNo++;
                     }
 
-                    ushort curr = channel.pktSeq;
+                    // The header is sequence zero; voice starts at burst A (N = 0).
+                    channel.dmrN = (byte)((channel.dmrSeqNo - 1) % 6);
                     ++channel.pktSeq;
                     if (channel.pktSeq > (Constants.RtpCallEndSeq - 1))
                         channel.pktSeq = 0;
@@ -116,7 +119,7 @@ namespace dvmconsole
 
                     // generate DMR network frame
                     dmrpkt = new byte[FneSystemBase.DMR_PACKET_SIZE];
-                    fne.CreateDMRMessage(ref dmrpkt, srcId, dstId, 1, frameType, (byte)channel.dmrSeqNo, channel.dmrN);
+                    fne.CreateDMRMessage(ref dmrpkt, srcId, dstId, slot, frameType, (byte)channel.dmrSeqNo, channel.dmrN);
                     Buffer.BlockCopy(data, 0, dmrpkt, 20, FneSystemBase.DMR_FRAME_LENGTH_BYTES);
 
                     fne.peer.SendMasterTraffic(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_DMR), dmrpkt, channel.pktSeq, channel.TxStreamId);
@@ -276,6 +279,10 @@ namespace dvmconsole
                     if (cpgChannel.Tgid != e.DstId.ToString())
                         continue;
 
+                    // FNECore receive events use zero-based slots; codeplugs use TS1/TS2.
+                    if (Math.Max(1, cpgChannel.Slot) != e.Slot + 1)
+                        continue;
+
                     if (patchManager.IsPatchedTransmitStream(system.Name, cpgChannel.Tgid, e.StreamId))
                         continue;
 
@@ -328,6 +335,10 @@ namespace dvmconsole
                     // is this a new call stream?
                     SlotStatus slotStatus = systemStatuses[statusKey];
                     bool isNewCallStream = !channel.IsReceiving || e.StreamId != slotStatus.RxStreamId;
+                    // A late or duplicate terminator must not start a phantom call.
+                    if (isNewCallStream && e.FrameType == FrameType.DATA_SYNC && e.DataType == DMRDataType.TERMINATOR_WITH_LC)
+                        continue;
+
                     if (isNewCallStream)
                     {
                         patchManager.HandleCallStart(system.Name, cpgChannel.Tgid, e.StreamId, e.SrcId);
@@ -341,7 +352,7 @@ namespace dvmconsole
                         Dispatcher.Invoke(() => UpdateTabAudioIndicatorForChannel(channel));
 
                         slotStatus.RxStart = pktTime;
-                        Log.WriteLine($"({system.Name}) DMRD: Traffic *CALL START     * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} TS {e.Slot} [STREAM ID {e.StreamId}]");
+                        Log.WriteLine($"({system.Name}) DMRD: Traffic *CALL START     * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} TS {e.Slot + 1} [STREAM ID {e.StreamId}]");
 
                         // if we can, use the LC from the voice header as to keep all options intact
                         if ((e.FrameType == FrameType.DATA_SYNC) && (e.DataType == DMRDataType.VOICE_LC_HEADER))
