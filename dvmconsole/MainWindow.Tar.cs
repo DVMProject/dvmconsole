@@ -200,6 +200,11 @@ namespace dvmconsole
 
             switch (channel.GetChannelMode())
             {
+                case Codeplug.ChannelMode.NXDN:
+                    isEncrypted = channelBox.NxdnRx?.IsEncrypted == true;
+                    encryptionAlgorithm = DescribeNxdnEncryptionAlgorithm(channelBox.NxdnRx?.CipherType ?? 0);
+                    encryptionKeyId = NormalizeEncryptionKeyId(channelBox.NxdnRx?.KeyId ?? 0);
+                    break;
                 case Codeplug.ChannelMode.P25:
                     isEncrypted = channelBox.algId != P25Defines.P25_ALGO_UNENCRYPT;
                     encryptionAlgorithm = DescribeP25EncryptionAlgorithm(channelBox.algId);
@@ -292,7 +297,7 @@ namespace dvmconsole
             sourceId = 0;
             destinationId = 0;
 
-            if (!uint.TryParse(system?.Rid, out uint parsedSourceId) || parsedSourceId > int.MaxValue)
+            if (!uint.TryParse(channel?.GetSourceRid(system), out uint parsedSourceId) || parsedSourceId > int.MaxValue)
                 return false;
 
             if (!uint.TryParse(channel?.Tgid, out uint parsedDestinationId) || parsedDestinationId > int.MaxValue)
@@ -330,6 +335,8 @@ namespace dvmconsole
 
         private static string DescribeTxEncryptionAlgorithm(Codeplug.Channel channel)
         {
+            if (channel?.GetChannelMode() == Codeplug.ChannelMode.NXDN)
+                return DescribeNxdnEncryptionAlgorithm(channel.GetNxdnCipherType());
             if (channel == null || channel.GetAlgoId() == P25Defines.P25_ALGO_UNENCRYPT || channel.GetKeyId() == 0)
                 return string.Empty;
 

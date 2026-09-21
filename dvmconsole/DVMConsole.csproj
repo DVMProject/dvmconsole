@@ -114,6 +114,9 @@
     <Content Include="Docs\Getting Started\03-Configurations\05-Talkgroup Audio Recorder.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="Docs\Getting Started\03-Configurations\06-NXDN.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="Docs\Getting Started\04-Operations\01-Console Operation.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

@@ -114,6 +114,12 @@ namespace dvmconsole.Controls
         public byte dmrN = 0;
         public int dmrSeqNo = 0;
 
+        internal readonly object NxdnSync = new();
+        internal NXDN.NxdnTxCall NxdnTx;
+        internal fnecore.NXDN.NxdnRxCall NxdnRx;
+        internal Task NxdnEndTask = Task.CompletedTask;
+        internal uint NxdnFailedStreamId;
+
         public int ambeCount = 0;
         public byte[] ambeBuffer = new byte[FneSystemBase.DMR_AMBE_LENGTH_BYTES];
         public EmbeddedData embeddedData = new EmbeddedData();
@@ -185,6 +191,13 @@ namespace dvmconsole.Controls
         /// Optional callback used to approve a new outbound PTT start before UI state is latched.
         /// </summary>
         public Func<ChannelBox, bool> CanStartPtt { get; set; }
+
+        /// <summary>
+        /// Optional protocol-specific key lookup; standalone cards retain the P25 key check.
+        /// </summary>
+        public Func<bool> HasTransmitKey { get; set; }
+
+        public bool HasLoadedTransmitKey() => HasTransmitKey?.Invoke() ?? Crypter.HasKey();
 
         /// <summary>
         /// Fixed, codeplug-defined resource card size.
@@ -1433,7 +1446,7 @@ namespace dvmconsole.Controls
                     return;
             }
 
-            if (IsTxEncrypted && !Crypter.HasKey())
+            if (pttState && IsTxEncrypted && !HasLoadedTransmitKey())
             {
                 MessageBox.Show($"{ChannelName} {ERR_NO_LOADED_ENC_KEY}.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 PttState = false;
@@ -1561,7 +1574,7 @@ namespace dvmconsole.Controls
             if (nextState && CanStartPtt != null && !CanStartPtt(this))
                 return;
 
-            if (IsTxEncrypted && !Crypter.HasKey())
+            if (nextState && IsTxEncrypted && !HasLoadedTransmitKey())
             {
                 MessageBox.Show($"{ChannelName} {ERR_NO_LOADED_ENC_KEY}.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 PttState = false;
@@ -1624,7 +1637,7 @@ namespace dvmconsole.Controls
                 return;
             }
 
-            if (IsTxEncrypted && !Crypter.HasKey())
+            if (!PttState && IsTxEncrypted && !HasLoadedTransmitKey())
             {
                 MessageBox.Show($"{ChannelName} {ERR_NO_LOADED_ENC_KEY}.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 PttState = false;

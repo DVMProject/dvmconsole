@@ -58,20 +58,22 @@ keyId: 0x50
 algo: "aes"
 ```
 
-Supported `algo` values include:
+Supported P25 `algo` values include:
 
 - `aes`
 - `des`
 - `arc4`
 - `none`
 
-If `keyId` is blank or zero, the channel is treated as clear for normal operation.
+For P25, if `keyId` is blank or zero, the channel is treated as clear for normal operation. NXDN encrypted channels instead block TX when the key configuration is invalid; they never silently fall back to clear.
+
+NXDN supports `ehr` (15-bit scrambling), `des`, and `aes` (AES-256). Local NXDN entries require `protocol: nxdn` and use wire algorithm IDs 1, 2, and 3 rather than P25 algorithm IDs. See **NXDN** for key sizes, examples, and FNE key-service behavior.
 
 ---
 
 # Selectable Encryption
 
-P25 secure-capable channels can expose an in-card encryption toggle:
+P25 and NXDN secure-capable channels can expose an in-card encryption toggle:
 
 ```yaml
 keyId: 0x50
@@ -91,7 +93,11 @@ When **Restore Selected Channels On Startup** is enabled, selected encrypted cha
 
 The console waits for the relevant FNE connection to complete before sending startup key requests. It then waits a short post-connect delay and spaces multiple key requests apart so the FNE is not flooded.
 
-This startup delay applies to restored selected encrypted resources. Normal key behavior outside startup remains unchanged.
+Missing keys on selected encrypted resources are also requested again after an FNE reconnect. Keys must exist in the FNE crypto container, and the system's regular `rid` must be authorized to request each KID.
+
+NXDN EHR, DES, and AES use this same service. Their request/container algorithm IDs are `0x01`, `0x81`, and `0x84`, respectively; see **NXDN** for details and key lengths. Use unique key IDs for distinct material across protocols in the FNE container.
+
+When the FNE enables encrypted key responses (`kmfEncKeyRequest`), configure the matching `kmfPresharedKey` under the console system. It must contain exactly 64 hexadecimal characters. This wrapping key is separate from the FNE transport `presharedKey`. Protect both keys and prefer encrypted FNE transport; unprotected key responses expose traffic keys on the network.
 
 ---
 

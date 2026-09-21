@@ -64,6 +64,7 @@ The same documentation is also built into the app under `Help > Documentation`.
 - [RID Aliases](dvmconsole/Docs/Getting%20Started/03-Configurations/03-RID%20Aliases.md)
 - [Groups and Patching](dvmconsole/Docs/Getting%20Started/03-Configurations/04-Groups%20and%20Patching.md)
 - [Talkgroup Audio Recorder](dvmconsole/Docs/Getting%20Started/03-Configurations/05-Talkgroup%20Audio%20Recorder.md)
+- [NXDN](dvmconsole/Docs/Getting%20Started/03-Configurations/06-NXDN.md)
 - [Console Operation](dvmconsole/Docs/Getting%20Started/04-Operations/01-Console%20Operation.md)
 - [Settings Reference](dvmconsole/Docs/Getting%20Started/04-Operations/02-Settings%20Reference.md)
 - [Audio Settings](dvmconsole/Docs/Getting%20Started/04-Operations/03-Audio%20Settings.md)

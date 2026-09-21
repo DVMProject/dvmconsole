@@ -41,12 +41,17 @@ systems:
     peerId: 1000001
     # Radio ID transmitted traffic will come from
     rid: "1001"
+    # Optional NXDN source RID (1-65535); defaults to rid when omitted
+    nxdnRid: "1001"
     # FNE Password
     password: "RPT_PASSWORD"
     # FNE Encrypted flag
     encrypted: false
     # Preshared FNE encryption key
     presharedKey: "123ABC1234"
+    # Optional key-response wrapping key when FNE kmfEncKeyRequest is enabled.
+    # Must match the FNE kmfPresharedKey: exactly 64 hex characters (AES-256).
+    #kmfPresharedKey: "REPLACE_WITH_64_HEX_CHARACTERS"
     # Path to Radio Alias file for this system
     #aliasPath: "Full/Path/To/alias.yml"
     
@@ -54,6 +59,8 @@ systems:
 # Group memberships are assigned at runtime from the Groups window and persist in user settings.
 # Patch enabled/disabled state is separate from membership and is only restored when
 # "Retain Patch State on Startup" is enabled in the console Settings menu.
+# For mixed-mode testing, add P25 and NXDN resources to these groups in View > Groups.
+# Enable the patch on only one console at a time to avoid forwarding loops.
 groups:
     # Textual name of the group and type ("patch" or "multiselect")
   - name: "Patch 1"
@@ -93,7 +100,7 @@ zones:
         selectable_encryption: true
         # Ignored now, we use dvmfne KMM support (This will be used in the future to ovveride FNE KMM support)
         encryptionKey: null
-        # Voice mode DMR ("dmr"), P25 ("p25")
+        # Voice mode DMR ("dmr"), P25 ("p25"), NXDN ("nxdn")
         mode: "p25"
         # Optional resource color for this channel widget, in hex
         # resourceColor: "#150282"
@@ -136,6 +143,22 @@ zones:
         system: "System 1"
         tgid: "3002"
         resourceColor: "#150282"
+      - name: "NXDN Clear"
+        system: "System 1"
+        tgid: "3003"
+        mode: "nxdn"
+        ran: 0
+        algo: "none"
+      - name: "NXDN AES"
+        system: "System 1"
+        tgid: "3004"
+        mode: "nxdn"
+        ran: 0
+        algo: "aes"
+        # NXDN key IDs are 1-63; channel keyId strings are hexadecimal.
+        # Provision matching material and RID permission on the FNE, or use keyFile.
+        keyId: "03"
+        selectable_encryption: true
 
   - name: "Emergency"
     tabColor: "#64B5F6"

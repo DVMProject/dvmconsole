@@ -184,7 +184,7 @@ namespace dvmconsole
                 if (activeSessions.TryGetValue(sessionKey, out TarActiveSession existingSession))
                     return existingSession.Completion.Task;
 
-                uint? consoleId = TryParseUInt(system.Rid);
+                uint? consoleId = TryParseUInt(channel.GetSourceRid(system));
                 TarRecordingMetadata metadata = new TarRecordingMetadata
                 {
                     Direction = TarRecordingDirection.TX,
@@ -235,7 +235,7 @@ namespace dvmconsole
 
             if (system != null)
             {
-                session.Metadata.ConsoleId = TryParseUInt(system.Rid);
+                session.Metadata.ConsoleId = TryParseUInt(channel.GetSourceRid(system));
                 session.Metadata.ConsoleName = ResolveConsoleDisplayName(system);
                 session.Metadata.SubscriberId = session.Metadata.ConsoleId;
                 session.Metadata.SubscriberAlias = session.Metadata.ConsoleName;
@@ -457,7 +457,7 @@ namespace dvmconsole
                     TalkgroupName = channel.Name ?? string.Empty,
                     SubscriberId = subscriberId,
                     SubscriberAlias = subscriberAlias?.Trim() ?? string.Empty,
-                    ConsoleId = TryParseUInt(system.Rid),
+                    ConsoleId = TryParseUInt(channel.GetSourceRid(system)),
                     ConsoleName = ResolveConsoleDisplayName(system),
                     StreamId = streamId,
                     RetentionDaysAtRecordTime = config.RetentionDays > 0 ? config.RetentionDays : null

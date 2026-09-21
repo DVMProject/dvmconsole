@@ -312,6 +312,7 @@ namespace dvmconsole
                     UpdateChannelConnectionVisuals(entry.SystemName);
                     RefreshCommandControlsForConnectionState();
                     PublishConnectionState(entry);
+                    QueueMissingChannelKeys(entry.SystemName);
                     ScheduleDeferredStartupKeyRequests(entry.SystemName);
                     PlayFneConnectedChime(entry);
                     _ = SyncFneAliasesAsync(entry.SystemName);
@@ -439,6 +440,9 @@ namespace dvmconsole
                     if (disconnectedSystem != null && disconnectedChannel != null && hadTransmitState)
                         EndTarTxRecording(channel, disconnectedSystem, disconnectedChannel);
 
+                    EndNxdnTransmission(channel, discardPending: true);
+                    channel.NxdnRx?.Dispose();
+                    channel.NxdnRx = null;
                     channel.IsReceiving = false;
                     channel.IsReceivingEncrypted = false;
                     channel.PttState = false;

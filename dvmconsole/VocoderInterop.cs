@@ -376,7 +376,9 @@ namespace dvmconsole
                 {
                     throw new ArgumentOutOfRangeException($"AMBE codeword bit length is != {AMBE_CODEWORD_BITS}");
                 }
-                bits = new char[AMBE_CODEWORD_BITS];
+                // The native encoder packs nine bytes and reads 72 input bits.
+                // Only 49 carry AMBE parameters; zero-pad the remaining reads.
+                bits = new char[AMBE_CODEWORD_SAMPLES * 8];
                 for (int i = 0; i < mbeBits.Length; i++)
                     bits[i] = (char)(mbeBits[i] & 0x01);
             }

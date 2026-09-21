@@ -21,7 +21,6 @@ namespace dvmconsole
     /// </summary>
     public abstract partial class FneSystemBase : fnecore.FneSystemBase
     {
-        private List<Tuple<byte[], ushort>> nxdnCallData = new List<Tuple<byte[], ushort>>();
 
         /*
         ** Methods
@@ -41,7 +40,9 @@ namespace dvmconsole
         /// <returns>True, if data stream is valid, otherwise false.</returns>
         protected override bool NXDNDataValidate(uint peerId, uint srcId, uint dstId, CallType callType, NXDNMessageType messageType, FrameType frameType, uint streamId, byte[] message)
         {
-            return true;
+            return callType == CallType.GROUP && streamId != 0 &&
+                srcId is > 0 and <= ushort.MaxValue && dstId is > 0 and <= ushort.MaxValue &&
+                message != null && message.Length >= 70;
         }
 
         /// <summary>
@@ -51,7 +52,8 @@ namespace dvmconsole
         /// <param name="e"></param>
         protected override void NXDNDataReceived(object sender, NXDNDataReceivedEvent e)
         {
-            return;
+            if (e.CallType == CallType.GROUP)
+                mainWindow.NXDNDataReceived((this as PeerSystem)?.ConfiguredSystemName, e, DateTime.Now);
         }
     } // public abstract partial class FneSystemBase : fnecore.FneSystemBase
 } // namespace dvmconsole

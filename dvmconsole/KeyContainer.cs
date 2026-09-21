@@ -26,6 +26,12 @@ public class KeyEntry
     public ushort KeyId { get; set; }
     public int AlgId { get; set; }
     public string Key { get; set; }
+    /// <summary>
+    /// NXDN entries use wire cipher IDs 1/2/3; existing entries default to P25 KMM IDs.
+    /// System optionally limits a local NXDN key to one configured FNE.
+    /// </summary>
+    public string Protocol { get; set; } = "p25";
+    public string System { get; set; }
 
     /// <summary>
     /// Gets the contents of the Key property as a byte[]

@@ -36,6 +36,18 @@ namespace dvmconsole
         private readonly Dictionary<string, CancellationTokenSource> deferredStartupKeyRequestTimers = new(StringComparer.OrdinalIgnoreCase);
         private bool isRestoringSelectedChannelsOnStartup = false;
 
+        private void QueueMissingChannelKeys(string systemName)
+        {
+            foreach (var channel in selectedChannelsManager.GetSelectedChannels())
+            {
+                Codeplug.Channel config = Codeplug?.GetChannelByName(channel.ChannelName);
+                if (config == null || !ResourceIdentity.SystemMatches(config.System, systemName) ||
+                    !config.HasEncryptionConfig() || channel.HasLoadedTransmitKey())
+                    continue;
+                QueueStartupKeyRequest(systemName, config.GetKeyRequestAlgoId(), config.GetKeyId());
+            }
+        }
+
         private void QueueStartupKeyRequest(string systemName, byte algId, ushort keyId)
         {
             if (string.IsNullOrWhiteSpace(systemName) || algId == 0 || keyId == 0)
@@ -217,6 +229,12 @@ namespace dvmconsole
 
             foreach (var keyEntry in keys.Keys)
             {
+                if (string.Equals(keyEntry.Protocol, "nxdn", StringComparison.OrdinalIgnoreCase))
+                {
+                    try { SetNxdnKey(keyEntry.System, checked((byte)keyEntry.AlgId), keyEntry.KeyId, keyEntry.KeyBytes, local: true); }
+                    catch (Exception ex) { Log.WriteWarning($"Invalid local NXDN key {keyEntry.KeyId}: {ex.Message}"); }
+                    continue;
+                }
                 var keyItem = new KeyItem
                 {
                     KeyId = keyEntry.KeyId

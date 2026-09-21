@@ -72,7 +72,12 @@ namespace dvmconsole
 
             string key = system.Encrypted ? system.PresharedKey : null;
 
+            if (!string.IsNullOrWhiteSpace(system.KmfPresharedKey) &&
+                (system.KmfPresharedKey.Length != 64 || !system.KmfPresharedKey.All(Uri.IsHexDigit)))
+                throw new ArgumentException("kmfPresharedKey must contain exactly 64 hexadecimal characters.");
+
             FnePeer peer = new FnePeer("DVMCONSOLE", system.PeerId, endpoint, key);
+            peer.SetKMFPresharedKey(string.IsNullOrWhiteSpace(system.KmfPresharedKey) ? null : system.KmfPresharedKey);
 
             Assembly asm = Assembly.GetExecutingAssembly();
             SemVersion _SEM_VERSION = new SemVersion(asm);

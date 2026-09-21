@@ -82,7 +82,7 @@ If the talkgroup is unavailable on that FNE, the action is blocked and this warn
 Target TG unavailable on FNE
 ```
 
-This validation is per system and applies to P25 and DMR resources.
+This validation is per system and applies to P25, DMR, and NXDN resources. NXDN also checks the 16-bit RID/TGID, RAN, and required encryption key before allowing transmit.
 
 ---
 

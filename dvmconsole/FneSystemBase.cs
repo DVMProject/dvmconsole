@@ -197,7 +197,7 @@ namespace dvmconsole
         {
             byte[] payload = e.Data.Skip(11).ToArray();
             if (e.MessageId == (byte)KmmMessageType.MODIFY_KEY_CMD)
-                mainWindow.KeyResponseReceived(e);
+                mainWindow.KeyResponseReceived(e, (this as PeerSystem)?.ConfiguredSystemName);
         }
 
         /// <summary>

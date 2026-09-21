@@ -51,7 +51,7 @@ Each resource maps to:
 
 - a system
 - a talkgroup ID
-- a mode such as P25 or DMR
+- a mode such as P25, DMR, or NXDN
 - optional encryption information
 - optional visual color
 

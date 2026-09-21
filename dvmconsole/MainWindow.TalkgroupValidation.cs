@@ -63,12 +63,17 @@ namespace dvmconsole
                 return false;
             if (!ValidateFneConnectionAvailable(system.Name, channel, null, showWarning))
                 return false;
+            if (!ValidateNxdnTransmit(cpgChannel, channel, showWarning))
+                return false;
             return ValidateTalkgroupAvailability(fne, cpgChannel);
         }
 
         private bool ValidateTalkgroupAvailability(PeerSystem fne, Codeplug.Channel cpgChannel)
         {
             if (fne == null || cpgChannel == null)
+                return false;
+
+            if (!ValidateNxdnTransmit(cpgChannel))
                 return false;
 
             string systemName = cpgChannel.System ?? fne.ConfiguredSystemName ?? fne.SystemName;

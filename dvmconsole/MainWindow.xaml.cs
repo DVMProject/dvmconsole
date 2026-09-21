@@ -1079,6 +1079,8 @@ namespace dvmconsole
         /// <param name="filePath"></param>
         private void LoadCodeplug(string filePath)
         {
+            StopNxdnChannels();
+            ClearNxdnKeys();
             DisableControls();
             StopAllPatchPttTargets();
 
@@ -1224,6 +1226,7 @@ namespace dvmconsole
         /// </summary>
         private void GenerateChannelWidgets()
         {
+            StopNxdnChannels();
             List<string> activeChannelKeys = CaptureActiveSelectedChannelKeys();
             List<string> activeWebStreamNames = CaptureActiveWebStreamNames();
 
@@ -1384,9 +1387,11 @@ namespace dvmconsole
                         channelBox.ChannelMode = channel.Mode.ToUpperInvariant();
                         channelBox.IsRxOnly = channel.RxOnly;
                         channelBox.CanStartPtt = CanStartChannelPtt;
+                        channelBox.HasTransmitKey = () => channel.GetChannelMode() == Codeplug.ChannelMode.NXDN
+                            ? HasNxdnKey(channel) : channelBox.Crypter.HasKey();
 
                         bool hasEncryptionConfig = channel.HasEncryptionConfig();
-                        bool canSelectEncryption = channel.GetChannelMode() == Codeplug.ChannelMode.P25 && hasEncryptionConfig;
+                        bool canSelectEncryption = channel.GetChannelMode() is Codeplug.ChannelMode.P25 or Codeplug.ChannelMode.NXDN && hasEncryptionConfig;
                         channelBox.IsEncryptionSelectable = channel.SelectableEncryption && canSelectEncryption;
                         channelBox.IsTxEncrypted = hasEncryptionConfig &&
                             (!channelBox.IsEncryptionSelectable ||
@@ -1985,7 +1990,7 @@ namespace dvmconsole
                       channel.ApplyCurrentVolume();
 
                       // if the channel is configured for encryption request the key from the FNE
-                      if (cpgChannel.GetAlgoId() != 0 && cpgChannel.GetKeyId() != 0)
+                      if (cpgChannel.HasEncryptionConfig() && cpgChannel.GetKeyId() != 0)
                       {
                           if (!loadedConfiguredKeys)
                           {
@@ -1993,18 +1998,23 @@ namespace dvmconsole
                               loadedConfiguredKeys = true;
                           }
 
+                          // NXDN uses its own keyring but shares the FNE's key service.
+                          if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN &&
+                              (cpgChannel.GetKeyRequestAlgoId() == 0 || HasNxdnKey(cpgChannel)))
+                              continue;
+
                           if (isRestoringSelectedChannelsOnStartup)
                           {
-                              QueueStartupKeyRequest(system.Name, cpgChannel.GetAlgoId(), cpgChannel.GetKeyId());
+                              QueueStartupKeyRequest(system.Name, cpgChannel.GetKeyRequestAlgoId(), cpgChannel.GetKeyId());
                           }
                           else if (GetFneConnectionEntry(system.Name)?.IsConnected == true)
                           {
-                              TrySendMasterKeyRequest(fne, system, cpgChannel.GetAlgoId(), cpgChannel.GetKeyId());
+                              TrySendMasterKeyRequest(fne, system, cpgChannel.GetKeyRequestAlgoId(), cpgChannel.GetKeyId());
                           }
                           else
                           {
                               Log.WriteWarning($"({system.Name}) Deferring key request for {channel.ChannelName} until FNE is connected.");
-                              QueueStartupKeyRequest(system.Name, cpgChannel.GetAlgoId(), cpgChannel.GetKeyId());
+                              QueueStartupKeyRequest(system.Name, cpgChannel.GetKeyRequestAlgoId(), cpgChannel.GetKeyId());
                           }
                       }
                   }
@@ -2057,6 +2067,12 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void ResetChannel(ChannelBox e)
         {
+            lock (e.NxdnSync)
+            {
+                EndNxdnTransmission(e);
+                e.TxStreamId = 0;
+                e.NxdnFailedStreamId = 0;
+            }
             // reset values
             e.p25SeqNo = 0;
             e.p25N = 0;
@@ -2067,8 +2083,6 @@ namespace dvmconsole
             Array.Clear(e.ambeBuffer);
 
             e.pktSeq = 0;
-
-            e.TxStreamId = 0;
         }
 
         private static GeneratedTonePayload BuildLegacyAlertTonePayload(int alertNumber)
@@ -2506,7 +2520,7 @@ namespace dvmconsole
                 return;
             }
 
-            uint srcId = uint.Parse(system.Rid);
+            uint srcId = uint.Parse(cpgChannel.GetSourceRid(system));
             uint dstId = uint.Parse(cpgChannel.Tgid);
             if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                 fne.SendP25TDU(srcId, dstId, false);
@@ -2521,6 +2535,8 @@ namespace dvmconsole
         /// </summary>
         private void ClearReceiveState(ChannelBox channel, SlotStatus slotStatus = null)
         {
+            channel.NxdnRx?.Dispose();
+            channel.NxdnRx = null;
             channel.IsReceiving = false;
             channel.IsReceivingEncrypted = false;
             channel.PeerId = 0;
@@ -2586,7 +2602,8 @@ namespace dvmconsole
             if (channel == null || cpgChannel == null)
                 return null;
 
-            string exactStatusKey = ResourceIdentity.Build(cpgChannel.System, cpgChannel.Tgid);
+            string exactStatusKey = ResourceIdentity.Build(cpgChannel.System, cpgChannel.Tgid) +
+                (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN ? "|nxdn" : string.Empty);
             if (systemStatuses.TryGetValue(exactStatusKey, out SlotStatus exactStatus) &&
                 (channel.RxStreamId == 0 || exactStatus.RxStreamId == channel.RxStreamId))
             {
@@ -3355,6 +3372,9 @@ namespace dvmconsole
             if (channel == null || cpgChannel == null || system == null || fne == null || pcmData == null || pcmData.Length == 0)
                 return;
 
+            if (!ValidateNxdnTransmit(cpgChannel, channel))
+                return;
+
             if (!ValidateFneConnectionAvailable(system.Name, channel, clearPageStateAfterSend ? current => current.PageState = false : null))
                 return;
 
@@ -3366,7 +3386,7 @@ namespace dvmconsole
             }
 
             CancellationToken cancellationToken = toneCancelSource.Token;
-            uint srcId = uint.Parse(system.Rid);
+            uint srcId = uint.Parse(cpgChannel.GetSourceRid(system));
             uint dstId = uint.Parse(cpgChannel.Tgid);
             bool txStarted = false;
 
@@ -3408,6 +3428,8 @@ namespace dvmconsole
                         }
                         else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
                             DMREncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
+                        else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN)
+                            NXDNEncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
 
                         DateTime nextPacketTime = startTime.AddMilliseconds((i + 1) * 20);
                         TimeSpan waitTime = nextPacketTime - DateTime.UtcNow;
@@ -3424,7 +3446,10 @@ namespace dvmconsole
             finally
             {
                 if (cancellationToken.IsCancellationRequested)
+                {
                     audioManager.StopOneShot(channel.AudioOutputKey);
+                    EndNxdnTransmission(channel, discardPending: true);
+                }
 
                 if (txStarted)
                 {
@@ -3810,7 +3835,8 @@ namespace dvmconsole
                     if (!ValidateTalkgroupAvailability(handler, cpgChannel, channel, current => current.HoldState = false))
                         continue;
 
-                    handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
+                    if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                        handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
                     await Task.Delay(1000);
 
                     await SendGeneratedHoldToneAsync(channel);
@@ -4233,6 +4259,13 @@ namespace dvmconsole
                       isAnyTgOn = true;
                       transmittedTargets.Add(BuildPatchTargetKey(system.Name, cpgChannel.Tgid));
                       AppendTarTxAudio(system.Name, channel.DstId, channel.TxStreamId, micBuffer);
+                      if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN)
+                      {
+                          uint stream = channel.TxStreamId;
+                          foreach (byte[] chunk in AudioConverter.SplitToChunks(micBuffer))
+                              NXDNEncodeAudioFrame(chunk, fne, channel, cpgChannel, system, expectedStreamId: stream);
+                          continue;
+                      }
                       Task.Run(() =>
                       {
                           List<byte[]> chunks = AudioConverter.SplitToChunks(micBuffer);
@@ -4438,6 +4471,8 @@ namespace dvmconsole
 
         private void MainWindow_Closed(object sender, EventArgs e)
         {
+            StopNxdnChannels();
+            ClearNxdnKeys();
             StopAllWebStreams();
             ShutdownAlertToneScheduler();
             ShutdownToolbarClocks();
@@ -5779,16 +5814,17 @@ namespace dvmconsole
                 if (!ValidateTalkgroupAvailability(fne, cpgChannel, e, current => current.PageState = false))
                     return;
 
-                fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
+                if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                    fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
             }
             else
             {
                 if (StopTonePlaybackForChannel(e, sendFallbackEndSignal: false))
                     return;
 
-                if (IsFneSystemConnected(system.Name))
+                if (IsFneSystemConnected(system.Name) && cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                     fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
-                else
+                else if (!IsFneSystemConnected(system.Name))
                     Log.WriteWarning($"Page TDU end skipped for {e.ChannelName}; FNE system '{system.Name}' is disconnected.");
             }
         }
@@ -5844,7 +5880,7 @@ namespace dvmconsole
 
             FneUtils.Memset(e.mi, 0x00, P25Defines.P25_MI_LENGTH);
 
-            uint srcId = uint.Parse(system.Rid);
+            uint srcId = uint.Parse(cpgChannel.GetSourceRid(system));
             uint dstId = uint.Parse(cpgChannel.Tgid);
 
             if (e.PttState)
@@ -5976,7 +6012,7 @@ namespace dvmconsole
                 EnsureAudioInputCaptureHealthy("channel PTT start");
                 ApplyRxPlaybackMuteForTransmitStart();
 
-                uint srcId = uint.Parse(system.Rid);
+                uint srcId = uint.Parse(cpgChannel.GetSourceRid(system));
                 uint dstId = uint.Parse(cpgChannel.Tgid);
 
                 if (e.TxStreamId != 0)
@@ -6046,7 +6082,7 @@ namespace dvmconsole
                 if (!e.IsSelected)
                     return;
 
-                uint srcId = uint.Parse(system.Rid);
+                uint srcId = uint.Parse(cpgChannel.GetSourceRid(system));
                 uint dstId = uint.Parse(cpgChannel.Tgid);
 
                 Log.WriteLine($"({system.Name}) {e.ChannelMode.ToUpperInvariant()} Traffic *CALL END       * SRC_ID {srcId} TGID {dstId} [STREAM ID {e.TxStreamId}]");
@@ -6576,7 +6612,7 @@ namespace dvmconsole
             IEnumerable<string> validSystemNames = Codeplug?.Systems?.Select(s => s.Name) ?? Enumerable.Empty<string>();
             IEnumerable<string> validWebStreamNames = webStreams.Select(s => s.Name);
             IEnumerable<string> validSelectableEncryptionKeys = channels
-                .Where(c => c.SelectableEncryption && c.GetChannelMode() == Codeplug.ChannelMode.P25 && c.HasEncryptionConfig())
+                .Where(c => c.SelectableEncryption && c.GetChannelMode() is Codeplug.ChannelMode.P25 or Codeplug.ChannelMode.NXDN && c.HasEncryptionConfig())
                 .Select(c => BuildSelectableEncryptionStateKey(c.System, c.Tgid));
 
             settingsManager.PruneHiddenResourceZones(Codeplug?.Zones?.Select(z => z.Name) ?? Enumerable.Empty<string>());
@@ -7010,7 +7046,7 @@ namespace dvmconsole
                 channelBox.PatchForwardingTxState = true;
                 channelBox.VolumeMeterLevel = 0;
 
-                uint sourceId = uint.Parse(system.Rid);
+                uint sourceId = uint.Parse(cpgChannel.GetSourceRid(system));
                 uint dstId = uint.Parse(cpgChannel.Tgid);
                 Log.WriteLine($"({system.Name}) {cpgChannel.GetChannelMode().ToString().ToUpperInvariant()} Traffic *CALL START     * SRC_ID {sourceId} TGID {dstId} [STREAM ID {channelBox.TxStreamId}] (Patch PTT: {groupName})");
                 BeginTarTxRecording(channelBox, system, cpgChannel, channelBox.TxStreamId);
@@ -7121,6 +7157,13 @@ namespace dvmconsole
 
                 alreadySentTargets.Add(session.Key);
                 AppendTarTxAudio(session.CodeplugSystem.Name, session.CodeplugChannel.Tgid, session.Channel.TxStreamId, pcmBuffer);
+                if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN)
+                {
+                    uint stream = session.Channel.TxStreamId;
+                    foreach (byte[] chunk in AudioConverter.SplitToChunks(pcmBuffer))
+                        NXDNEncodeAudioFrame(chunk, session.Fne, session.Channel, session.CodeplugChannel, session.CodeplugSystem, expectedStreamId: stream);
+                    continue;
+                }
 
                 Task.Run(() =>
                 {
@@ -7203,6 +7246,12 @@ namespace dvmconsole
             if (!ValidateTalkgroupAvailability(fne, cpgChannel))
             {
                 Log.WriteWarning($"Patch forward target blocked: {channelBox.ChannelName} ({systemName} TG {tgid}) is unavailable on the FNE.");
+                return 0;
+            }
+
+            if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN && sourceId is 0 or > ushort.MaxValue)
+            {
+                Log.WriteWarning("NXDN patch source RID is outside 1-65535; disable source passthrough to use nxdnRid.");
                 return 0;
             }
 
@@ -7293,6 +7342,8 @@ namespace dvmconsole
                 P25EncodeAudioFrame(pcm, fne, channelBox, cpgChannel, system, sourceId);
             else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
                 DMREncodeAudioFrame(pcm, fne, channelBox, cpgChannel, system, sourceId);
+            else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN)
+                NXDNEncodeAudioFrame(pcm, fne, channelBox, cpgChannel, system, sourceId);
         }
 
         /// <summary>
@@ -7321,7 +7372,9 @@ namespace dvmconsole
             if (system == null || string.IsNullOrWhiteSpace(system.Rid))
                 return 0;
 
-            return uint.Parse(system.Rid);
+            Codeplug.Channel channel = GetConfiguredChannels().FirstOrDefault(c =>
+                ResourceIdentity.SystemMatches(c.System, systemName) && c.Tgid == tgid);
+            return uint.TryParse(channel?.GetSourceRid(system) ?? system.Rid, out uint rid) ? rid : 0;
         }
 
         /// <summary>
@@ -7835,8 +7888,9 @@ namespace dvmconsole
         /// Handler for FNE key responses.
         /// </summary>
         /// <param name="e"></param>
-        public void KeyResponseReceived(KeyResponseEvent e)
+        public void KeyResponseReceived(KeyResponseEvent e, string sourceSystemName = null)
         {
+            ImportNxdnNetworkKeys(e, sourceSystemName);
             //Log.WriteLine($"Message ID: {e.KmmKey.MessageId}");
             //Log.WriteLine($"Decrypt Info Format: {e.KmmKey.DecryptInfoFmt}");
             //Log.WriteLine($"Algorithm ID: {e.KmmKey.AlgId}");
@@ -7882,7 +7936,10 @@ namespace dvmconsole
                         byte algoId = cpgChannel.GetAlgoId();
                         KeysetItem receivedKey = e.KmmKey.KeysetItem;
 
-                        if (keyId != 0 && algoId != 0 && keyId == key.KeyId && algoId == receivedKey.AlgId)
+                        if (sourceSystemName != null && !ResourceIdentity.SystemMatches(sourceSystemName, system.Name))
+                            continue;
+
+                        if (cpgChannel.GetChannelMode() != Codeplug.ChannelMode.NXDN && keyId != 0 && algoId != 0 && keyId == key.KeyId && algoId == receivedKey.AlgId)
                             channel.Crypter.SetKey(key.KeyId, receivedKey.AlgId, key.GetKey());
                     }
                 });

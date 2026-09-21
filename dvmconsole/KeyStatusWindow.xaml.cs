@@ -132,12 +132,13 @@ namespace dvmconsole
                             continue;
                         }
 
-                        bool hasKey = channelBox.Crypter.HasKey();
+                        bool isNxdn = cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN;
+                        bool hasKey = channelBox.HasLoadedTransmitKey();
 
                         KeyStatusItems.Add(new KeyStatusItem
                         {
                             ChannelName = channelBox.ChannelName,
-                            AlgId = $"0x{cpgChannel.GetAlgoId():X2}",
+                            AlgId = isNxdn ? $"NXDN {cpgChannel.GetNxdnCipherType()}" : $"0x{cpgChannel.GetAlgoId():X2}",
                             KeyId = $"0x{cpgChannel.GetKeyId():X4}",
                             KeyStatus = hasKey ? "Key Available" : "No Key"
                         });

@@ -104,6 +104,11 @@ namespace dvmconsole
             /// Preshared Encryption key.
             /// </summary>
             public string PresharedKey { get; set; }
+
+            /// <summary>
+            /// Optional AES-256 key used to unwrap FNE key responses, separate from transport encryption.
+            /// </summary>
+            public string KmfPresharedKey { get; set; }
             /// <summary>
             /// Flag indicating whether or not the connection to the FNE is encrypted.
             /// </summary>
@@ -118,6 +123,10 @@ namespace dvmconsole
             /// Unique Radio ID.
             /// </summary>
             public string Rid { get; set; }
+            /// <summary>
+            /// Optional 16-bit NXDN subscriber ID for systems also using P25/DMR IDs.
+            /// </summary>
+            public string NxdnRid { get; set; }
 
             /// <summary>
             /// 
@@ -294,6 +303,10 @@ namespace dvmconsole
             /// Digital Voice Mode.
             /// </summary>
             public string Mode { get; set; } = "p25";
+            /// <summary>
+            /// NXDN radio access number (0-63).
+            /// </summary>
+            public int Ran { get; set; } = 0;
 
             /// <summary>
             /// Resource color in hex (#RRGGBB or #AARRGGBB).
@@ -328,6 +341,15 @@ namespace dvmconsole
                 if (string.IsNullOrWhiteSpace(KeyId))
                     return 0;
 
+                if (GetChannelMode() == ChannelMode.NXDN)
+                {
+                    string value = KeyId.Trim();
+                    if (value.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                        value = value.Substring(2);
+                    return ushort.TryParse(value, global::System.Globalization.NumberStyles.HexNumber,
+                        global::System.Globalization.CultureInfo.InvariantCulture, out ushort id) ? id : (ushort)0;
+                }
+
                 return Convert.ToUInt16(KeyId, 16);
             }
 
@@ -340,6 +362,7 @@ namespace dvmconsole
                 switch ((Algo ?? string.Empty).ToLowerInvariant())
                 {
                     case "aes":
+                    case "aes256":
                         return P25Defines.P25_ALGO_AES;
                     case "des":
                         return P25Defines.P25_ALGO_DES;
@@ -351,13 +374,39 @@ namespace dvmconsole
             }
 
             /// <summary>
+            /// Returns the FNE key-service algorithm, not the NXDN wire cipher number.
+            /// </summary>
+            public byte GetKeyRequestAlgoId() => GetChannelMode() == ChannelMode.NXDN
+                ? fnecore.NXDN.NxdnPrivacyAlgorithms.ToKeyRequestAlgorithm(GetNxdnCipherType())
+                : GetAlgoId();
+
+            /// <summary>
             /// Returns true when this channel has configured TX encryption key material.
             /// </summary>
             /// <returns></returns>
             public bool HasEncryptionConfig()
             {
+                if (GetChannelMode() == ChannelMode.NXDN)
+                    return GetNxdnCipherType() != 0;
                 return GetAlgoId() != P25Defines.P25_ALGO_UNENCRYPT && GetKeyId() > 0;
             }
+
+            /// <summary>
+            /// Returns the NXDN wire cipher, distinct from P25 KMM algorithm IDs.
+            /// Unknown algorithms remain invalid rather than falling back to clear TX.
+            /// </summary>
+            public byte GetNxdnCipherType() => (Algo ?? string.Empty).ToLowerInvariant() switch
+            {
+                "" or "none" => 0,
+                "ehr" or "scrambler" => 1,
+                "des" => 2,
+                "aes" or "aes256" => 3,
+                _ => byte.MaxValue
+            };
+
+            public string GetSourceRid(System system) =>
+                GetChannelMode() == ChannelMode.NXDN && !string.IsNullOrWhiteSpace(system?.NxdnRid)
+                    ? system.NxdnRid : system?.Rid;
 
             /// <summary>
             /// Helper to return the channel mode.
