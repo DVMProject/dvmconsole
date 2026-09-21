@@ -59,7 +59,7 @@ systems:
 # Group memberships are assigned at runtime from the Groups window and persist in user settings.
 # Patch enabled/disabled state is separate from membership and is only restored when
 # "Retain Patch State on Startup" is enabled in the console Settings menu.
-# For mixed-mode testing, add P25 and NXDN resources to these groups in View > Groups.
+# For mixed-mode testing, add P25, DMR, and NXDN resources to these groups in View > Groups.
 # Enable the patch on only one console at a time to avoid forwarding loops.
 groups:
     # Textual name of the group and type ("patch" or "multiselect")
@@ -158,6 +158,22 @@ zones:
         # NXDN key IDs are 1-63; channel keyId strings are hexadecimal.
         # Provision matching material and RID permission on the FNE, or use keyFile.
         keyId: "03"
+        selectable_encryption: true
+      - name: "DMR Clear"
+        system: "System 1"
+        tgid: "3010"
+        mode: "dmr"
+        slot: 1
+        algo: "none"
+      - name: "DMR AES"
+        system: "System 1"
+        tgid: "3011"
+        mode: "dmr"
+        slot: 2
+        algo: "aes"
+        # DMR key IDs are 1-255; channel keyId strings are hexadecimal.
+        # Provision matching material and RID permission on the FNE, or use keyFile.
+        keyId: "23"
         selectable_encryption: true
 
   - name: "Emergency"

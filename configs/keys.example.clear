@@ -1,15 +1,48 @@
 keys:
   -
-    # The key ID, in hex, for this key
-    keyId: 0x1
-    # The algorithm ID, in hex, for this key
+    # P25 AES-256 example
+    keyId: 0x11
     algId: 0x84
-    # The key material, as a hex string representation, for this key
-    key: "1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR"
+    key: "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F"
   -
-    # The key ID, in hex, for this key
-    keyId: 0x2
-    # The algorithm ID, in hex, for this key
-    algId: 0xAA
-    # The key material, as a hex string representation, for this key
-    key: "1234567890"
+    # NXDN EHR example (wire algorithm 1, 15-bit scrambling key)
+    protocol: nxdn
+    system: "System 1"
+    keyId: 0x31
+    algId: 1
+    key: "1234"
+  -
+    # NXDN DES-OFB example (wire algorithm 2, 8-byte key)
+    protocol: nxdn
+    system: "System 1"
+    keyId: 0x32
+    algId: 2
+    key: "133457799BBCDFF1"
+  -
+    # NXDN AES-256 example (wire algorithm 3, 32-byte key)
+    protocol: nxdn
+    system: "System 1"
+    keyId: 0x33
+    algId: 3
+    key: "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F"
+  -
+    # DMR Association ARC4 example (wire algorithm 1, 5-byte key)
+    protocol: dmr
+    system: "System 1"
+    keyId: 0x21
+    algId: 1
+    key: "0102030405"
+  -
+    # DMR Association DES-OFB example (wire algorithm 2, 8-byte key)
+    protocol: dmr
+    system: "System 1"
+    keyId: 0x22
+    algId: 2
+    key: "133457799BBCDFF1"
+  -
+    # DMR Association AES-256 example (wire algorithm 5, 32-byte key)
+    protocol: dmr
+    system: "System 1"
+    keyId: 0x23
+    algId: 5
+    key: "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F"

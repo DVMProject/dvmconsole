@@ -46,7 +46,7 @@ Toggle PTT is off by default. If changed, the preference is saved.
 
 # Selectable Encryption
 
-Some P25 secure-capable resources may show **SELECT** in the card text area.
+Some P25, DMR, and NXDN secure-capable resources may show **SELECT** in the card text area.
 
 Click **SELECT** to toggle that resource between encrypted and clear console transmit. The choice is saved by system/talkgroup and restored on the next startup.
 
@@ -82,7 +82,7 @@ If the talkgroup is unavailable on that FNE, the action is blocked and this warn
 Target TG unavailable on FNE
 ```
 
-This validation is per system and applies to P25, DMR, and NXDN resources. NXDN also checks the 16-bit RID/TGID, RAN, and required encryption key before allowing transmit.
+This validation is per system and applies to P25, DMR, and NXDN resources. DMR also checks the 24-bit RID/TGID, timeslot, algorithm, key ID, and required encryption key. NXDN checks the 16-bit RID/TGID, RAN, and required encryption key.
 
 ---
 

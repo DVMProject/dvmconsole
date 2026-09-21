@@ -1079,8 +1079,10 @@ namespace dvmconsole
         /// <param name="filePath"></param>
         private void LoadCodeplug(string filePath)
         {
+            StopDmrChannels();
             StopNxdnChannels();
             ClearNxdnKeys();
+            ClearDmrKeys();
             DisableControls();
             StopAllPatchPttTargets();
 
@@ -1226,6 +1228,7 @@ namespace dvmconsole
         /// </summary>
         private void GenerateChannelWidgets()
         {
+            StopDmrChannels();
             StopNxdnChannels();
             List<string> activeChannelKeys = CaptureActiveSelectedChannelKeys();
             List<string> activeWebStreamNames = CaptureActiveWebStreamNames();
@@ -1387,11 +1390,15 @@ namespace dvmconsole
                         channelBox.ChannelMode = channel.Mode.ToUpperInvariant();
                         channelBox.IsRxOnly = channel.RxOnly;
                         channelBox.CanStartPtt = CanStartChannelPtt;
-                        channelBox.HasTransmitKey = () => channel.GetChannelMode() == Codeplug.ChannelMode.NXDN
-                            ? HasNxdnKey(channel) : channelBox.Crypter.HasKey();
+                        channelBox.HasTransmitKey = () => channel.GetChannelMode() switch
+                        {
+                            Codeplug.ChannelMode.NXDN => HasNxdnKey(channel),
+                            Codeplug.ChannelMode.DMR => HasDmrKey(channel),
+                            _ => channelBox.Crypter.HasKey()
+                        };
 
                         bool hasEncryptionConfig = channel.HasEncryptionConfig();
-                        bool canSelectEncryption = channel.GetChannelMode() is Codeplug.ChannelMode.P25 or Codeplug.ChannelMode.NXDN && hasEncryptionConfig;
+                        bool canSelectEncryption = channel.GetChannelMode() is Codeplug.ChannelMode.P25 or Codeplug.ChannelMode.NXDN or Codeplug.ChannelMode.DMR && hasEncryptionConfig;
                         channelBox.IsEncryptionSelectable = channel.SelectableEncryption && canSelectEncryption;
                         channelBox.IsTxEncrypted = hasEncryptionConfig &&
                             (!channelBox.IsEncryptionSelectable ||
@@ -1998,9 +2005,12 @@ namespace dvmconsole
                               loadedConfiguredKeys = true;
                           }
 
-                          // NXDN uses its own keyring but shares the FNE's key service.
+                          // DMR and NXDN use protocol-specific keyrings but share the FNE key service.
                           if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN &&
                               (cpgChannel.GetKeyRequestAlgoId() == 0 || HasNxdnKey(cpgChannel)))
+                              continue;
+                          if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR &&
+                              (cpgChannel.GetKeyRequestAlgoId() == 0 || HasDmrKey(cpgChannel)))
                               continue;
 
                           if (isRestoringSelectedChannelsOnStartup)
@@ -2067,6 +2077,11 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void ResetChannel(ChannelBox e)
         {
+            lock (e.DmrSync)
+            {
+                EndDmrTransmission(e);
+                e.DmrFailedStreamId = 0;
+            }
             lock (e.NxdnSync)
             {
                 EndNxdnTransmission(e);
@@ -2076,11 +2091,6 @@ namespace dvmconsole
             // reset values
             e.p25SeqNo = 0;
             e.p25N = 0;
-
-            e.dmrSeqNo = 0;
-            e.dmrN = 0;
-            e.ambeCount = 0;
-            Array.Clear(e.ambeBuffer);
 
             e.pktSeq = 0;
         }
@@ -2525,7 +2535,7 @@ namespace dvmconsole
             if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                 fne.SendP25TDU(srcId, dstId, false);
             else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                fne.SendDMRTerminator(srcId, dstId, (byte)Math.Max(1, cpgChannel.Slot), channel.dmrSeqNo, channel.dmrN, channel.embeddedData, channel.TxStreamId, channel.pktSeq);
+                EndDmrTransmission(channel);
 
             ResetChannel(channel);
         }
@@ -2535,6 +2545,8 @@ namespace dvmconsole
         /// </summary>
         private void ClearReceiveState(ChannelBox channel, SlotStatus slotStatus = null)
         {
+            channel.DmrRx?.Dispose();
+            channel.DmrRx = null;
             channel.NxdnRx?.Dispose();
             channel.NxdnRx = null;
             channel.IsReceiving = false;
@@ -3456,7 +3468,7 @@ namespace dvmconsole
                     if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                         fne.SendP25TDU(srcId, dstId, false);
                     else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                        fne.SendDMRTerminator(srcId, dstId, (byte)Math.Max(1, cpgChannel.Slot), channel.dmrSeqNo, channel.dmrN, channel.embeddedData, channel.TxStreamId, channel.pktSeq);
+                        EndDmrTransmission(channel);
 
                     ResetChannel(channel);
                 }
@@ -4471,8 +4483,10 @@ namespace dvmconsole
 
         private void MainWindow_Closed(object sender, EventArgs e)
         {
+            StopDmrChannels();
             StopNxdnChannels();
             ClearNxdnKeys();
+            ClearDmrKeys();
             StopAllWebStreams();
             ShutdownAlertToneScheduler();
             ShutdownToolbarClocks();
@@ -5927,7 +5941,7 @@ namespace dvmconsole
                     if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                         fne.SendP25TDU(srcId, dstId, false);
                     else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                        fne.SendDMRTerminator(srcId, dstId, (byte)Math.Max(1, cpgChannel.Slot), e.dmrSeqNo, e.dmrN, e.embeddedData, e.TxStreamId, e.pktSeq);
+                        EndDmrTransmission(e);
                 }
                 else
                 {
@@ -6093,7 +6107,7 @@ namespace dvmconsole
                     if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                         fne.SendP25TDU(srcId, dstId, false);
                     else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                        fne.SendDMRTerminator(srcId, dstId, (byte)Math.Max(1, cpgChannel.Slot), e.dmrSeqNo, e.dmrN, e.embeddedData, e.TxStreamId, e.pktSeq);
+                        EndDmrTransmission(e);
                 }
                 else
                 {
@@ -6612,7 +6626,7 @@ namespace dvmconsole
             IEnumerable<string> validSystemNames = Codeplug?.Systems?.Select(s => s.Name) ?? Enumerable.Empty<string>();
             IEnumerable<string> validWebStreamNames = webStreams.Select(s => s.Name);
             IEnumerable<string> validSelectableEncryptionKeys = channels
-                .Where(c => c.SelectableEncryption && c.GetChannelMode() is Codeplug.ChannelMode.P25 or Codeplug.ChannelMode.NXDN && c.HasEncryptionConfig())
+                .Where(c => c.SelectableEncryption && c.GetChannelMode() is Codeplug.ChannelMode.P25 or Codeplug.ChannelMode.NXDN or Codeplug.ChannelMode.DMR && c.HasEncryptionConfig())
                 .Select(c => BuildSelectableEncryptionStateKey(c.System, c.Tgid));
 
             settingsManager.PruneHiddenResourceZones(Codeplug?.Zones?.Select(z => z.Name) ?? Enumerable.Empty<string>());
@@ -7125,7 +7139,7 @@ namespace dvmconsole
                 if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                     session.Fne.SendP25TDU(session.SourceId, dstId, false);
                 else if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                    session.Fne.SendDMRTerminator(session.SourceId, dstId, (byte)Math.Max(1, session.CodeplugChannel.Slot), session.Channel.dmrSeqNo, session.Channel.dmrN, session.Channel.embeddedData, session.Channel.TxStreamId, session.Channel.pktSeq);
+                    EndDmrTransmission(session.Channel);
             }
             else
             {
@@ -7299,7 +7313,7 @@ namespace dvmconsole
                 if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                     fne.SendP25TDU(sourceId, dstId, false);
                 else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                    fne.SendDMRTerminator(sourceId, dstId, (byte)Math.Max(1, cpgChannel.Slot), channelBox.dmrSeqNo, channelBox.dmrN, channelBox.embeddedData, channelBox.TxStreamId, channelBox.pktSeq);
+                    EndDmrTransmission(channelBox);
             }
             else
             {
@@ -7890,6 +7904,7 @@ namespace dvmconsole
         /// <param name="e"></param>
         public void KeyResponseReceived(KeyResponseEvent e, string sourceSystemName = null)
         {
+            ImportDmrNetworkKeys(e, sourceSystemName);
             ImportNxdnNetworkKeys(e, sourceSystemName);
             //Log.WriteLine($"Message ID: {e.KmmKey.MessageId}");
             //Log.WriteLine($"Decrypt Info Format: {e.KmmKey.DecryptInfoFmt}");
@@ -7939,7 +7954,7 @@ namespace dvmconsole
                         if (sourceSystemName != null && !ResourceIdentity.SystemMatches(sourceSystemName, system.Name))
                             continue;
 
-                        if (cpgChannel.GetChannelMode() != Codeplug.ChannelMode.NXDN && keyId != 0 && algoId != 0 && keyId == key.KeyId && algoId == receivedKey.AlgId)
+                        if (cpgChannel.GetChannelMode() is not (Codeplug.ChannelMode.NXDN or Codeplug.ChannelMode.DMR) && keyId != 0 && algoId != 0 && keyId == key.KeyId && algoId == receivedKey.AlgId)
                             channel.Crypter.SetKey(key.KeyId, receivedKey.AlgId, key.GetKey());
                     }
                 });

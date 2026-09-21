@@ -229,6 +229,12 @@ namespace dvmconsole
 
             foreach (var keyEntry in keys.Keys)
             {
+                if (string.Equals(keyEntry.Protocol, "dmr", StringComparison.OrdinalIgnoreCase))
+                {
+                    try { SetDmrKey(keyEntry.System, checked((byte)keyEntry.AlgId), keyEntry.KeyId, keyEntry.KeyBytes, local: true); }
+                    catch (Exception ex) { Log.WriteWarning($"Invalid local DMR key {keyEntry.KeyId}: {ex.Message}"); }
+                    continue;
+                }
                 if (string.Equals(keyEntry.Protocol, "nxdn", StringComparison.OrdinalIgnoreCase))
                 {
                     try { SetNxdnKey(keyEntry.System, checked((byte)keyEntry.AlgId), keyEntry.KeyId, keyEntry.KeyBytes, local: true); }

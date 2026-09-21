@@ -65,15 +65,17 @@ Supported P25 `algo` values include:
 - `arc4`
 - `none`
 
-For P25, if `keyId` is blank or zero, the channel is treated as clear for normal operation. NXDN encrypted channels instead block TX when the key configuration is invalid; they never silently fall back to clear.
+For P25, if `keyId` is blank or zero, the channel is treated as clear for normal operation. DMR and NXDN encrypted channels instead block TX when the key configuration is invalid; they never silently fall back to clear.
 
 NXDN supports `ehr` (15-bit scrambling), `des`, and `aes` (AES-256). Local NXDN entries require `protocol: nxdn` and use wire algorithm IDs 1, 2, and 3 rather than P25 algorithm IDs. See **NXDN** for key sizes, examples, and FNE key-service behavior.
+
+DMR supports Association ARC4, DES-OFB, and AES-256. Local DMR entries require `protocol: dmr` and use wire algorithm IDs 1, 2, and 5. See **DMR** for key sizes, examples, and FNE key-service behavior.
 
 ---
 
 # Selectable Encryption
 
-P25 and NXDN secure-capable channels can expose an in-card encryption toggle:
+P25, DMR, and NXDN secure-capable channels can expose an in-card encryption toggle:
 
 ```yaml
 keyId: 0x50
@@ -96,6 +98,8 @@ The console waits for the relevant FNE connection to complete before sending sta
 Missing keys on selected encrypted resources are also requested again after an FNE reconnect. Keys must exist in the FNE crypto container, and the system's regular `rid` must be authorized to request each KID.
 
 NXDN EHR, DES, and AES use this same service. Their request/container algorithm IDs are `0x01`, `0x81`, and `0x84`, respectively; see **NXDN** for details and key lengths. Use unique key IDs for distinct material across protocols in the FNE container.
+
+DMR ARC4, DES, and AES also use this service with request/container algorithm IDs `0xAA`, `0x81`, and `0x84`, respectively. These differ from the DMR wire IDs stored in local key files; see **DMR** for details.
 
 When the FNE enables encrypted key responses (`kmfEncKeyRequest`), configure the matching `kmfPresharedKey` under the console system. It must contain exactly 64 hexadecimal characters. This wrapping key is separate from the FNE transport `presharedKey`. Protect both keys and prefer encrypted FNE transport; unprotected key responses expose traffic keys on the network.
 

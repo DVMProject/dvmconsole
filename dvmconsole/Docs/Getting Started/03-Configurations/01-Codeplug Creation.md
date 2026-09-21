@@ -136,11 +136,11 @@ Fields:
 - `mode`: `p25`, `dmr`, or `nxdn`. If omitted, P25 is used.
 - `keyId`: optional encryption key ID.
 - `algo`: optional encryption algorithm, such as `aes`, `des`, `arc4`, or `none`.
-- `selectable_encryption`: optional flag for P25 or NXDN secure-capable resources. When `true`, the card shows a **SELECT** toggle so operators can choose encrypted or clear transmit. This requires a valid `keyId` and `algo`.
+- `selectable_encryption`: optional flag for P25, DMR, or NXDN secure-capable resources. When `true`, the card shows a **SELECT** toggle so operators can choose encrypted or clear transmit. This requires a valid `keyId` and `algo`.
 - `resourceColor`: optional resource card color in hex.
 - `rx_only`: optional receive-only flag. When `true`, the resource card hides PTT, alert tone select, and channel marker/hold controls, and the resource is skipped by global, patch/group, and alert-tone transmit target paths.
 - `card_size`: optional fixed resource card size. Supported values are `small`, `normal`, and `large`. If omitted or invalid, `normal` is used.
-- `slot`: optional DMR slot field if used by the deployment.
+- `slot`: DMR timeslot, either 1 or 2. See **DMR** for complete examples and encryption requirements.
 - `ran`: optional NXDN radio access number (0-63, default 0). NXDN does not use DMR timeslots. See **NXDN** for a complete example and encryption requirements.
 
 The console validates target TGs against active talkgroup rules received from the connected FNE when a user attempts to transmit or otherwise use the TG.

@@ -376,9 +376,12 @@ namespace dvmconsole
             /// <summary>
             /// Returns the FNE key-service algorithm, not the NXDN wire cipher number.
             /// </summary>
-            public byte GetKeyRequestAlgoId() => GetChannelMode() == ChannelMode.NXDN
-                ? fnecore.NXDN.NxdnPrivacyAlgorithms.ToKeyRequestAlgorithm(GetNxdnCipherType())
-                : GetAlgoId();
+            public byte GetKeyRequestAlgoId() => GetChannelMode() switch
+            {
+                ChannelMode.NXDN => fnecore.NXDN.NxdnPrivacyAlgorithms.ToKeyRequestAlgorithm(GetNxdnCipherType()),
+                ChannelMode.DMR => fnecore.DMR.DmrPrivacyAlgorithms.ToKeyRequestAlgorithm(GetDmrAlgorithmId()),
+                _ => GetAlgoId()
+            };
 
             /// <summary>
             /// Returns true when this channel has configured TX encryption key material.
@@ -388,6 +391,8 @@ namespace dvmconsole
             {
                 if (GetChannelMode() == ChannelMode.NXDN)
                     return GetNxdnCipherType() != 0;
+                if (GetChannelMode() == ChannelMode.DMR)
+                    return GetDmrAlgorithmId() != 0 && GetKeyId() is > 0 and <= byte.MaxValue;
                 return GetAlgoId() != P25Defines.P25_ALGO_UNENCRYPT && GetKeyId() > 0;
             }
 
@@ -401,6 +406,16 @@ namespace dvmconsole
                 "ehr" or "scrambler" => 1,
                 "des" => 2,
                 "aes" or "aes256" => 3,
+                _ => byte.MaxValue
+            };
+
+            /// <summary>Returns the DMR Association wire algorithm ID.</summary>
+            public byte GetDmrAlgorithmId() => (Algo ?? string.Empty).ToLowerInvariant() switch
+            {
+                "" or "none" => 0,
+                "arc4" => fnecore.DMR.DmrPrivacyAlgorithms.Arc4,
+                "des" or "des-ofb" => fnecore.DMR.DmrPrivacyAlgorithms.DesOfb,
+                "aes" or "aes256" or "aes-256" => fnecore.DMR.DmrPrivacyAlgorithms.Aes256,
                 _ => byte.MaxValue
             };
 

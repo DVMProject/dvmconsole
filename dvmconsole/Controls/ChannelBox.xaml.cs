@@ -111,18 +111,16 @@ namespace dvmconsole.Controls
         public int p25SeqNo = 0;
         public int p25Errs = 0;
 
-        public byte dmrN = 0;
-        public int dmrSeqNo = 0;
-
         internal readonly object NxdnSync = new();
         internal NXDN.NxdnTxCall NxdnTx;
         internal fnecore.NXDN.NxdnRxCall NxdnRx;
+        internal DMR.DmrTxCall DmrTx;
+        internal fnecore.DMR.DmrRxCall DmrRx;
+        internal readonly object DmrSync = new();
+        internal Task DmrEndTask = Task.CompletedTask;
+        internal uint DmrFailedStreamId;
         internal Task NxdnEndTask = Task.CompletedTask;
         internal uint NxdnFailedStreamId;
-
-        public int ambeCount = 0;
-        public byte[] ambeBuffer = new byte[FneSystemBase.DMR_AMBE_LENGTH_BYTES];
-        public EmbeddedData embeddedData = new EmbeddedData();
 
         public byte[] mi = new byte[P25Defines.P25_MI_LENGTH];     // Message Indicator
         public byte algId = 0;                                     // Algorithm ID

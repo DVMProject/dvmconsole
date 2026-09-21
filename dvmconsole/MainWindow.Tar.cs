@@ -337,6 +337,8 @@ namespace dvmconsole
         {
             if (channel?.GetChannelMode() == Codeplug.ChannelMode.NXDN)
                 return DescribeNxdnEncryptionAlgorithm(channel.GetNxdnCipherType());
+            if (channel?.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                return DescribeDmrEncryptionAlgorithm(channel.GetDmrAlgorithmId());
             if (channel == null || channel.GetAlgoId() == P25Defines.P25_ALGO_UNENCRYPT || channel.GetKeyId() == 0)
                 return string.Empty;
 
@@ -356,10 +358,14 @@ namespace dvmconsole
 
         private static string DescribeDmrEncryptionAlgorithm(byte algorithmId)
         {
-            if (algorithmId == 0)
-                return string.Empty;
-
-            return $"0x{algorithmId:X2}";
+            return algorithmId switch
+            {
+                0 => string.Empty,
+                DmrPrivacyAlgorithms.Arc4 => "ARC4",
+                DmrPrivacyAlgorithms.DesOfb => "DES-OFB",
+                DmrPrivacyAlgorithms.Aes256 => "AES-256",
+                _ => $"0x{algorithmId:X2}"
+            };
         }
 
         private static ushort? NormalizeEncryptionKeyId(uint keyId)

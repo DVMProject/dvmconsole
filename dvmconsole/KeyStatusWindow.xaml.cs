@@ -123,7 +123,7 @@ namespace dvmconsole
                             continue;
                         }
 
-                        if (cpgChannel.GetKeyId() == 0 || cpgChannel.GetAlgoId() == 0)
+                        if (!cpgChannel.HasEncryptionConfig())
                             continue;
 
                         if (channelBox.Crypter == null)
@@ -133,12 +133,14 @@ namespace dvmconsole
                         }
 
                         bool isNxdn = cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN;
+                        bool isDmr = cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR;
                         bool hasKey = channelBox.HasLoadedTransmitKey();
 
                         KeyStatusItems.Add(new KeyStatusItem
                         {
                             ChannelName = channelBox.ChannelName,
-                            AlgId = isNxdn ? $"NXDN {cpgChannel.GetNxdnCipherType()}" : $"0x{cpgChannel.GetAlgoId():X2}",
+                            AlgId = isNxdn ? $"NXDN {cpgChannel.GetNxdnCipherType()}" :
+                                isDmr ? DescribeDmrAlgorithm(cpgChannel.GetDmrAlgorithmId()) : $"0x{cpgChannel.GetAlgoId():X2}",
                             KeyId = $"0x{cpgChannel.GetKeyId():X4}",
                             KeyStatus = hasKey ? "Key Available" : "No Key"
                         });
@@ -146,5 +148,13 @@ namespace dvmconsole
                 }
             });
         }
+
+        private static string DescribeDmrAlgorithm(byte algorithmId) => algorithmId switch
+        {
+            fnecore.DMR.DmrPrivacyAlgorithms.Arc4 => "DMR ARC4",
+            fnecore.DMR.DmrPrivacyAlgorithms.DesOfb => "DMR DES-OFB",
+            fnecore.DMR.DmrPrivacyAlgorithms.Aes256 => "DMR AES-256",
+            _ => $"DMR 0x{algorithmId:X2}"
+        };
     } // public partial class KeyStatusWindow : Window
 } // namespace dvmconsole
