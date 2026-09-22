@@ -59,7 +59,7 @@ systems:
 # Group memberships are assigned at runtime from the Groups window and persist in user settings.
 # Patch enabled/disabled state is separate from membership and is only restored when
 # "Retain Patch State on Startup" is enabled in the console Settings menu.
-# For mixed-mode testing, add P25, DMR, and NXDN resources to these groups in View > Groups.
+# For mixed-mode testing, add P25, DMR, NXDN, and analog resources to these groups in View > Groups.
 # Enable the patch on only one console at a time to avoid forwarding loops.
 groups:
     # Textual name of the group and type ("patch" or "multiselect")
@@ -100,7 +100,7 @@ zones:
         selectable_encryption: true
         # Ignored now, we use dvmfne KMM support (This will be used in the future to ovveride FNE KMM support)
         encryptionKey: null
-        # Voice mode DMR ("dmr"), P25 ("p25"), NXDN ("nxdn")
+        # Voice mode DMR ("dmr"), P25 ("p25"), NXDN ("nxdn"), or G.711 mu-law ("analog")
         mode: "p25"
         # Optional resource color for this channel widget, in hex
         # resourceColor: "#150282"
@@ -149,6 +149,20 @@ zones:
         mode: "nxdn"
         ran: 0
         algo: "none"
+      - name: "Analog Clear"
+        system: "System 1"
+        tgid: "3005"
+        mode: "analog"
+        algo: "none"
+        # Requires analog traffic enabled and this TG provisioned on the FNE.
+      - name: "Analog Scrambled"
+        system: "System 1"
+        tgid: "3006"
+        mode: "analog"
+        algo: "none"
+        scrambler_code: 2 # 3000 Hz; 0 disables, codes 2-16 are supported.
+        selectable_encryption: true # SELECT toggles scrambled/clear TX and RX for this Console.
+        # Voice inversion is not secure encryption and does not use FNE keys.
       - name: "NXDN AES"
         system: "System 1"
         tgid: "3004"

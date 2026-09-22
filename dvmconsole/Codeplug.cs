@@ -32,7 +32,8 @@ namespace dvmconsole
         {
             DMR = 0,
             NXDN = 1,
-            P25 = 2
+            P25 = 2,
+            Analog = 3
         } // public enum ChannelMode
 
         /*
@@ -307,6 +308,11 @@ namespace dvmconsole
             /// NXDN radio access number (0-63).
             /// </summary>
             public int Ran { get; set; } = 0;
+            /// <summary>
+            /// Optional analog voice-inversion code (0 disables scrambling).
+            /// </summary>
+            [YamlMember(Alias = "scrambler_code", ApplyNamingConventions = false)]
+            public int ScramblerCode { get; set; } = 0;
 
             /// <summary>
             /// Resource color in hex (#RRGGBB or #AARRGGBB).
@@ -389,12 +395,21 @@ namespace dvmconsole
             /// <returns></returns>
             public bool HasEncryptionConfig()
             {
+                if (GetChannelMode() == ChannelMode.Analog)
+                    return false;
                 if (GetChannelMode() == ChannelMode.NXDN)
                     return GetNxdnCipherType() != 0;
                 if (GetChannelMode() == ChannelMode.DMR)
                     return GetDmrAlgorithmId() != 0 && GetKeyId() is > 0 and <= byte.MaxValue;
                 return GetAlgoId() != P25Defines.P25_ALGO_UNENCRYPT && GetKeyId() > 0;
             }
+
+            /// <summary>
+            /// Analog inversion uses a codeplug frequency, not an FNE encryption key.
+            /// </summary>
+            public bool HasSelectableTxProtection() => GetChannelMode() == ChannelMode.Analog
+                ? AnalogVoiceInversion.TryGetFrequency(ScramblerCode, out _)
+                : HasEncryptionConfig();
 
             /// <summary>
             /// Returns the NXDN wire cipher, distinct from P25 KMM algorithm IDs.

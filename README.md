@@ -66,6 +66,7 @@ The same documentation is also built into the app under `Help > Documentation`.
 - [Talkgroup Audio Recorder](dvmconsole/Docs/Getting%20Started/03-Configurations/05-Talkgroup%20Audio%20Recorder.md)
 - [NXDN](dvmconsole/Docs/Getting%20Started/03-Configurations/06-NXDN.md)
 - [DMR](dvmconsole/Docs/Getting%20Started/03-Configurations/07-DMR.md)
+- [Analog](dvmconsole/Docs/Getting%20Started/03-Configurations/08-Analog.md)
 - [Console Operation](dvmconsole/Docs/Getting%20Started/04-Operations/01-Console%20Operation.md)
 - [Settings Reference](dvmconsole/Docs/Getting%20Started/04-Operations/02-Settings%20Reference.md)
 - [Audio Settings](dvmconsole/Docs/Getting%20Started/04-Operations/03-Audio%20Settings.md)

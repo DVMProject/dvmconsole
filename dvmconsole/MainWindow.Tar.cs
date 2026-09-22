@@ -236,7 +236,7 @@ namespace dvmconsole
             if (channelBox == null || system == null || channel == null || streamId == 0)
                 return;
 
-            bool isEncrypted = channelBox.IsTxEncrypted;
+            bool isEncrypted = channel.GetChannelMode() != Codeplug.ChannelMode.Analog && channelBox.IsTxEncrypted;
             string algorithm = DescribeTxEncryptionAlgorithm(channel);
             ushort? keyId = isEncrypted && channel.GetKeyId() > 0 ? channel.GetKeyId() : null;
 
@@ -256,7 +256,7 @@ namespace dvmconsole
 
             ClearConsoleTxHistoryEntry(channelBox, system, channel);
 
-            bool isEncrypted = channelBox.IsTxEncrypted;
+            bool isEncrypted = channel.GetChannelMode() != Codeplug.ChannelMode.Analog && channelBox.IsTxEncrypted;
             string algorithm = DescribeTxEncryptionAlgorithm(channel);
             ushort? keyId = isEncrypted && channel.GetKeyId() > 0 ? channel.GetKeyId() : null;
 
@@ -335,6 +335,8 @@ namespace dvmconsole
 
         private static string DescribeTxEncryptionAlgorithm(Codeplug.Channel channel)
         {
+            if (channel?.GetChannelMode() == Codeplug.ChannelMode.Analog)
+                return string.Empty;
             if (channel?.GetChannelMode() == Codeplug.ChannelMode.NXDN)
                 return DescribeNxdnEncryptionAlgorithm(channel.GetNxdnCipherType());
             if (channel?.GetChannelMode() == Codeplug.ChannelMode.DMR)

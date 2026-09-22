@@ -67,6 +67,8 @@ namespace dvmconsole
                 return false;
             if (!ValidateDmrTransmit(cpgChannel, channel, showWarning))
                 return false;
+            if (!ValidateAnalogTransmit(cpgChannel, showWarning))
+                return false;
             return ValidateTalkgroupAvailability(fne, cpgChannel);
         }
 
@@ -78,6 +80,8 @@ namespace dvmconsole
             if (!ValidateNxdnTransmit(cpgChannel))
                 return false;
             if (!ValidateDmrTransmit(cpgChannel))
+                return false;
+            if (!ValidateAnalogTransmit(cpgChannel))
                 return false;
 
             string systemName = cpgChannel.System ?? fne.ConfiguredSystemName ?? fne.SystemName;

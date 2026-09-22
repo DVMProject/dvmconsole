@@ -121,6 +121,11 @@ namespace dvmconsole.Controls
         internal uint DmrFailedStreamId;
         internal Task NxdnEndTask = Task.CompletedTask;
         internal uint NxdnFailedStreamId;
+        internal readonly object AnalogSync = new();
+        internal bool AnalogStarted;
+        internal uint AnalogSourceId;
+        internal AnalogVoiceInversion AnalogTxInverter;
+        internal AnalogVoiceInversion AnalogRxInverter;
 
         public byte[] mi = new byte[P25Defines.P25_MI_LENGTH];     // Message Indicator
         public byte algId = 0;                                     // Algorithm ID
@@ -1252,9 +1257,14 @@ namespace dvmconsole.Controls
                 SelectableEncryptionForeground = IsTxEncrypted
                     ? SELECTABLE_ENCRYPTION_ON_BRUSH
                     : SELECTABLE_ENCRYPTION_OFF_BRUSH;
-                SelectableEncryptionToolTip = IsTxEncrypted
-                    ? "Selectable encryption: encrypted TX. Click to transmit clear."
-                    : "Selectable encryption: clear TX. Click to transmit encrypted.";
+                bool analog = string.Equals(ChannelMode, "ANALOG", StringComparison.OrdinalIgnoreCase);
+                SelectableEncryptionToolTip = analog
+                    ? IsTxEncrypted
+                        ? "Analog voice inversion: scrambled TX and descrambled RX. Click for clear mode."
+                        : "Analog voice inversion: clear TX and RX. Click for scrambled mode."
+                    : IsTxEncrypted
+                        ? "Selectable encryption: encrypted TX. Click to transmit clear."
+                        : "Selectable encryption: clear TX. Click to transmit encrypted.";
             });
         }
 
@@ -1380,7 +1390,10 @@ namespace dvmconsole.Controls
 
             if (PttState || PatchForwardingTxState)
             {
-                MessageBox.Show("Encryption selection cannot be changed while transmitting.", "Selectable Encryption", MessageBoxButton.OK, MessageBoxImage.Information);
+                bool analog = string.Equals(ChannelMode, "ANALOG", StringComparison.OrdinalIgnoreCase);
+                MessageBox.Show(analog ? "Voice inversion cannot be changed while transmitting." :
+                    "Encryption selection cannot be changed while transmitting.",
+                    analog ? "Selectable Voice Inversion" : "Selectable Encryption", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 

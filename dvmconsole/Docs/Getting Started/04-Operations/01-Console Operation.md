@@ -44,13 +44,13 @@ Toggle PTT is off by default. If changed, the preference is saved.
 
 ---
 
-# Selectable Encryption
+# Selectable TX Protection
 
-Some P25, DMR, and NXDN secure-capable resources may show **SELECT** in the card text area.
+Some P25, DMR, and NXDN secure-capable resources, and analog resources with a configured voice-inversion code, may show **SELECT** in the card text area.
 
-Click **SELECT** to toggle that resource between encrypted and clear console transmit. The choice is saved by system/talkgroup and restored on the next startup.
+Click **SELECT** to toggle that resource between protected and clear console transmit. The choice is saved by system/talkgroup and restored on the next startup. Analog voice inversion is not encryption, uses no FNE key, and cannot signal its on/off state to receivers. On an analog resource, SELECT also controls local RX decoding from the next call; both consoles must select the same mode to hear clear audio.
 
-If the resource does not show **SELECT**, encryption behavior is fixed by the codeplug.
+If the resource does not show **SELECT**, transmit protection is fixed by the codeplug.
 
 ---
 
@@ -82,7 +82,7 @@ If the talkgroup is unavailable on that FNE, the action is blocked and this warn
 Target TG unavailable on FNE
 ```
 
-This validation is per system and applies to P25, DMR, and NXDN resources. DMR also checks the 24-bit RID/TGID, timeslot, algorithm, key ID, and required encryption key. NXDN checks the 16-bit RID/TGID, RAN, and required encryption key.
+This validation is per system and applies to P25, DMR, NXDN, and analog resources. DMR also checks the 24-bit RID/TGID, timeslot, algorithm, key ID, and required encryption key. NXDN checks the 16-bit RID/TGID, RAN, and required encryption key. Analog checks the 24-bit RID/TGID and optional voice-inversion code; it does not request an FNE encryption key.
 
 ---
 

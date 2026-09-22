@@ -1081,6 +1081,7 @@ namespace dvmconsole
         {
             StopDmrChannels();
             StopNxdnChannels();
+            StopAnalogChannels();
             ClearNxdnKeys();
             ClearDmrKeys();
             DisableControls();
@@ -1230,6 +1231,7 @@ namespace dvmconsole
         {
             StopDmrChannels();
             StopNxdnChannels();
+            StopAnalogChannels();
             List<string> activeChannelKeys = CaptureActiveSelectedChannelKeys();
             List<string> activeWebStreamNames = CaptureActiveWebStreamNames();
 
@@ -1394,13 +1396,13 @@ namespace dvmconsole
                         {
                             Codeplug.ChannelMode.NXDN => HasNxdnKey(channel),
                             Codeplug.ChannelMode.DMR => HasDmrKey(channel),
+                            Codeplug.ChannelMode.Analog => true,
                             _ => channelBox.Crypter.HasKey()
                         };
 
-                        bool hasEncryptionConfig = channel.HasEncryptionConfig();
-                        bool canSelectEncryption = channel.GetChannelMode() is Codeplug.ChannelMode.P25 or Codeplug.ChannelMode.NXDN or Codeplug.ChannelMode.DMR && hasEncryptionConfig;
-                        channelBox.IsEncryptionSelectable = channel.SelectableEncryption && canSelectEncryption;
-                        channelBox.IsTxEncrypted = hasEncryptionConfig &&
+                        bool hasSelectableTxProtection = channel.HasSelectableTxProtection();
+                        channelBox.IsEncryptionSelectable = channel.SelectableEncryption && hasSelectableTxProtection;
+                        channelBox.IsTxEncrypted = hasSelectableTxProtection &&
                             (!channelBox.IsEncryptionSelectable ||
                              settingsManager.GetSelectableEncryptionState(
                                  BuildSelectableEncryptionStateKey(channel.System, channel.Tgid),
@@ -2077,6 +2079,7 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void ResetChannel(ChannelBox e)
         {
+            EndAnalogTransmission(e);
             lock (e.DmrSync)
             {
                 EndDmrTransmission(e);
@@ -2615,7 +2618,8 @@ namespace dvmconsole
                 return null;
 
             string exactStatusKey = ResourceIdentity.Build(cpgChannel.System, cpgChannel.Tgid) +
-                (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN ? "|nxdn" : string.Empty);
+                (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN ? "|nxdn" :
+                 cpgChannel.GetChannelMode() == Codeplug.ChannelMode.Analog ? "|analog" : string.Empty);
             if (systemStatuses.TryGetValue(exactStatusKey, out SlotStatus exactStatus) &&
                 (channel.RxStreamId == 0 || exactStatus.RxStreamId == channel.RxStreamId))
             {
@@ -3442,6 +3446,8 @@ namespace dvmconsole
                             DMREncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
                         else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN)
                             NXDNEncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
+                        else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.Analog)
+                            AnalogEncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
 
                         DateTime nextPacketTime = startTime.AddMilliseconds((i + 1) * 20);
                         TimeSpan waitTime = nextPacketTime - DateTime.UtcNow;
@@ -4271,11 +4277,16 @@ namespace dvmconsole
                       isAnyTgOn = true;
                       transmittedTargets.Add(BuildPatchTargetKey(system.Name, cpgChannel.Tgid));
                       AppendTarTxAudio(system.Name, channel.DstId, channel.TxStreamId, micBuffer);
-                      if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN)
+                      if (cpgChannel.GetChannelMode() is Codeplug.ChannelMode.NXDN or Codeplug.ChannelMode.Analog)
                       {
                           uint stream = channel.TxStreamId;
                           foreach (byte[] chunk in AudioConverter.SplitToChunks(micBuffer))
-                              NXDNEncodeAudioFrame(chunk, fne, channel, cpgChannel, system, expectedStreamId: stream);
+                          {
+                              if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN)
+                                  NXDNEncodeAudioFrame(chunk, fne, channel, cpgChannel, system, expectedStreamId: stream);
+                              else if (chunk.Length == PCM_SAMPLES_LENGTH)
+                                  AnalogEncodeAudioFrame(chunk, fne, channel, cpgChannel, system, expectedStreamId: stream);
+                          }
                           continue;
                       }
                       Task.Run(() =>
@@ -4485,6 +4496,7 @@ namespace dvmconsole
         {
             StopDmrChannels();
             StopNxdnChannels();
+            StopAnalogChannels();
             ClearNxdnKeys();
             ClearDmrKeys();
             StopAllWebStreams();
@@ -5788,7 +5800,7 @@ namespace dvmconsole
                 return;
 
             Codeplug.Channel cpgChannel = Codeplug?.GetChannelByName(e.ChannelName);
-            if (cpgChannel == null || !cpgChannel.SelectableEncryption || !cpgChannel.HasEncryptionConfig())
+            if (cpgChannel == null || !cpgChannel.SelectableEncryption || !cpgChannel.HasSelectableTxProtection())
                 return;
 
             settingsManager.UpdateSelectableEncryptionState(
@@ -6626,7 +6638,7 @@ namespace dvmconsole
             IEnumerable<string> validSystemNames = Codeplug?.Systems?.Select(s => s.Name) ?? Enumerable.Empty<string>();
             IEnumerable<string> validWebStreamNames = webStreams.Select(s => s.Name);
             IEnumerable<string> validSelectableEncryptionKeys = channels
-                .Where(c => c.SelectableEncryption && c.GetChannelMode() is Codeplug.ChannelMode.P25 or Codeplug.ChannelMode.NXDN or Codeplug.ChannelMode.DMR && c.HasEncryptionConfig())
+                .Where(c => c.SelectableEncryption && c.HasSelectableTxProtection())
                 .Select(c => BuildSelectableEncryptionStateKey(c.System, c.Tgid));
 
             settingsManager.PruneHiddenResourceZones(Codeplug?.Zones?.Select(z => z.Name) ?? Enumerable.Empty<string>());
@@ -7171,11 +7183,16 @@ namespace dvmconsole
 
                 alreadySentTargets.Add(session.Key);
                 AppendTarTxAudio(session.CodeplugSystem.Name, session.CodeplugChannel.Tgid, session.Channel.TxStreamId, pcmBuffer);
-                if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN)
+                if (session.CodeplugChannel.GetChannelMode() is Codeplug.ChannelMode.NXDN or Codeplug.ChannelMode.Analog)
                 {
                     uint stream = session.Channel.TxStreamId;
                     foreach (byte[] chunk in AudioConverter.SplitToChunks(pcmBuffer))
-                        NXDNEncodeAudioFrame(chunk, session.Fne, session.Channel, session.CodeplugChannel, session.CodeplugSystem, expectedStreamId: stream);
+                    {
+                        if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN)
+                            NXDNEncodeAudioFrame(chunk, session.Fne, session.Channel, session.CodeplugChannel, session.CodeplugSystem, expectedStreamId: stream);
+                        else if (chunk.Length == PCM_SAMPLES_LENGTH)
+                            AnalogEncodeAudioFrame(chunk, session.Fne, session.Channel, session.CodeplugChannel, session.CodeplugSystem, expectedStreamId: stream);
+                    }
                     continue;
                 }
 
@@ -7358,6 +7375,8 @@ namespace dvmconsole
                 DMREncodeAudioFrame(pcm, fne, channelBox, cpgChannel, system, sourceId);
             else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN)
                 NXDNEncodeAudioFrame(pcm, fne, channelBox, cpgChannel, system, sourceId);
+            else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.Analog)
+                AnalogEncodeAudioFrame(pcm, fne, channelBox, cpgChannel, system, sourceId);
         }
 
         /// <summary>
@@ -7947,14 +7966,17 @@ namespace dvmconsole
                             continue;
                         }
 
-                        ushort keyId = cpgChannel.GetKeyId();
-                        byte algoId = cpgChannel.GetAlgoId();
                         KeysetItem receivedKey = e.KmmKey.KeysetItem;
 
                         if (sourceSystemName != null && !ResourceIdentity.SystemMatches(sourceSystemName, system.Name))
                             continue;
 
-                        if (cpgChannel.GetChannelMode() is not (Codeplug.ChannelMode.NXDN or Codeplug.ChannelMode.DMR) && keyId != 0 && algoId != 0 && keyId == key.KeyId && algoId == receivedKey.AlgId)
+                        if (cpgChannel.GetChannelMode() != Codeplug.ChannelMode.P25)
+                            continue;
+
+                        ushort keyId = cpgChannel.GetKeyId();
+                        byte algoId = cpgChannel.GetAlgoId();
+                        if (keyId != 0 && algoId != 0 && keyId == key.KeyId && algoId == receivedKey.AlgId)
                             channel.Crypter.SetKey(key.KeyId, receivedKey.AlgId, key.GetKey());
                     }
                 });

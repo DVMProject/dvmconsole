@@ -87,6 +87,8 @@ When enabled, the resource card shows **SELECT** next to the TAR indicator area.
 
 The selected encrypted/clear state is saved and restored across restarts. The key and algorithm still come from the codeplug; the toggle only controls whether the console uses them for transmit.
 
+Analog voice inversion can use the same **SELECT** control, but it is not encryption and does not use a key. See [Analog](08-Analog.md).
+
 ---
 
 # FNE Key Requests

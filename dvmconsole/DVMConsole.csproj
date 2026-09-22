@@ -83,6 +83,7 @@
     <None Remove="Docs\Getting Started\03-Configurations\04-Groups and Patching.md" />
     <None Remove="Docs\Getting Started\03-Configurations\05-Talkgroup Audio Recorder.md" />
     <None Remove="Docs\Getting Started\03-Configurations\07-DMR.md" />
+    <None Remove="Docs\Getting Started\03-Configurations\08-Analog.md" />
     <None Remove="Docs\Getting Started\04-Operations\01-Console Operation.md" />
     <None Remove="Docs\Getting Started\04-Operations\02-Settings Reference.md" />
     <None Remove="Docs\Getting Started\04-Operations\03-Audio Settings.md" />
@@ -119,6 +120,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Docs\Getting Started\03-Configurations\07-DMR.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Docs\Getting Started\03-Configurations\08-Analog.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Docs\Getting Started\04-Operations\01-Console Operation.md">
