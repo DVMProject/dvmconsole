@@ -384,7 +384,7 @@ namespace dvmconsole
             /// </summary>
             public byte GetKeyRequestAlgoId() => GetChannelMode() switch
             {
-                ChannelMode.NXDN => fnecore.NXDN.NxdnPrivacyAlgorithms.ToKeyRequestAlgorithm(GetNxdnCipherType()),
+                ChannelMode.NXDN => fnecore.NXDN.NXDNCrypto.ToKeyRequestAlgorithm(GetNxdnCipherType()),
                 ChannelMode.DMR => fnecore.DMR.DmrPrivacyAlgorithms.ToKeyRequestAlgorithm(GetDmrAlgorithmId()),
                 _ => GetAlgoId()
             };

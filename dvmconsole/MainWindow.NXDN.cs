@@ -20,7 +20,9 @@ namespace dvmconsole
         private void SetNxdnKey(string system, byte cipher, ushort id, byte[] key, bool local = false)
         {
             // Validate key sizes and reject unusable DES/EHR material before storing it.
-            using var validator = new NxdnPrivacyProcessor(NxdnPrivacyOptions.CreateRandom(cipher, checked((byte)id), key));
+            using var validator = new NXDNCrypto();
+            validator.SetKey(id, cipher, key);
+            validator.Prepare(cipher, id, NXDNCrypto.CreateMessageIndicator());
             lock (nxdnKeySync)
             {
                 var index = (NxdnKeySystem(system), cipher, id);
@@ -63,7 +65,7 @@ namespace dvmconsole
             // responses may bridge KMM algorithm IDs to NXDN wire cipher IDs.
             if (sourceSystemName == null)
                 return;
-            byte cipher = NxdnPrivacyAlgorithms.FromKeyRequestAlgorithm(e.KmmKey.KeysetItem.AlgId);
+            byte cipher = NXDNCrypto.FromKeyRequestAlgorithm(e.KmmKey.KeysetItem.AlgId);
             if (cipher == 0)
                 return;
             foreach (Codeplug.System system in Codeplug?.Systems ?? [])
@@ -150,7 +152,11 @@ namespace dvmconsole
                     {
                         uint source = sourceIdOverride ?? uint.Parse(config.GetSourceRid(system));
                         byte[] key = null;
-                        NxdnPrivacyOptions privacy = null;
+                        NXDNCallData call = new()
+                        {
+                            SrcId = source, DstId = uint.Parse(config.Tgid), TxStreamID = stream,
+                            Ran = checked((byte)config.Ran)
+                        };
                         try
                         {
                             if (channel.IsTxEncrypted)
@@ -158,16 +164,19 @@ namespace dvmconsole
                                 byte cipher = config.GetNxdnCipherType();
                                 key = GetNxdnKey(system.Name, cipher, config.GetKeyId()) ??
                                     throw new InvalidOperationException("NXDN key unavailable; refusing clear fallback.");
-                                privacy = NxdnPrivacyOptions.CreateRandom(cipher, checked((byte)config.GetKeyId()), key);
+                                call.AlgorithmId = cipher;
+                                call.KeyId = config.GetKeyId();
+                                call.Crypto.SetKey(call.KeyId, cipher, key);
                             }
-                            channel.NxdnTx = new NxdnTxCall(source, uint.Parse(config.Tgid), stream, checked((byte)config.Ran),
+                            channel.NxdnTx = new NxdnTxCall(fne, call,
                                 samples => EncodeNxdnCodeword(channel, samples),
                                 (packet, sequence) =>
                                 {
                                     if (IsFneSystemConnected(system.Name))
-                                        fne.peer.SendMasterTraffic(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_NXDN), packet, sequence, stream);
-                                }, privacy);
+                                        fne.SendNXDNFrame(call, packet, sequence);
+                                });
                         }
+                        catch { call.Dispose(); throw; }
                         finally
                         {
                             if (key != null)
@@ -259,7 +268,7 @@ namespace dvmconsole
         public void NXDNDataReceived(string sourceSystemName, NXDNDataReceivedEvent e, DateTime packetTime)
         {
             if (e.CallType != CallType.GROUP || e.StreamId == 0 || e.SrcId is 0 or > ushort.MaxValue ||
-                e.DstId is 0 or > ushort.MaxValue || !NxdnVoicePacketCodec.TryExtractFrame(e.Data, new byte[48]))
+                e.DstId is 0 or > ushort.MaxValue || !NXDNFrame.TryExtractFrame(e.Data, stackalloc byte[48]))
                 return;
             Dispatcher.Invoke(() =>
             {
@@ -280,7 +289,7 @@ namespace dvmconsole
                     string statusKey = ResourceIdentity.Build(system.Name, config.Tgid) + "|nxdn";
                     if (!systemStatuses.TryGetValue(statusKey, out SlotStatus status))
                         systemStatuses[statusKey] = status = new SlotStatus();
-                    bool newCall = channel.NxdnRx == null || channel.NxdnRx.StreamId != e.StreamId;
+                    bool newCall = channel.NxdnRx == null || channel.NxdnRx.TxStreamID != e.StreamId;
                     if (newCall && e.FrameType == FrameType.TERMINATOR)
                         continue;
                     try
@@ -295,16 +304,18 @@ namespace dvmconsole
                                 callHistoryWindow.ClearChannelActivity(channel.ChannelName);
                             }
                             channel.NxdnRx?.Dispose();
-                            channel.NxdnRx = new NxdnRxCall(e.SrcId, e.DstId, e.StreamId,
-                                (cipher, id) => GetNxdnKey(system.Name, cipher, id), new NxdnAmbeCodec());
+                            channel.NxdnRx = new NXDNCallData { SrcId = e.SrcId, DstId = e.DstId, TxStreamID = e.StreamId };
+                            channel.NxdnRxCodec ??= new NxdnAmbeCodec();
                             channel.IsReceiving = true;
                             channel.PeerId = e.PeerId;
                             channel.RxStreamId = e.StreamId;
                             status.RxStart = packetTime;
                             patchManager.HandleCallStart(system.Name, config.Tgid, e.StreamId, e.SrcId);
                         }
-                        NxdnRxCall call = channel.NxdnRx;
-                        byte[] voice = call.Process(e.Data, e.PacketSequence);
+                        NXDNCallData call = channel.NxdnRx;
+                        byte[] voice = new byte[NXDNFrame.VoiceBytes];
+                        int voiceLength = NXDNFrame.Decode(call, e.Data, e.PacketSequence, voice, channel.NxdnRxCodec,
+                            (cipher, id) => GetNxdnKey(system.Name, cipher, id));
                         channel.LastPktTime = packetTime;
                         channel.IsReceivingEncrypted = call.IsEncrypted;
                         channel.LastSrcId = string.IsNullOrEmpty(alias) ? "Last ID: " + e.SrcId : "Last: " + alias;
@@ -316,7 +327,7 @@ namespace dvmconsole
                         if (newCall)
                         {
                             var recording = BeginTarRxRecording(system, config, e.StreamId, e.SrcId, alias,
-                                call.IsEncrypted, DescribeNxdnEncryptionAlgorithm(call.CipherType), call.KeyId == 0 ? null : call.KeyId, packetTime);
+                                call.IsEncrypted, DescribeNxdnEncryptionAlgorithm(call.AlgorithmId), call.KeyId == 0 ? null : call.KeyId, packetTime);
                             callHistoryWindow.AddCall(config.Name, (int)e.SrcId, (int)e.DstId, alias, packetTime.ToString("HH:mm:ss"), recording);
                             channel.AddCall(config.Name, (int)e.SrcId, (int)e.DstId, alias, packetTime.ToString("HH:mm:ss"), recording);
                             Log.WriteLine($"({system.Name}) NXDD: Traffic *CALL START     * SRC_ID {e.SrcId} TGID {e.DstId} [STREAM ID {e.StreamId}]");
@@ -333,7 +344,7 @@ namespace dvmconsole
                         else
                         {
                             callHistoryWindow.ChannelKeyed(config.Name, (int)e.SrcId, call.IsEncrypted);
-                            for (int offset = 0; offset < voice.Length; offset += 9)
+                            for (int offset = 0; offset < voiceLength; offset += 9)
                             {
                                 byte[] word = voice.AsSpan(offset, 9).ToArray();
                                 short[] samples = new short[160];

@@ -1,6 +1,6 @@
 # NXDN
 
-NXDN resources use 4800-baud NXDN group voice through the FNE. They can share a codeplug and FNE connection with P25 and DMR resources.
+NXDN resources use 4800-bit/s (6.25 kHz) NXDN group voice through the FNE. They can share a codeplug and FNE connection with P25 and DMR resources.
 
 Normal PTT, global/multi-select PTT, patches, generated/custom tones, channel hold, audio routing, RID aliases, Event/Call History, and TAR use the same console controls. NXDN encryption has its own wire format and key limits.
 
@@ -99,10 +99,12 @@ FNECore unwraps EHR responses to the required two-byte key and rejects invalid p
 
 FNECore handles NXDN framing, FACCH/SACCH signaling, EHR/DES/AES privacy, IV rotation, receive synchronization, and peer key-response unwrapping. The console supplies the native AMBE vocoder adapter and owns audio devices, transmit pacing, key selection/storage, UI, history, TAR, and group routing. This follows the same protocol-library/application split as P25; it does not require FNECore to load the console's native audio libraries.
 
+The NXDN API uses `NXDNCallData : RemoteCallData`, `NXDN.LC.RTCH`, `NXDNCrypto`, and the `FneSystemBase.CreateNXDN*` / `SendNXDN*` helpers. Console and FNECore must be built together after this API change; replacing only the FNECore DLL in an older console build is not supported. Existing codeplugs and key files do not need migration.
+
 NXDN carries four 20 ms AMBE codewords per 80 ms network voice frame. Call end completes a partial frame and sends one release; cancelled tones discard pending audio. A new call waits until the previous release has finished.
 
-The receiver supports late entry and reacquires privacy synchronization after packet loss. An encrypted frame with stolen voice slots is muted until fresh synchronization rather than played with an uncertain keystream position.
+The receiver supports late entry and reacquires privacy synchronization after packet loss. Duplicate and stale packets do not advance the cipher position. FACCH1-stolen voice slots are skipped at their original positions; usable voice slots retain the correct encryption alignment. Audio remains muted until call metadata, keys, and synchronization are available. A mid-call cipher/key change is rejected rather than silently switching to clear audio.
 
-Console-to-console tests cover clear, EHR, DES, and AES through a local FNE, including history and TAR. FNE key downloads are also tested against an SSL-enabled Linux FNE with an encrypted key container. Radio/repeater interoperability and the target site's key permissions/configuration still require verification before operational use.
+Automated checks cover EHR, DES, AES, IV rotation, DVMHost framing, and traffic in both directions through a local FNE with downloaded keys. They also cover packet loss, late entry, stolen voice slots, short PTT releases, and cancellation. These checks do not replace hands-on testing of audio, history/TAR, patches/multi-select, and radio/repeater operation before putting a build into service.
 
 This is NXDN group voice, not a translation of every P25 service. P25 subscriber paging/check/inhibit commands remain P25-only. NXDN 9600/EFR, individual calls, packet data, OTAR, and trunking control-channel services are not implemented by this console path.

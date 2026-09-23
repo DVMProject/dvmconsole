@@ -113,7 +113,8 @@ namespace dvmconsole.Controls
 
         internal readonly object NxdnSync = new();
         internal NXDN.NxdnTxCall NxdnTx;
-        internal fnecore.NXDN.NxdnRxCall NxdnRx;
+        internal fnecore.NXDN.NXDNCallData NxdnRx;
+        internal fnecore.NXDN.INxdnAmbeCodec NxdnRxCodec;
         internal DMR.DmrTxCall DmrTx;
         internal fnecore.DMR.DmrRxCall DmrRx;
         internal readonly object DmrSync = new();

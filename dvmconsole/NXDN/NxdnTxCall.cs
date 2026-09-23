@@ -14,7 +14,11 @@ internal sealed class NxdnTxCall : IDisposable
     private readonly object sync = new();
     private readonly Func<short[], byte[]> encode;
     private readonly Action<byte[], ushort> send;
-    private readonly NxdnVoiceEncoder encoder;
+    private readonly fnecore.FneSystemBase system;
+    private readonly NXDNCallData call;
+    private readonly NxdnAmbeCodec codec = new();
+    private readonly byte[] voice = new byte[NXDNFrame.VoiceBytes];
+    private int pendingWords;
     private readonly Channel<byte[]> packets = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(4)
     {
         SingleReader = true, SingleWriter = true, FullMode = BoundedChannelFullMode.Wait
@@ -26,16 +30,17 @@ internal sealed class NxdnTxCall : IDisposable
     public uint StreamId { get; }
     public Task Completion { get; }
 
-    public NxdnTxCall(uint sourceId, uint destinationId, uint streamId, byte ran,
-        Func<short[], byte[]> encode, Action<byte[], ushort> send, NxdnPrivacyOptions options = null)
+    public NxdnTxCall(fnecore.FneSystemBase system, NXDNCallData call,
+        Func<short[], byte[]> encode, Action<byte[], ushort> send)
     {
-        if (streamId == 0)
-            throw new ArgumentOutOfRangeException(nameof(streamId));
-        StreamId = streamId;
+        if (call.TxStreamID == 0)
+            throw new ArgumentOutOfRangeException(nameof(call));
+        StreamId = call.TxStreamID;
+        this.system = system;
+        this.call = call;
         this.encode = encode;
         this.send = send;
-        encoder = new NxdnVoiceEncoder(sourceId, destinationId, ran, options, new NxdnAmbeCodec());
-        packets.Writer.TryWrite(encoder.CreateCallStartPacket());
+        packets.Writer.TryWrite(system.CreateNXDNHeader(call));
         Completion = PumpAsync();
     }
 
@@ -56,11 +61,13 @@ internal sealed class NxdnTxCall : IDisposable
     private void AppendCodeword(short[] samples)
     {
         byte[] word = encode(samples);
-        if (word.Length != NxdnVoicePacketCodec.CodewordBytes)
+        if (word.Length != NXDNFrame.CodewordBytes)
             throw new InvalidOperationException("NXDN vocoder returned an invalid codeword.");
-        byte[] packet = encoder.ProcessCodeword(word);
-        if (packet == null)
+        word.CopyTo(voice, pendingWords * NXDNFrame.CodewordBytes);
+        if (++pendingWords < 4)
             return;
+        byte[] packet = system.CreateNXDNVoice(call, voice, codec);
+        pendingWords = 0;
         if (!packets.Writer.TryWrite(packet))
         {
             ended = true;
@@ -78,7 +85,7 @@ internal sealed class NxdnTxCall : IDisposable
                 try
                 {
                     // Complete at most one partial 80 ms voice frame.
-                    while (encoder.PendingCodewordCount > 0 && !ended)
+                    while (pendingWords > 0 && !ended)
                         AppendCodeword(new short[160]);
                 }
                 finally
@@ -114,7 +121,7 @@ internal sealed class NxdnTxCall : IDisposable
             if (started)
             {
                 await WaitForPacketTimeAsync(lastSent).ConfigureAwait(false);
-                send(encoder.CreateReleasePacket(), ushort.MaxValue);
+                send(system.CreateNXDNRelease(call), ushort.MaxValue);
             }
         }
     }
@@ -133,7 +140,8 @@ internal sealed class NxdnTxCall : IDisposable
         lock (sync)
         {
             ended = true;
-            encoder.DiscardPending();
+            pendingWords = 0;
+            Array.Clear(voice);
             packets.Writer.TryComplete();
             cancel.Cancel();
         }
@@ -149,11 +157,13 @@ internal sealed class NxdnTxCall : IDisposable
             disposed = true;
             packets.Writer.TryComplete();
             cancel.Cancel();
-            encoder.Dispose();
             if (Completion.IsCompleted)
+            {
+                call.Dispose();
                 cancel.Dispose();
+            }
             else
-                _ = Completion.ContinueWith(_ => cancel.Dispose(), TaskScheduler.Default);
+                _ = Completion.ContinueWith(_ => { call.Dispose(); cancel.Dispose(); }, TaskScheduler.Default);
         }
     }
 }

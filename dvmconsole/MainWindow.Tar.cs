@@ -202,7 +202,7 @@ namespace dvmconsole
             {
                 case Codeplug.ChannelMode.NXDN:
                     isEncrypted = channelBox.NxdnRx?.IsEncrypted == true;
-                    encryptionAlgorithm = DescribeNxdnEncryptionAlgorithm(channelBox.NxdnRx?.CipherType ?? 0);
+                    encryptionAlgorithm = DescribeNxdnEncryptionAlgorithm(channelBox.NxdnRx?.AlgorithmId ?? 0);
                     encryptionKeyId = NormalizeEncryptionKeyId(channelBox.NxdnRx?.KeyId ?? 0);
                     break;
                 case Codeplug.ChannelMode.P25:
