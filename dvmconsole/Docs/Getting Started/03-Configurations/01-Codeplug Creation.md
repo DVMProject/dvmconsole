@@ -137,11 +137,11 @@ Fields:
 - `keyId`: optional encryption key ID.
 - `algo`: optional encryption algorithm, such as `aes`, `des`, `arc4`, or `none`.
 - `scrambler_code`: optional analog voice-inversion code (`0` for off, or `2` through `16`); see [Analog](08-Analog.md). This is not an FNE encryption key.
-- `selectable_encryption`: optional flag for P25, DMR, NXDN, or analog resources with `scrambler_code`. When `true`, the card shows a **SELECT** toggle so operators can choose protected or clear transmit. Digital modes require a valid `keyId` and `algo`; analog inversion uses its codeplug frequency and no key.
+- `selectable_encryption`: optional flag for P25, NXDN, or analog resources with `scrambler_code`. When `true`, the card shows a **SELECT** toggle so operators can choose protected or clear transmit. Digital modes require a valid `keyId` and `algo`; analog inversion uses its codeplug frequency and no key. Encrypted DMR is temporarily unavailable.
 - `resourceColor`: optional resource card color in hex.
 - `rx_only`: optional receive-only flag. When `true`, the resource card hides PTT, alert tone select, and channel marker/hold controls, and the resource is skipped by global, patch/group, and alert-tone transmit target paths.
 - `card_size`: optional fixed resource card size. Supported values are `small`, `normal`, and `large`. If omitted or invalid, `normal` is used.
-- `slot`: DMR timeslot, either 1 or 2. See **DMR** for complete examples and encryption requirements.
+- `slot`: DMR timeslot, either 1 or 2. See **DMR** for clear-channel examples and current limits.
 - `ran`: optional NXDN radio access number (0-63, default 0). NXDN does not use DMR timeslots. See **NXDN** for a complete example and encryption requirements.
 
 The console validates target TGs against active talkgroup rules received from the connected FNE when a user attempts to transmit or otherwise use the TG.

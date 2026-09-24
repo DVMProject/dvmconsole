@@ -6,78 +6,79 @@ using fnecore.DMR;
 
 namespace dvmconsole.DMR;
 
-/// <summary>Owns one paced DMR call while FNECore owns its protocol state.</summary>
+/// <summary>Queues audio; only the sender advances FNECore's call state.</summary>
 internal sealed class DmrTxCall : IDisposable
 {
     private readonly object sync = new();
+    private readonly fnecore.FneSystemBase system;
+    private readonly DMRCallData call;
     private readonly Func<short[], byte[]> encode;
     private readonly Action<byte[], ushort> send;
-    private readonly DmrVoiceEncoder encoder;
-    private readonly Channel<DmrOutboundPacket> packets = Channel.CreateBounded<DmrOutboundPacket>(
-        new BoundedChannelOptions(12)
-        {
-            SingleReader = true,
-            SingleWriter = true,
-            FullMode = BoundedChannelFullMode.Wait
-        });
+    private readonly Channel<byte[]> audio = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(12)
+    {
+        SingleReader = true,
+        SingleWriter = true,
+        FullMode = BoundedChannelFullMode.Wait
+    });
     private readonly CancellationTokenSource cancel = new();
+    private readonly byte[] partial = new byte[DMRFrame.VoiceBytes];
+    private int used;
     private bool ended;
     private bool disposed;
 
-    public DmrTxCall(uint sourceId, uint destinationId, byte slot, uint streamId,
-        Func<short[], byte[]> encode, Action<byte[], ushort> send, DmrPrivacyOptions privacy = null)
+    public uint StreamId => call.TxStreamID;
+    public Task Completion { get; }
+
+    public DmrTxCall(fnecore.FneSystemBase system, DMRCallData call,
+        Func<short[], byte[]> encode, Action<byte[], ushort> send)
     {
-        if (streamId == 0)
-            throw new ArgumentOutOfRangeException(nameof(streamId));
-        StreamId = streamId;
+        this.system = system ?? throw new ArgumentNullException(nameof(system));
+        this.call = call ?? throw new ArgumentNullException(nameof(call));
         this.encode = encode ?? throw new ArgumentNullException(nameof(encode));
         this.send = send ?? throw new ArgumentNullException(nameof(send));
-        encoder = new DmrVoiceEncoder(sourceId, destinationId, slot, privacy,
-            privacy == null ? null : new DmrAmbeCodec());
-        foreach (DmrOutboundPacket packet in encoder.CreateCallStartPackets())
-            packets.Writer.TryWrite(packet);
-        Completion = PumpAsync();
+        Completion = Task.Run(PumpAsync);
     }
-
-    public uint StreamId { get; }
-    public Task Completion { get; }
 
     public void Process(short[] samples)
     {
         lock (sync)
         {
-            if (ended || disposed)
-                return;
-            if (Completion.IsCompleted)
-                throw new InvalidOperationException("The DMR network sender has stopped.");
-            if (samples.Length != 160)
-                throw new ArgumentException("DMR requires 160 PCM samples per codeword.", nameof(samples));
-            DmrOutboundPacket? packet = encoder.ProcessCodeword(encode(samples));
-            if (packet.HasValue && !packets.Writer.TryWrite(packet.Value))
-                throw new InvalidOperationException("DMR TX stopped rather than queue stale audio.");
+            if (ended || disposed) return;
+            if (Completion.IsCompleted) throw new InvalidOperationException("The DMR sender has stopped.");
+            if (samples.Length != 160) throw new ArgumentException("DMR audio requires 160 samples.", nameof(samples));
+            Append(encode(samples));
         }
+    }
+
+    private void Append(byte[] codeword)
+    {
+        if (codeword == null || codeword.Length != DMRFrame.CodewordBytes)
+            throw new InvalidOperationException("The DMR vocoder returned an invalid codeword.");
+        codeword.CopyTo(partial, used);
+        used += codeword.Length;
+        if (used != partial.Length) return;
+        used = 0;
+        if (!audio.Writer.TryWrite(partial.ToArray()))
+            throw new InvalidOperationException("DMR stopped rather than transmit stale queued audio.");
     }
 
     public Task End()
     {
         lock (sync)
         {
-            if (!ended && !disposed)
+            if (ended || disposed) return Completion;
+            try
             {
-                try
+                if (used != 0)
                 {
                     byte[] silence = encode(new short[160]);
-                    foreach (DmrOutboundPacket packet in encoder.Complete(silence))
-                    {
-                        if (!packets.Writer.TryWrite(packet))
-                            throw new InvalidOperationException("DMR TX completion exceeded its bounded packet buffer.");
-                    }
+                    while (used != 0) Append(silence);
                 }
-                finally
-                {
-                    ended = true;
-                    packets.Writer.TryComplete();
-                }
+            }
+            finally
+            {
+                ended = true;
+                audio.Writer.TryComplete();
             }
             return Completion;
         }
@@ -87,11 +88,10 @@ internal sealed class DmrTxCall : IDisposable
     {
         lock (sync)
         {
-            if (ended || disposed)
-                return;
+            if (disposed) return;
             ended = true;
-            encoder.DiscardPending();
-            packets.Writer.TryComplete();
+            used = 0;
+            audio.Writer.TryComplete();
             cancel.Cancel();
         }
     }
@@ -99,43 +99,67 @@ internal sealed class DmrTxCall : IDisposable
     private async Task PumpAsync()
     {
         long lastSent = 0;
+        ushort sequence = 0;
+        bool started = false;
+        bool failed = false;
         try
         {
-            await foreach (DmrOutboundPacket packet in packets.Reader.ReadAllAsync(cancel.Token).ConfigureAwait(false))
+            cancel.Token.ThrowIfCancellationRequested();
+            send(system.CreateDMRHeader(call), sequence++);
+            started = true;
+            lastSent = Stopwatch.GetTimestamp();
+            await foreach (byte[] voice in audio.Reader.ReadAllAsync(cancel.Token).ConfigureAwait(false))
             {
-                await WaitForPacketTimeAsync(lastSent, cancel.Token).ConfigureAwait(false);
+                await PaceAsync(lastSent, cancel.Token).ConfigureAwait(false);
                 cancel.Token.ThrowIfCancellationRequested();
-                send(packet.Payload, packet.Sequence);
+                send(system.CreateDMRVoice(call, voice), sequence);
+                sequence = (ushort)((sequence + 1) % ushort.MaxValue);
                 lastSent = Stopwatch.GetTimestamp();
             }
         }
         catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
+        catch
+        {
+            failed = true;
+            throw;
+        }
+        finally
+        {
+            // Finish only what actually reached the wire, never the discarded audio queue.
+            if (started && !failed)
+            {
+                int remaining = call.PendingVoiceBursts;
+                for (int i = 0; i < remaining; i++)
+                {
+                    await PaceAsync(lastSent, CancellationToken.None).ConfigureAwait(false);
+                    send(system.CreateDMRSilence(call), sequence);
+                    sequence = (ushort)((sequence + 1) % ushort.MaxValue);
+                    lastSent = Stopwatch.GetTimestamp();
+                }
+                await PaceAsync(lastSent, CancellationToken.None).ConfigureAwait(false);
+                send(system.CreateDMRRelease(call), ushort.MaxValue);
+            }
+        }
     }
 
-    private static async Task WaitForPacketTimeAsync(long lastSent, CancellationToken cancellationToken)
+    private static async Task PaceAsync(long lastSent, CancellationToken token)
     {
-        if (lastSent == 0)
-            return;
-        TimeSpan remaining = TimeSpan.FromMilliseconds(60) - Stopwatch.GetElapsedTime(lastSent);
-        if (remaining > TimeSpan.Zero)
-            await Task.Delay(remaining, cancellationToken).ConfigureAwait(false);
+        TimeSpan delay = TimeSpan.FromMilliseconds(60) - Stopwatch.GetElapsedTime(lastSent);
+        if (delay > TimeSpan.Zero) await Task.Delay(delay, token).ConfigureAwait(false);
     }
 
     public void Dispose()
     {
         lock (sync)
         {
-            if (disposed)
-                return;
-            ended = true;
+            if (disposed) return;
+            Abort();
             disposed = true;
-            packets.Writer.TryComplete();
-            cancel.Cancel();
-            encoder.Dispose();
-            if (Completion.IsCompleted)
+            _ = Completion.ContinueWith(_ =>
+            {
+                call.Dispose();
                 cancel.Dispose();
-            else
-                _ = Completion.ContinueWith(_ => cancel.Dispose(), TaskScheduler.Default);
+            }, TaskScheduler.Default);
         }
     }
 }

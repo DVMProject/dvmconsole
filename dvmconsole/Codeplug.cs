@@ -385,7 +385,7 @@ namespace dvmconsole
             public byte GetKeyRequestAlgoId() => GetChannelMode() switch
             {
                 ChannelMode.NXDN => fnecore.NXDN.NXDNCrypto.ToKeyRequestAlgorithm(GetNxdnCipherType()),
-                ChannelMode.DMR => fnecore.DMR.DmrPrivacyAlgorithms.ToKeyRequestAlgorithm(GetDmrAlgorithmId()),
+                ChannelMode.DMR => 0,
                 _ => GetAlgoId()
             };
 
@@ -400,7 +400,7 @@ namespace dvmconsole
                 if (GetChannelMode() == ChannelMode.NXDN)
                     return GetNxdnCipherType() != 0;
                 if (GetChannelMode() == ChannelMode.DMR)
-                    return GetDmrAlgorithmId() != 0 && GetKeyId() is > 0 and <= byte.MaxValue;
+                    return GetDmrAlgorithmId() != 0;
                 return GetAlgoId() != P25Defines.P25_ALGO_UNENCRYPT && GetKeyId() > 0;
             }
 
@@ -428,9 +428,9 @@ namespace dvmconsole
             public byte GetDmrAlgorithmId() => (Algo ?? string.Empty).ToLowerInvariant() switch
             {
                 "" or "none" => 0,
-                "arc4" => fnecore.DMR.DmrPrivacyAlgorithms.Arc4,
-                "des" or "des-ofb" => fnecore.DMR.DmrPrivacyAlgorithms.DesOfb,
-                "aes" or "aes256" or "aes-256" => fnecore.DMR.DmrPrivacyAlgorithms.Aes256,
+                "arc4" => 1,
+                "des" or "des-ofb" => 2,
+                "aes" or "aes256" or "aes-256" => 5,
                 _ => byte.MaxValue
             };
 

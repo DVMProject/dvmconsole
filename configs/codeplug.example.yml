@@ -179,16 +179,13 @@ zones:
         mode: "dmr"
         slot: 1
         algo: "none"
-      - name: "DMR AES"
+      - name: "DMR TS2"
         system: "System 1"
         tgid: "3011"
         mode: "dmr"
         slot: 2
-        algo: "aes"
-        # DMR key IDs are 1-255; channel keyId strings are hexadecimal.
-        # Provision matching material and RID permission on the FNE, or use keyFile.
-        keyId: "23"
-        selectable_encryption: true
+        # Encrypted DMR is temporarily unavailable.
+        algo: "none"
 
   - name: "Emergency"
     tabColor: "#64B5F6"

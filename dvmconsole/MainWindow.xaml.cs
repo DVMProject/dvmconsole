@@ -1083,7 +1083,6 @@ namespace dvmconsole
             StopNxdnChannels();
             StopAnalogChannels();
             ClearNxdnKeys();
-            ClearDmrKeys();
             DisableControls();
             StopAllPatchPttTargets();
 
@@ -1395,7 +1394,7 @@ namespace dvmconsole
                         channelBox.HasTransmitKey = () => channel.GetChannelMode() switch
                         {
                             Codeplug.ChannelMode.NXDN => HasNxdnKey(channel),
-                            Codeplug.ChannelMode.DMR => HasDmrKey(channel),
+                            Codeplug.ChannelMode.DMR => false,
                             Codeplug.ChannelMode.Analog => true,
                             _ => channelBox.Crypter.HasKey()
                         };
@@ -2011,8 +2010,7 @@ namespace dvmconsole
                           if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN &&
                               (cpgChannel.GetKeyRequestAlgoId() == 0 || HasNxdnKey(cpgChannel)))
                               continue;
-                          if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR &&
-                              (cpgChannel.GetKeyRequestAlgoId() == 0 || HasDmrKey(cpgChannel)))
+                          if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
                               continue;
 
                           if (isRestoringSelectedChannelsOnStartup)
@@ -4498,7 +4496,6 @@ namespace dvmconsole
             StopNxdnChannels();
             StopAnalogChannels();
             ClearNxdnKeys();
-            ClearDmrKeys();
             StopAllWebStreams();
             ShutdownAlertToneScheduler();
             ShutdownToolbarClocks();
@@ -7923,7 +7920,6 @@ namespace dvmconsole
         /// <param name="e"></param>
         public void KeyResponseReceived(KeyResponseEvent e, string sourceSystemName = null)
         {
-            ImportDmrNetworkKeys(e, sourceSystemName);
             ImportNxdnNetworkKeys(e, sourceSystemName);
             //Log.WriteLine($"Message ID: {e.KmmKey.MessageId}");
             //Log.WriteLine($"Decrypt Info Format: {e.KmmKey.DecryptInfoFmt}");

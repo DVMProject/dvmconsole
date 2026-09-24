@@ -142,7 +142,7 @@ namespace dvmconsole
                             AlgId = isNxdn ? $"NXDN {cpgChannel.GetNxdnCipherType()}" :
                                 isDmr ? DescribeDmrAlgorithm(cpgChannel.GetDmrAlgorithmId()) : $"0x{cpgChannel.GetAlgoId():X2}",
                             KeyId = $"0x{cpgChannel.GetKeyId():X4}",
-                            KeyStatus = hasKey ? "Key Available" : "No Key"
+                            KeyStatus = isDmr ? "Encryption unavailable in this build" : hasKey ? "Key Available" : "No Key"
                         });
                     }
                 }
@@ -151,9 +151,9 @@ namespace dvmconsole
 
         private static string DescribeDmrAlgorithm(byte algorithmId) => algorithmId switch
         {
-            fnecore.DMR.DmrPrivacyAlgorithms.Arc4 => "DMR ARC4",
-            fnecore.DMR.DmrPrivacyAlgorithms.DesOfb => "DMR DES-OFB",
-            fnecore.DMR.DmrPrivacyAlgorithms.Aes256 => "DMR AES-256",
+            1 => "DMR ARC4",
+            2 => "DMR DES-OFB",
+            5 => "DMR AES-256",
             _ => $"DMR 0x{algorithmId:X2}"
         };
     } // public partial class KeyStatusWindow : Window

@@ -116,7 +116,7 @@ namespace dvmconsole.Controls
         internal fnecore.NXDN.NXDNCallData NxdnRx;
         internal fnecore.NXDN.INxdnAmbeCodec NxdnRxCodec;
         internal DMR.DmrTxCall DmrTx;
-        internal fnecore.DMR.DmrRxCall DmrRx;
+        internal fnecore.DMR.DMRCallData DmrRx;
         internal readonly object DmrSync = new();
         internal Task DmrEndTask = Task.CompletedTask;
         internal uint DmrFailedStreamId;

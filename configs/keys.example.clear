@@ -25,24 +25,4 @@ keys:
     keyId: 0x33
     algId: 3
     key: "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F"
-  -
-    # DMR Association ARC4 example (wire algorithm 1, 5-byte key)
-    protocol: dmr
-    system: "System 1"
-    keyId: 0x21
-    algId: 1
-    key: "0102030405"
-  -
-    # DMR Association DES-OFB example (wire algorithm 2, 8-byte key)
-    protocol: dmr
-    system: "System 1"
-    keyId: 0x22
-    algId: 2
-    key: "133457799BBCDFF1"
-  -
-    # DMR Association AES-256 example (wire algorithm 5, 32-byte key)
-    protocol: dmr
-    system: "System 1"
-    keyId: 0x23
-    algId: 5
-    key: "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F"
+# Encrypted DMR is temporarily unavailable; DMR key entries are not loaded.

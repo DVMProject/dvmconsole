@@ -363,9 +363,9 @@ namespace dvmconsole
             return algorithmId switch
             {
                 0 => string.Empty,
-                DmrPrivacyAlgorithms.Arc4 => "ARC4",
-                DmrPrivacyAlgorithms.DesOfb => "DES-OFB",
-                DmrPrivacyAlgorithms.Aes256 => "AES-256",
+                1 => "ARC4",
+                2 => "DES-OFB",
+                5 => "AES-256",
                 _ => $"0x{algorithmId:X2}"
             };
         }

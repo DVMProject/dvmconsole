@@ -82,7 +82,7 @@ If the talkgroup is unavailable on that FNE, the action is blocked and this warn
 Target TG unavailable on FNE
 ```
 
-This validation is per system and applies to P25, DMR, NXDN, and analog resources. DMR also checks the 24-bit RID/TGID, timeslot, algorithm, key ID, and required encryption key. NXDN checks the 16-bit RID/TGID, RAN, and required encryption key. Analog checks the 24-bit RID/TGID and optional voice-inversion code; it does not request an FNE encryption key.
+This validation is per system and applies to P25, DMR, NXDN, and analog resources. DMR checks the 24-bit RID/TGID and timeslot, and blocks non-clear algorithms while encrypted DMR is unavailable. NXDN checks the 16-bit RID/TGID, RAN, and required encryption key. Analog checks the 24-bit RID/TGID and optional voice-inversion code; it does not request an FNE encryption key.
 
 ---
 
