@@ -8,6 +8,8 @@
 * @license CC-BY-SA-4.0 License (https://creativecommons.org/licenses/by-sa/4.0/legalcode)
 * Code copied in its entirety from https://stackoverflow.com/a/57710850
 *
+*   Project contributors: DVMProject authors
+*
 */
 
 

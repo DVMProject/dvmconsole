@@ -7,6 +7,8 @@
 * @package DVM / Desktop Dispatch Console
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
+*   Project contributors: DVMProject authors
+*
 */
 using System.Collections.Generic;
 using System.Windows;
