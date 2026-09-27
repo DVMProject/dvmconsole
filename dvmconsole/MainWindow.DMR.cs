@@ -368,6 +368,7 @@ namespace dvmconsole
                         channel.IsReceivingEncrypted = dmrCall.IsEncrypted;
                         channel.PeerId = e.PeerId;
                         channel.RxStreamId = e.StreamId;
+                        channel.RxHistory = null;
                         
                         // Update tab audio indicator
                         Dispatcher.Invoke(() => UpdateTabAudioIndicatorForChannel(channel));
@@ -396,12 +397,17 @@ namespace dvmconsole
 
                         if (!isConsoleRid)
                         {
-                            callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"), recording);
-                            channel.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"), recording);
+                            channel.RxHistory = new ReceivedCallHistory(e.StreamId,
+                                callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"), recording),
+                                channel.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"), recording));
                         }
                         callHistoryWindow.ChannelKeyed(cpgChannel.Name, (int)e.SrcId, dmrCall.IsEncrypted);
 
                     }
+
+                    channel.RxHistory?.UpdateSource(e.StreamId, (int)e.SrcId, alias);
+                    if (channel.IsReceiving && channel.RxStreamId == e.StreamId && !isConsoleRid)
+                        channel.LastSrcId = string.IsNullOrEmpty(alias) ? "Last ID: " + e.SrcId : "Last: " + alias;
 
                     // reset the channel state if we're not Rx
                     if (!channel.IsReceiving)
@@ -443,14 +449,6 @@ namespace dvmconsole
                         Log.WriteLine($"({system.Name}) DMRD: Traffic *CALL END       * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} TS {e.Slot} DUR {callDuration} [STREAM ID {e.StreamId}]");
                         callHistoryWindow.ChannelUnkeyed(cpgChannel.Name, (int)e.SrcId);
                         continue;
-                    }
-
-                    if (!isConsoleRid)
-                    {
-                        if (string.IsNullOrEmpty(alias))
-                            channel.LastSrcId = "Last ID: " + e.SrcId;
-                        else
-                            channel.LastSrcId = "Last: " + alias;
                     }
 
                     if (e.FrameType == FrameType.VOICE_SYNC || e.FrameType == FrameType.VOICE)

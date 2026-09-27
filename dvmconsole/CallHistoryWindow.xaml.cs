@@ -36,6 +36,13 @@ namespace dvmconsole
         public static readonly DependencyProperty ForegroundColorProperty =
             DependencyProperty.Register(nameof(ForegroundColor), typeof(Brush), typeof(CallEntry), new PropertyMetadata(Brushes.White));
 
+        public static readonly DependencyProperty SrcIdProperty =
+            DependencyProperty.Register(nameof(SrcId), typeof(int?), typeof(CallEntry), new PropertyMetadata(null));
+        public static readonly DependencyProperty SrcIdTextProperty =
+            DependencyProperty.Register(nameof(SrcIdText), typeof(string), typeof(CallEntry), new PropertyMetadata(string.Empty));
+        public static readonly DependencyProperty RidAliasProperty =
+            DependencyProperty.Register(nameof(RidAlias), typeof(string), typeof(CallEntry), new PropertyMetadata(string.Empty));
+
         /*
         ** Properties
         */
@@ -47,11 +54,19 @@ namespace dvmconsole
         /// <summary>
         /// Source ID.
         /// </summary>
-        public int? SrcId { get; set; }
+        public int? SrcId
+        {
+            get { return (int?)GetValue(SrcIdProperty); }
+            set { SetValue(SrcIdProperty, value); }
+        }
         /// <summary>
         /// Source ID display text.
         /// </summary>
-        public string SrcIdText { get; set; } = string.Empty;
+        public string SrcIdText
+        {
+            get { return (string)GetValue(SrcIdTextProperty); }
+            set { SetValue(SrcIdTextProperty, value); }
+        }
         /// <summary>
         /// Destination ID.
         /// </summary>
@@ -64,7 +79,11 @@ namespace dvmconsole
         /// <summary>
         /// Resolved RID alias when available.
         /// </summary>
-        public string RidAlias { get; set; } = string.Empty;
+        public string RidAlias
+        {
+            get { return (string)GetValue(RidAliasProperty); }
+            set { SetValue(RidAliasProperty, value); }
+        }
 
         /// <summary>
         /// Timestamp for entry.
@@ -404,13 +423,13 @@ namespace dvmconsole
         /// <param name="ridAlias"></param>
         /// <param name="timestamp"></param>
         /// <param name="recording"></param>
-        public void AddCall(string channel, int srcId, int dstId, string ridAlias, string timestamp, Task<TarRecordingMetadata> recording = null)
+        public CallEntry AddCall(string channel, int srcId, int dstId, string ridAlias, string timestamp, Task<TarRecordingMetadata> recording = null)
         {
-            Dispatcher.Invoke(() =>
+            return Dispatcher.Invoke(() =>
             {
                 TrimHistoryForNewEntry();
 
-                ViewModel.CallHistory.Insert(0, new CallEntry
+                CallEntry entry = new CallEntry
                 {
                     Channel = channel,
                     SrcId = srcId,
@@ -422,7 +441,9 @@ namespace dvmconsole
                     Recording = recording,
                     IsEvent = false,
                     BackgroundColor = Brushes.Transparent
-                });
+                };
+                ViewModel.CallHistory.Insert(0, entry);
+                return entry;
             });
         }
 

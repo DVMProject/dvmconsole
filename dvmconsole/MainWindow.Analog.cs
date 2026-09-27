@@ -181,6 +181,7 @@ namespace dvmconsole
                             channel.IsReceivingEncrypted = false;
                             channel.PeerId = e.PeerId;
                             channel.RxStreamId = e.StreamId;
+                            channel.RxHistory = null;
                             bool decodeScrambledRx = config.ScramblerCode != 0 &&
                                 (!channel.IsEncryptionSelectable || channel.IsTxEncrypted);
                             channel.AnalogRxInverter = decodeScrambledRx ? new AnalogVoiceInversion(config.ScramblerCode) : null;
@@ -198,10 +199,12 @@ namespace dvmconsole
                         {
                             var recording = BeginTarRxRecording(system, config, e.StreamId, e.SrcId, alias,
                                 false, string.Empty, null, packetTime);
-                            callHistoryWindow.AddCall(config.Name, (int)e.SrcId, (int)e.DstId, alias, packetTime.ToString("HH:mm:ss"), recording);
-                            channel.AddCall(config.Name, (int)e.SrcId, (int)e.DstId, alias, packetTime.ToString("HH:mm:ss"), recording);
+                            channel.RxHistory = new ReceivedCallHistory(e.StreamId,
+                                callHistoryWindow.AddCall(config.Name, (int)e.SrcId, (int)e.DstId, alias, packetTime.ToString("HH:mm:ss"), recording),
+                                channel.AddCall(config.Name, (int)e.SrcId, (int)e.DstId, alias, packetTime.ToString("HH:mm:ss"), recording));
                             Log.WriteLine($"({system.Name}) Analog Traffic *CALL START     * SRC_ID {e.SrcId} TGID {e.DstId} [STREAM ID {e.StreamId}]");
                         }
+                        channel.RxHistory?.UpdateSource(e.StreamId, (int)e.SrcId, alias);
                         if (e.AudioFrameType == AudioFrameType.TERMINATOR)
                         {
                             EndTarRxRecordingFromChannelState(system, config, channel, status, packetTime);

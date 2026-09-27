@@ -2554,6 +2554,7 @@ namespace dvmconsole
             channel.IsReceivingEncrypted = false;
             channel.PeerId = 0;
             channel.RxStreamId = 0;
+            channel.RxHistory = null;
             channel.VolumeMeterLevel = 0;
 
             if (slotStatus != null)

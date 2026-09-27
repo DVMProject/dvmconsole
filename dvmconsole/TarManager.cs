@@ -148,9 +148,10 @@ namespace dvmconsole
                 return;
 
             if (subscriberId != 0)
+            {
                 session.Metadata.SubscriberId = subscriberId;
-            if (!string.IsNullOrWhiteSpace(subscriberAlias))
-                session.Metadata.SubscriberAlias = subscriberAlias.Trim();
+                session.Metadata.SubscriberAlias = subscriberAlias?.Trim() ?? string.Empty;
+            }
             UpdateEncryptionMetadata(session.Metadata, isEncrypted, encryptionAlgorithm, encryptionKeyId);
             FinalizeSessionAsync(session, endTimeUtc);
         }

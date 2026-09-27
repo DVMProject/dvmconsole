@@ -517,6 +517,7 @@ namespace dvmconsole
                         channel.IsReceivingEncrypted = encrypted;
                         channel.PeerId = e.PeerId;
                         channel.RxStreamId = e.StreamId;
+                        channel.RxHistory = null;
                         
                         // Update tab audio indicator
                         Dispatcher.Invoke(() => UpdateTabAudioIndicatorForChannel(channel));
@@ -543,14 +544,19 @@ namespace dvmconsole
 
                         if (!isConsoleRid)
                         {
-                            callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"), recording);
-                            channel.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"), recording);
+                            channel.RxHistory = new ReceivedCallHistory(e.StreamId,
+                                callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"), recording),
+                                channel.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"), recording));
                         }
                         callHistoryWindow.ChannelKeyed(cpgChannel.Name, (int)e.SrcId, encrypted);
 
                         if (channel.algId != P25Defines.P25_ALGO_UNENCRYPT)
                             Log.WriteLine($"({system.Name}) P25D: Traffic *CALL ENC PARMS * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
                     }
+
+                    channel.RxHistory?.UpdateSource(e.StreamId, (int)e.SrcId, alias);
+                    if (channel.IsReceiving && channel.RxStreamId == e.StreamId && !isConsoleRid)
+                        channel.LastSrcId = string.IsNullOrEmpty(alias) ? "Last ID: " + e.SrcId : "Last: " + alias;
 
                     // reset the channel state if we're not Rx
                     if (!channel.IsReceiving)
@@ -590,14 +596,6 @@ namespace dvmconsole
 
                     // do background updates here -- this catches late entry
                     channel.IsReceivingEncrypted = channel.algId != P25Defines.P25_ALGO_UNENCRYPT;
-
-                    if (!isConsoleRid)
-                    {
-                        if (string.IsNullOrEmpty(alias))
-                            channel.LastSrcId = "Last ID: " + e.SrcId;
-                        else
-                            channel.LastSrcId = "Last: " + alias;
-                    }
 
                     byte[] newMI = new byte[P25Defines.P25_MI_LENGTH];
                     int count = 0;

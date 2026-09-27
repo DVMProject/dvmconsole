@@ -320,6 +320,7 @@ namespace dvmconsole
                             channel.IsReceiving = true;
                             channel.PeerId = e.PeerId;
                             channel.RxStreamId = e.StreamId;
+                            channel.RxHistory = null;
                             status.RxStart = packetTime;
                             patchManager.HandleCallStart(system.Name, config.Tgid, e.StreamId, e.SrcId);
                         }
@@ -339,10 +340,12 @@ namespace dvmconsole
                         {
                             var recording = BeginTarRxRecording(system, config, e.StreamId, e.SrcId, alias,
                                 call.IsEncrypted, DescribeNxdnEncryptionAlgorithm(call.AlgorithmId), call.KeyId == 0 ? null : call.KeyId, packetTime);
-                            callHistoryWindow.AddCall(config.Name, (int)e.SrcId, (int)e.DstId, alias, packetTime.ToString("HH:mm:ss"), recording);
-                            channel.AddCall(config.Name, (int)e.SrcId, (int)e.DstId, alias, packetTime.ToString("HH:mm:ss"), recording);
+                            channel.RxHistory = new ReceivedCallHistory(e.StreamId,
+                                callHistoryWindow.AddCall(config.Name, (int)e.SrcId, (int)e.DstId, alias, packetTime.ToString("HH:mm:ss"), recording),
+                                channel.AddCall(config.Name, (int)e.SrcId, (int)e.DstId, alias, packetTime.ToString("HH:mm:ss"), recording));
                             Log.WriteLine($"({system.Name}) NXDD: Traffic *CALL START     * SRC_ID {e.SrcId} TGID {e.DstId} [STREAM ID {e.StreamId}]");
                         }
+                        channel.RxHistory?.UpdateSource(e.StreamId, (int)e.SrcId, alias);
                         if (call.IsReleased)
                         {
                             EndTarRxRecordingFromChannelState(system, config, channel, status, packetTime);

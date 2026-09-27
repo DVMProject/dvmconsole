@@ -753,6 +753,11 @@ namespace dvmconsole.Controls
         /// </summary>
         public uint RxStreamId { get; set; }
 
+        /// <summary>
+        /// Exact history rows belonging to the current received call.
+        /// </summary>
+        internal ReceivedCallHistory RxHistory { get; set; }
+
         /*
         ** Methods
         */
@@ -1351,9 +1356,9 @@ namespace dvmconsole.Controls
         /// <param name="channel"></param>
         /// <param name="srcId"></param>
         /// <param name="dstId"></param>
-        public void AddCall(string channel, int srcId, int dstId, string ridAlias, string timestamp, Task<TarRecordingMetadata> recording = null)
+        public CallEntry AddCall(string channel, int srcId, int dstId, string ridAlias, string timestamp, Task<TarRecordingMetadata> recording = null)
         {
-            callHistoryWindow.AddCall(channel, srcId, dstId, ridAlias, timestamp, recording);
+            return callHistoryWindow.AddCall(channel, srcId, dstId, ridAlias, timestamp, recording);
         }
 
         /// <summary>
