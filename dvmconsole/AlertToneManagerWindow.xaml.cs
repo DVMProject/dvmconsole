@@ -187,11 +187,14 @@ namespace dvmconsole
 
             public string NextRunDisplay
             {
-                get => NextRunLocal.ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture);
+                get => NextRunLocal.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
                 set
                 {
-                    if (DateTime.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out DateTime parsed))
-                        NextRunLocal = parsed;
+                    if (!DateTime.TryParseExact(value?.Trim(), "yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture,
+                        DateTimeStyles.AssumeLocal, out DateTime parsed))
+                        throw new FormatException("Enter a local date and time as yyyy-MM-dd HH:mm (24-hour time).");
+
+                    NextRunLocal = parsed;
                 }
             }
 
@@ -427,7 +430,14 @@ namespace dvmconsole
 
         private void Save_Click(object sender, RoutedEventArgs e)
         {
-            CommitGridEdits();
+            HideStatus();
+            if (!CommitGridEdits())
+            {
+                StatusTextBlock.Foreground = System.Windows.Media.Brushes.IndianRed;
+                StatusTextBlock.Text = "Changes not saved. Correct the highlighted field; Next Run must be yyyy-MM-dd HH:mm (24-hour time).";
+                StatusTextBlock.Visibility = Visibility.Visible;
+                return;
+            }
 
             List<AlertToneManagerItem> sanitizedItems = AlertTones
                 .Where(item => !string.IsNullOrWhiteSpace(item.FilePath))
@@ -526,12 +536,13 @@ namespace dvmconsole
             };
         }
 
-        private void CommitGridEdits()
+        private bool CommitGridEdits()
         {
-            AlertToneGrid.CommitEdit(DataGridEditingUnit.Cell, true);
-            AlertToneGrid.CommitEdit(DataGridEditingUnit.Row, true);
-            ScheduleGrid.CommitEdit(DataGridEditingUnit.Cell, true);
-            ScheduleGrid.CommitEdit(DataGridEditingUnit.Row, true);
+            // A failed edit must not save the previous value behind an invalid entry.
+            return AlertToneGrid.CommitEdit(DataGridEditingUnit.Cell, true) &&
+                   AlertToneGrid.CommitEdit(DataGridEditingUnit.Row, true) &&
+                   ScheduleGrid.CommitEdit(DataGridEditingUnit.Cell, true) &&
+                   ScheduleGrid.CommitEdit(DataGridEditingUnit.Row, true);
         }
 
         private static DateTime RoundToNextMinute(DateTime value)
@@ -544,6 +555,7 @@ namespace dvmconsole
 
         private void HideStatus()
         {
+            StatusTextBlock.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(46, 125, 50));
             StatusTextBlock.Text = string.Empty;
             StatusTextBlock.Visibility = Visibility.Collapsed;
         }

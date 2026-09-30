@@ -103,7 +103,7 @@
                         <TextBlock DockPanel.Dock="Left"
                                    VerticalAlignment="Center"
                                    Opacity="0.8"
-                                   Text="Schedule a custom alert tone for a specific resource. Times use this PC's local time." />
+                                   Text="Next Run: yyyy-MM-dd HH:mm (24-hour, PC local time). Double-click to edit." />
 
                         <StackPanel Orientation="Horizontal"
                                     DockPanel.Dock="Right">
@@ -176,7 +176,7 @@
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
                                 <DataGridTextColumn Header="Next Run"
-                                                    Binding="{Binding NextRunDisplay, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                    Binding="{Binding NextRunDisplay, Mode=TwoWay, UpdateSourceTrigger=LostFocus, ValidatesOnExceptions=True}"
                                                     Width="150" />
                                 <DataGridTextColumn Header="Repeat Min"
                                                     Binding="{Binding RepeatMinutes, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, StringFormat=F0}"

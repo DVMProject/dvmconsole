@@ -66,6 +66,8 @@ Each scheduled announcement stores:
 
 One-time announcements disable themselves after they run. Recurring announcements advance to the next future run time after each send.
 
+Double-click **Next Run** and enter `yyyy-MM-dd HH:mm` using 24-hour local time (for example, `2026-10-01 14:30`). Press Enter or leave the field to finish editing, then click **Save**. Invalid dates or times are highlighted and must be corrected before saving.
+
 ---
 
 # Audio File Requirements
