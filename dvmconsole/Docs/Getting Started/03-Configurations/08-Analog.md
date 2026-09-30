@@ -2,6 +2,8 @@
 
 Analog resources transport group voice as 8 kHz G.711 mu-law over the FNE. They can share a codeplug and FNE connection with P25, DMR, and NXDN resources. Console audio is sent in 20 ms frames; the FNE routes the call by talkgroup ID.
 
+Transmit audio is paced at 20 ms intervals rather than sent in microphone-buffer bursts. On PTT release, queued audio finishes before the call terminator; allow that short tail to finish before keying the same resource again. An excessive transmit backlog stops the call instead of building up delayed audio.
+
 ## Codeplug
 
 ```yaml

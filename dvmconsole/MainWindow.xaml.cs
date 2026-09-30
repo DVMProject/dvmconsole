@@ -2077,7 +2077,12 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void ResetChannel(ChannelBox e)
         {
-            EndAnalogTransmission(e);
+            lock (e.AnalogSync)
+            {
+                EndAnalogTransmission(e);
+                e.AnalogFailedStreamId = 0;
+                e.TxStreamId = 0;
+            }
             lock (e.DmrSync)
             {
                 EndDmrTransmission(e);
@@ -3465,6 +3470,7 @@ namespace dvmconsole
                 if (cancellationToken.IsCancellationRequested)
                 {
                     audioManager.StopOneShot(channel.AudioOutputKey);
+                    EndAnalogTransmission(channel, discardPending: true);
                     EndNxdnTransmission(channel, discardPending: true);
                 }
 

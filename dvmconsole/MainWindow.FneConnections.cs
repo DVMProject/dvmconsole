@@ -440,6 +440,7 @@ namespace dvmconsole
                     if (disconnectedSystem != null && disconnectedChannel != null && hadTransmitState)
                         EndTarTxRecording(channel, disconnectedSystem, disconnectedChannel);
 
+                    EndAnalogTransmission(channel, discardPending: true);
                     EndDmrTransmission(channel, discardPending: true);
                     channel.DmrRx?.Dispose();
                     channel.DmrRx = null;

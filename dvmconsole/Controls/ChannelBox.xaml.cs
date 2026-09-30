@@ -123,9 +123,9 @@ namespace dvmconsole.Controls
         internal Task NxdnEndTask = Task.CompletedTask;
         internal uint NxdnFailedStreamId;
         internal readonly object AnalogSync = new();
-        internal bool AnalogStarted;
-        internal uint AnalogSourceId;
-        internal AnalogVoiceInversion AnalogTxInverter;
+        internal AnalogTxCall AnalogTx;
+        internal Task AnalogEndTask = Task.CompletedTask;
+        internal uint AnalogFailedStreamId;
         internal AnalogVoiceInversion AnalogRxInverter;
 
         public byte[] mi = new byte[P25Defines.P25_MI_LENGTH];     // Message Indicator

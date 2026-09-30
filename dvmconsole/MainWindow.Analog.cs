@@ -23,6 +23,8 @@ namespace dvmconsole
         {
             if (config.GetChannelMode() != Codeplug.ChannelMode.Analog)
                 return true;
+            ChannelBox channel = FindChannelBySystemAndTgid(config.System, config.Tgid);
+            bool finishing = channel != null && !channel.AnalogEndTask.IsCompleted;
             Codeplug.System system = Codeplug.GetSystemForChannel(config);
             bool valid = uint.TryParse(config.GetSourceRid(system), out uint sourceId) && sourceId is > 0 and <= 0xFFFFFF &&
                 uint.TryParse(config.Tgid, out uint destinationId) && destinationId is > 0 and <= 0xFFFFFF;
@@ -30,9 +32,10 @@ namespace dvmconsole
                 string.Equals(config.Algo, "none", StringComparison.OrdinalIgnoreCase);
             bool scramblerValid = config.ScramblerCode == 0 ||
                 AnalogVoiceInversion.TryGetFrequency(config.ScramblerCode, out _);
-            if (valid && clear && scramblerValid)
+            if (valid && clear && scramblerValid && !finishing)
                 return true;
-            string message = !valid ? "Analog RID and TGID must be between 1 and 16777215." :
+            string message = finishing ? "The previous analog call is still finishing. Try PTT again." :
+                !valid ? "Analog RID and TGID must be between 1 and 16777215." :
                 !clear ? "Analog voice inversion uses scrambler_code, not algo. Set algo: none." :
                 "Analog scrambler_code must be 0 (off) or 2 through 16. Code 1's frequency is unknown.";
             Log.WriteWarning($"Analog TX blocked on {config.Name}: {message}");
@@ -48,31 +51,37 @@ namespace dvmconsole
             lock (channel.AnalogSync)
             {
                 uint stream = channel.TxStreamId;
-                if (stream == 0 || (expectedStreamId.HasValue && stream != expectedStreamId.Value) ||
+                if (stream == 0 || channel.AnalogFailedStreamId == stream || !channel.AnalogEndTask.IsCompleted ||
+                    (expectedStreamId.HasValue && stream != expectedStreamId.Value) ||
                     !IsFneSystemConnected(system.Name) || pcm?.Length != PCM_SAMPLES_LENGTH)
                     return;
                 try
                 {
-                    uint sourceId = sourceIdOverride ?? uint.Parse(config.GetSourceRid(system));
-                    uint destinationId = uint.Parse(config.Tgid);
+                    if (channel.AnalogTx == null)
+                    {
+                        uint sourceId = sourceIdOverride ?? uint.Parse(config.GetSourceRid(system));
+                        channel.AnalogTx = new AnalogTxCall(sourceId, uint.Parse(config.Tgid), stream,
+                            channel.IsTxEncrypted ? config.ScramblerCode : 0,
+                            (packet, sequence) =>
+                            {
+                                if (!IsFneSystemConnected(system.Name))
+                                    throw new InvalidOperationException("The FNE connection was lost.");
+                                fne.peer.SendMasterTraffic(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL,
+                                    Constants.NET_PROTOCOL_SUBFUNC_ANALOG), packet, sequence, stream);
+                            });
+                    }
+                    if (channel.AnalogTx.StreamId != stream)
+                        throw new InvalidOperationException("The previous analog call has not ended.");
                     short[] samples = new short[AnalogVoicePacketCodec.SampleCount];
                     Buffer.BlockCopy(pcm, 0, samples, 0, pcm.Length);
-                    if (!channel.AnalogStarted)
-                        channel.AnalogTxInverter = !channel.IsTxEncrypted ? null : new AnalogVoiceInversion(config.ScramblerCode);
-                    channel.AnalogTxInverter?.Process(samples);
-                    AudioFrameType frameType = channel.AnalogStarted ? AudioFrameType.VOICE : AudioFrameType.VOICE_START;
-                    if (channel.pktSeq == Constants.RtpCallEndSeq)
-                        channel.pktSeq = 0;
-                    byte[] packet = AnalogVoicePacketCodec.Encode(sourceId, destinationId, (byte)channel.pktSeq, frameType, samples);
-                    fne.peer.SendMasterTraffic(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL,
-                        Constants.NET_PROTOCOL_SUBFUNC_ANALOG), packet, channel.pktSeq++, stream);
-                    channel.AnalogSourceId = sourceId;
-                    channel.AnalogStarted = true;
+                    channel.AnalogTx.Process(samples);
                     Dispatcher.BeginInvoke(new Action(() => UpdateVolumeMeterFromSamples(channel, samples, VolumeMeterSource.ConsoleTx)));
                 }
                 catch (Exception ex)
                 {
                     Log.WriteError($"({system.Name}) Analog TX stopped: {ex.Message}");
+                    channel.AnalogFailedStreamId = stream;
+                    EndAnalogTransmission(channel, discardPending: true);
                     Dispatcher.BeginInvoke(new Action(() =>
                     {
                         if (channel.TxStreamId != stream)
@@ -85,31 +94,27 @@ namespace dvmconsole
             }
         }
 
-        private void EndAnalogTransmission(ChannelBox channel)
+        private void EndAnalogTransmission(ChannelBox channel, bool discardPending = false)
         {
             lock (channel.AnalogSync)
             {
-                if (!channel.AnalogStarted)
+                AnalogTxCall call = channel.AnalogTx;
+                if (call == null)
                     return;
-                channel.AnalogStarted = false;
-                channel.AnalogTxInverter = null;
-                Codeplug.Channel config = Codeplug?.GetChannelByName(channel.ChannelName);
-                Codeplug.System system = config == null ? null : Codeplug.GetSystemForChannel(config);
-                PeerSystem fne = system == null ? null : fneSystemManager.GetFneSystem(system.Name);
-                if (config == null || system == null || fne == null || channel.TxStreamId == 0 ||
-                    !IsFneSystemConnected(system.Name))
-                    return;
-                try
-                {
-                    uint sourceId = channel.AnalogSourceId != 0 ? channel.AnalogSourceId : uint.Parse(config.GetSourceRid(system));
-                    byte[] packet = AnalogVoicePacketCodec.Encode(sourceId, uint.Parse(config.Tgid),
-                        (byte)channel.pktSeq, AudioFrameType.TERMINATOR, ReadOnlySpan<short>.Empty);
-                    fne.peer.SendMasterTraffic(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL,
-                        Constants.NET_PROTOCOL_SUBFUNC_ANALOG), packet, Constants.RtpCallEndSeq, channel.TxStreamId);
-                }
-                catch (Exception ex) { Log.WriteWarning($"({system.Name}) Analog release: {ex.Message}"); }
-                finally { channel.AnalogSourceId = 0; }
+                channel.AnalogTx = null;
+                if (discardPending)
+                    call.Abort();
+                else
+                    call.End();
+                channel.AnalogEndTask = FinishAnalogTransmissionAsync(call);
             }
+        }
+
+        private static async Task FinishAnalogTransmissionAsync(AnalogTxCall call)
+        {
+            try { await call.Completion.ConfigureAwait(false); }
+            catch (Exception ex) { Log.WriteWarning($"Analog transmit worker: {ex.Message}"); }
+            finally { call.Dispose(); }
         }
 
         private void StopAnalogChannels()
@@ -123,7 +128,7 @@ namespace dvmconsole
                 SlotStatus status = FindActiveReceiveStatus(channel, config);
                 EndTarRxRecordingFromChannelState(system, config, channel, status, DateTime.Now);
                 EndTarTxRecording(channel, system, config);
-                EndAnalogTransmission(channel);
+                EndAnalogTransmission(channel, discardPending: true);
                 channel.AnalogRxInverter = null;
                 ClearReceiveState(channel, status);
                 ResetChannel(channel);
