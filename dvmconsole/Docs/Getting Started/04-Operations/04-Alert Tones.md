@@ -20,6 +20,14 @@ Target TG unavailable on FNE
 
 ---
 
+# Channel Hold
+
+Enable the channel marker/hold control on each selected resource that needs a repeating hold tone. Multiple resources can be held at once; each 10-second cycle sends their tones together instead of waiting for one resource to finish before starting the next.
+
+Busy, receiving, disabled, and RX-only resources are skipped. Turning hold off on one resource stops its tone without clearing hold on the others. Hold cycles do not clear your selected alert-tone group targets.
+
+---
+
 # Alert Tone Manager
 
 Open from:

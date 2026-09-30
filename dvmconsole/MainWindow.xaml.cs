@@ -186,7 +186,8 @@ namespace dvmconsole
         private readonly AudioManager audioManager;
         private readonly TarManager tarManager;
 
-        private static System.Timers.Timer channelHoldTimer;
+        private readonly System.Timers.Timer channelHoldTimer;
+        private bool channelHoldCycleRunning;
 
         private Dictionary<string, SlotStatus> systemStatuses = new Dictionary<string, SlotStatus>();
         private FneSystemManager fneSystemManager = new FneSystemManager();
@@ -2815,18 +2816,19 @@ namespace dvmconsole
             }
         }
 
-        private async Task SendGeneratedHoldToneAsync(ChannelBox targetChannel)
+        private async Task SendGeneratedHoldToneAsync(IEnumerable<ChannelBox> channels)
         {
             try
             {
                 GeneratedTonePayload payload = BuildChannelHoldTonePayload();
                 await SendGeneratedTonePayloadAsync(
                     payload,
-                    GetAlertToneRequestedChannels(forHold: true, targetChannel),
+                    channels,
                     "HOLD TONE",
                     clearPageStateAfterSend: false,
-                    sendStartSignal: false,
-                    "Channel Hold");
+                    sendStartSignal: true,
+                    "Channel Hold",
+                    forHold: true);
             }
             catch (Exception ex)
             {
@@ -3088,7 +3090,8 @@ namespace dvmconsole
             string logLabel,
             bool clearPageStateAfterSend,
             bool sendStartSignal,
-            string messageTitle)
+            string messageTitle,
+            bool forHold = false)
         {
             if (payload?.PcmData == null || payload.PcmData.Length == 0)
                 return;
@@ -3104,13 +3107,18 @@ namespace dvmconsole
             }
 
             List<ChannelBox> channelsToProcess = ResolveAlertToneTransmitTargets(requested);
-            patchGroupsWindow.ClearAlertToneTargetStates();
-            activeAlertToneGroupTargets.Clear();
+            if (!forHold)
+            {
+                patchGroupsWindow.ClearAlertToneTargetStates();
+                activeAlertToneGroupTargets.Clear();
+            }
 
             List<ToneTransmitTarget> targets = new List<ToneTransmitTarget>();
             foreach (ChannelBox channel in channelsToProcess)
             {
                 if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                    continue;
+                if (forHold && (!channel.IsEnabled || channel.IsReceiving || channel.PttState || channel.PageState))
                     continue;
 
                 if (!TryResolveChannelEndpoint(channel, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne, out string endpointError))
@@ -3127,10 +3135,13 @@ namespace dvmconsole
                     continue;
                 }
 
-                if (!ValidateFneConnectionAvailable(system.Name, channel, current => current.PageState = false))
+                Action<ChannelBox> rollback = forHold
+                    ? current => current.HoldState = false
+                    : current => current.PageState = false;
+                if (!ValidateFneConnectionAvailable(system.Name, channel, rollback))
                     continue;
 
-                if (!ValidateTalkgroupAvailability(fne, cpgChannel, channel, current => current.PageState = false))
+                if (!ValidateTalkgroupAvailability(fne, cpgChannel, channel, rollback))
                     continue;
 
                 if (channel.TxStreamId != 0)
@@ -3836,35 +3847,34 @@ namespace dvmconsole
         /// <param name="e"></param>
         private async void OnHoldTimerElapsed(object sender, ElapsedEventArgs e)
         {
-            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
+            try
             {
-                if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
-                    continue;
-
-                Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
-                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                if (system == null || cpgChannel == null)
-                    continue;
-
-                PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
-                if (handler == null)
-                    continue;
-
-                if (channel.HoldState && !channel.IsReceiving && !channel.PttState && !channel.PageState)
-                {
-                    if (!ValidateFneConnectionAvailable(system.Name, channel, current => current.HoldState = false))
-                        continue;
-
-                    if (!ValidateTalkgroupAvailability(handler, cpgChannel, channel, current => current.HoldState = false))
-                        continue;
-
-                    if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                        handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
-                    await Task.Delay(1000);
-
-                    await SendGeneratedHoldToneAsync(channel);
-                }
+                if (!Dispatcher.HasShutdownStarted)
+                    await await Dispatcher.InvokeAsync(RunChannelHoldCycleAsync);
             }
+            catch (TaskCanceledException) when (isShuttingDown) { }
+            catch (Exception ex) { Log.WriteWarning($"Channel hold cycle failed: {ex.Message}"); }
+        }
+
+        private async Task RunChannelHoldCycleAsync()
+        {
+            if (isShuttingDown || channelHoldCycleRunning)
+                return;
+
+            // Snapshot UI-owned selections once, then send all held resources in the same cycle.
+            channelHoldCycleRunning = true;
+            try
+            {
+                List<ChannelBox> channels = selectedChannelsManager.GetSelectedChannels()
+                    .Where(channel => channel.HoldState && channel.IsSelected && channel.IsEnabled &&
+                        !channel.IsRxOnly && !channel.IsReceiving && !channel.PttState && !channel.PageState &&
+                        channel.TxStreamId == 0 && channel.SystemName != PLAYBACKSYS &&
+                        channel.ChannelName != PLAYBACKCHNAME && channel.DstId != PLAYBACKTG)
+                    .ToList();
+                if (channels.Count > 0)
+                    await SendGeneratedHoldToneAsync(channels);
+            }
+            finally { channelHoldCycleRunning = false; }
         }
 
         /// <summary>
@@ -3879,6 +3889,9 @@ namespace dvmconsole
                 PersistSelectedResourceState(saveSettings: false);
 
             isShuttingDown = true;
+            channelHoldTimer.Stop();
+            channelHoldTimer.Elapsed -= OnHoldTimerElapsed;
+            channelHoldTimer.Dispose();
             ShutdownAlertToneScheduler();
             CancelKeyboardPttWatchdog();
             StopAllPatchPttTargets();
