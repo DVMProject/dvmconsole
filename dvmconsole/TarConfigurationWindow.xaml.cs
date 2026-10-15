@@ -396,6 +396,85 @@ namespace dvmconsole
             StatusTextBlock.Visibility = Visibility.Visible;
         }
 
+        private void RecordCell_Loaded(object sender, RoutedEventArgs e)
+        {
+            if (sender is not DataGridCell cell || cell.ContextMenu != null)
+                return;
+
+            ContextMenu menu = new ContextMenu();
+            MenuItem fillUp = new MenuItem
+            {
+                Header = "Fill Up",
+                ToolTip = "Copy this Record setting to rows above in this tab."
+            };
+            MenuItem fillDown = new MenuItem
+            {
+                Header = "Fill Down",
+                ToolTip = "Copy this Record setting to rows below in this tab."
+            };
+            fillUp.Click += FillRecordUp_Click;
+            fillDown.Click += FillRecordDown_Click;
+            menu.Items.Add(fillUp);
+            menu.Items.Add(fillDown);
+            menu.Opened += RecordFillMenu_Opened;
+            cell.ContextMenu = menu;
+        }
+
+        private void RecordFillMenu_Opened(object sender, RoutedEventArgs e)
+        {
+            if (sender is not ContextMenu menu)
+                return;
+
+            List<TarChannelConfigItem> rows = GetRecordFillRows(menu, out int sourceIndex);
+            ((MenuItem)menu.Items[0]).IsEnabled = sourceIndex > 0;
+            ((MenuItem)menu.Items[1]).IsEnabled = sourceIndex >= 0 && sourceIndex < rows.Count - 1;
+        }
+
+        private void FillRecordUp_Click(object sender, RoutedEventArgs e)
+        {
+            FillRecord(sender as MenuItem, true);
+        }
+
+        private void FillRecordDown_Click(object sender, RoutedEventArgs e)
+        {
+            FillRecord(sender as MenuItem, false);
+        }
+
+        private void FillRecord(MenuItem menuItem, bool fillUp)
+        {
+            if (menuItem == null || ItemsControl.ItemsControlFromItemContainer(menuItem) is not ContextMenu menu)
+                return;
+
+            List<TarChannelConfigItem> rows = GetRecordFillRows(menu, out int sourceIndex);
+            if (sourceIndex < 0)
+                return;
+
+            bool enabled = rows[sourceIndex].Enabled;
+            int start = fillUp ? 0 : sourceIndex + 1;
+            int end = fillUp ? sourceIndex : rows.Count;
+            for (int index = start; index < end; index++)
+                rows[index].Enabled = enabled;
+        }
+
+        private static List<TarChannelConfigItem> GetRecordFillRows(ContextMenu menu, out int sourceIndex)
+        {
+            sourceIndex = -1;
+            if (menu.PlacementTarget is not DataGridCell cell || cell.DataContext is not TarChannelConfigItem source)
+                return new List<TarChannelConfigItem>();
+
+            DependencyObject parent = cell;
+            while (parent != null && parent is not DataGrid)
+                parent = VisualTreeHelper.GetParent(parent);
+
+            if (parent is not DataGrid grid)
+                return new List<TarChannelConfigItem>();
+
+            // Use the displayed order, including sorting, rather than the backing collection.
+            List<TarChannelConfigItem> rows = grid.Items.OfType<TarChannelConfigItem>().ToList();
+            sourceIndex = rows.IndexOf(source);
+            return rows;
+        }
+
         private void CommitPendingEdits()
         {
             Keyboard.ClearFocus();

@@ -69,6 +69,8 @@ In the TAR Configuration window:
 - set **Keep Days** for retention
 - optionally enter ignored subscriber IDs in **Ignore RIDs**
 
+Right-click a **Record** cell and choose **Fill Up** or **Fill Down** to copy its checked or unchecked value to the rows above or below in the current tab. This follows the displayed sort order and leaves retention and ignored RIDs unchanged. Matching resources in other tabs stay synchronized. Click **Save** to apply the changes.
+
 After TAR is enabled for a talkgroup, the operator must still select that resource on the main console for TAR to record live activity on it.
 
 Ignored subscriber IDs are useful for excluding known announcement or non-essential sources from TAR on a specific talkgroup.

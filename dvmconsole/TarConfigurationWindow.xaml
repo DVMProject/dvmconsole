@@ -14,6 +14,9 @@
         TextElement.Foreground="{DynamicResource MaterialDesignBody}"
         Icon="/dvmconsole;component/Assets/AppIcon.ico">
     <Window.Resources>
+        <Style x:Key="TarRecordCellStyle" TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
+            <EventSetter Event="Loaded" Handler="RecordCell_Loaded" />
+        </Style>
         <Style x:Key="TarTabNavButtonStyle" TargetType="{x:Type Button}">
             <Setter Property="Focusable" Value="False"/>
             <Setter Property="Background" Value="Transparent"/>
@@ -207,7 +210,7 @@
                                    Opacity="0.72"
                                    FontSize="11"
                                    TextWrapping="Wrap"
-                                   Text="Enable TAR on the talkgroups in this tab. Retention and ignored subscriber IDs are stored by TGID." />
+                                   Text="Enable TAR on the talkgroups in this tab. Right-click a Record cell to fill its value up or down, then Save." />
 
                         <DataGrid Grid.Row="2"
                                   ItemsSource="{Binding Channels}"
@@ -222,7 +225,8 @@
                                   SelectionUnit="FullRow">
                             <DataGrid.Columns>
                                 <DataGridTemplateColumn Header="Record"
-                                                        Width="70">
+                                                        Width="70"
+                                                        CellStyle="{StaticResource TarRecordCellStyle}">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <CheckBox IsChecked="{Binding Enabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
