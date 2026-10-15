@@ -1084,6 +1084,7 @@ namespace dvmconsole
             StopNxdnChannels();
             StopAnalogChannels();
             ClearNxdnKeys();
+            ClearLocalKeys();
             DisableControls();
             StopAllPatchPttTargets();
 
@@ -1195,6 +1196,8 @@ namespace dvmconsole
                     MessageBox.Show(messageBoxString, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
 
+                LoadConfiguredEkcKeys(filePath);
+
                 // generate widgets and enable controls
                 GenerateChannelWidgets();
                 UpdatePatchMemberIndicators(FilterPatchMemberships(memberships), patchGroupEnabledStates);
@@ -1208,6 +1211,8 @@ namespace dvmconsole
             catch (Exception ex)
             {
                 Codeplug = null;
+                ClearLocalKeys();
+                ClearNxdnKeys();
                 patchGroupsWindow.SetPatchGroups(null, null);
                 patchGroupModes = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
                 patchGroupEnabledStates = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
@@ -1391,6 +1396,7 @@ namespace dvmconsole
                         channelBox.CardSize = ChannelBox.ParseCardSize(channel.CardSize);
                         channelBox.ChannelMode = channel.Mode.ToUpperInvariant();
                         channelBox.IsRxOnly = channel.RxOnly;
+                        ApplyLocalP25Key(channelBox, channel);
                         channelBox.CanStartPtt = CanStartChannelPtt;
                         channelBox.HasTransmitKey = () => channel.GetChannelMode() switch
                         {
@@ -1953,7 +1959,6 @@ namespace dvmconsole
         /// </summary>
         private void SelectedChannelsChanged()
         {
-            bool loadedConfiguredKeys = false;
             foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels().ToList())
             {
                 if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
@@ -2001,11 +2006,8 @@ namespace dvmconsole
                       // if the channel is configured for encryption request the key from the FNE
                       if (cpgChannel.HasEncryptionConfig() && cpgChannel.GetKeyId() != 0)
                       {
-                          if (!loadedConfiguredKeys)
-                          {
-                              LoadConfiguredKeyFileKeys();
-                              loadedConfiguredKeys = true;
-                          }
+                          if (ApplyLocalP25Key(channel, cpgChannel))
+                              continue;
 
                           // DMR and NXDN use protocol-specific keyrings but share the FNE key service.
                           if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN &&
@@ -4516,6 +4518,7 @@ namespace dvmconsole
             StopNxdnChannels();
             StopAnalogChannels();
             ClearNxdnKeys();
+            ClearLocalKeys();
             StopAllWebStreams();
             ShutdownAlertToneScheduler();
             ShutdownToolbarClocks();
@@ -7988,6 +7991,9 @@ namespace dvmconsole
                             continue;
 
                         if (cpgChannel.GetChannelMode() != Codeplug.ChannelMode.P25)
+                            continue;
+
+                        if (ApplyLocalP25Key(channel, cpgChannel))
                             continue;
 
                         ushort keyId = cpgChannel.GetKeyId();

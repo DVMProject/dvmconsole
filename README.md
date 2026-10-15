@@ -76,11 +76,10 @@ The same documentation is also built into the app under `Help > Documentation`.
 
 1. **Create/Edit `codeplug.yml`**  
    An example codeplug is provided in the `configs` directory. Configure system parameters, network settings, and talkgroups as needed.  
-   The full file paths for both `keys.clear` and `alias.yml` must be defined within `codeplug.yml` if used.
+   Set `keyFile` to your encrypted `.ekc` container and configure `alias.yml` if used.
 
-2. **Configure Encryption Keys (`keys.clear`)**  
-   If your system's talkgroups use encryption, define your key entries in the `keys.clear` file.  
-   Each key entry should match the Key ID referenced in your codeplug.
+2. **Configure Local Encryption Keys (`.ekc`)**
+   Create an encrypted container with [DVMProject KFDEKC](https://github.com/DVMProject/kfdekc), matching your channel algorithms and key IDs. Console prompts for its password on first use and remembers it using Windows account encryption. Clear key files are no longer supported. FNE-supplied keys remain available without a local container.
 
 3. **Configure RID Aliases (`alias.yml`)**  
    To display friendly names instead of raw RIDs, populate `alias.yml` with your Radio ID to alias mappings.  

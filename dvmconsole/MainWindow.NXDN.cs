@@ -72,8 +72,7 @@ namespace dvmconsole
 
         private void ImportNxdnNetworkKeys(KeyResponseEvent e, string sourceSystemName)
         {
-            // Synthetic P25 key-file events are not NXDN entries. Only real FNE
-            // responses may bridge KMM algorithm IDs to NXDN wire cipher IDs.
+            // Downloaded keys are scoped to their source FNE.
             if (sourceSystemName == null)
                 return;
             byte cipher = NXDNCrypto.FromKeyRequestAlgorithm(e.KmmKey.KeysetItem.AlgId);

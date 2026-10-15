@@ -12,17 +12,11 @@
 */
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
 
 using fnecore;
-using fnecore.P25.KMM;
-
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
 
 namespace dvmconsole
 {
@@ -209,63 +203,5 @@ namespace dvmconsole
             return true;
         }
 
-        private void LoadConfiguredKeyFileKeys()
-        {
-            if (Codeplug?.KeyFile == null)
-                return;
-
-            if (!File.Exists(Codeplug.KeyFile))
-            {
-                MessageBox.Show($"Key file {Codeplug.KeyFile} not found. {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
-            }
-
-            var deserializer = new DeserializerBuilder()
-                .WithNamingConvention(CamelCaseNamingConvention.Instance)
-                .IgnoreUnmatchedProperties()
-                .Build();
-            var keys = deserializer.Deserialize<KeyContainer>(File.ReadAllText(Codeplug.KeyFile));
-            var keysetItems = new Dictionary<int, KeysetItem>();
-
-            foreach (var keyEntry in keys.Keys)
-            {
-                if (string.Equals(keyEntry.Protocol, "dmr", StringComparison.OrdinalIgnoreCase))
-                {
-                    Log.WriteWarning("Skipping local DMR key: encrypted DMR is unavailable in this build.");
-                    continue;
-                }
-                if (string.Equals(keyEntry.Protocol, "nxdn", StringComparison.OrdinalIgnoreCase))
-                {
-                    try { SetNxdnKey(keyEntry.System, checked((byte)keyEntry.AlgId), keyEntry.KeyId, keyEntry.KeyBytes, local: true); }
-                    catch (Exception ex) { Log.WriteWarning($"Invalid local NXDN key {keyEntry.KeyId}: {ex.Message}"); }
-                    continue;
-                }
-                var keyItem = new KeyItem
-                {
-                    KeyId = keyEntry.KeyId
-                };
-                var keyBytes = keyEntry.KeyBytes;
-                keyItem.SetKey(keyBytes, (uint)keyBytes.Length);
-                if (!keysetItems.ContainsKey(keyEntry.AlgId))
-                {
-                    var asByte = (byte)keyEntry.AlgId;
-                    keysetItems.Add(keyEntry.AlgId, new KeysetItem() { AlgId = asByte });
-                }
-
-                keysetItems[keyEntry.AlgId].AddKey(keyItem);
-            }
-
-            foreach (var eventData in keysetItems.Select(keyValuePair => keyValuePair.Value).Select(keysetItem => new KeyResponseEvent(0, new KmmModifyKey
-                     {
-                         AlgId = 0,
-                         KeyId = 0,
-                         MessageId = 0,
-                         MessageLength = 0,
-                         KeysetItem = keysetItem
-                     }, [])))
-            {
-                KeyResponseReceived(eventData);
-            }
-        }
     }
 }

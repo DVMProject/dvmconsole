@@ -22,8 +22,9 @@
 # file.
 #
 
-# Full path to local key YAML file (see keys.example.clear for formatting)
-#keyFile: "Full/Path/To/Keyfile.clear"
+# Local KFDEKC encrypted container; password is prompted for, never placed here.
+# Relative paths resolve beside this codeplug. Clear key files are not supported.
+#keyFile: "Full/Path/To/Keys.ekc"
 
 #
 # FNE Masters

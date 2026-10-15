@@ -41,7 +41,7 @@ namespace dvmconsole
         */
 
         /// <summary>
-        /// The location of the YAML keyfile
+        /// The location of a password-protected KFDEKC container.
         /// </summary>
         public string KeyFile { get; set; } = null;
         /// <summary>

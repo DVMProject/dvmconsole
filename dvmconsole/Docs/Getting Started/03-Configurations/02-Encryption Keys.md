@@ -2,7 +2,7 @@
 
 Encryption keys allow the console to decrypt and transmit encrypted voice traffic when supported by the connected FNE system.
 
-The console can load local key material from a YAML key file referenced by the codeplug.
+The console can load local traffic keys from an encrypted `.ekc` container created with [DVMProject KFDEKC](https://github.com/DVMProject/kfdekc). Clear YAML key files are no longer supported, including files renamed to `.ekc`.
 
 ---
 
@@ -19,33 +19,31 @@ Older FNE builds are not recommended for encrypted console operation.
 Reference the key file with `keyFile` in the codeplug:
 
 ```yaml
-keyFile: "Full/Path/To/Keyfile.clear"
+keyFile: "Full/Path/To/Keys.ekc"
 ```
 
 ---
 
-# Key File Format
+# Container Setup
 
-The key file contains a `keys` list.
+Relative paths resolve beside the codeplug. On first use, Console asks for the container password in a masked dialog. The password is saved only as a Windows DPAPI-protected blob for the current Windows account, under `EkcCredentials` in the Console AppData profile. It is not stored in the codeplug or `UserSettings.json`.
 
-Example:
+If the password changes or Windows cannot open the saved credential, Console asks again. Cancel continues without local keys; FNE key requests remain available. Reload the codeplug to retry or to load edits made in KFDEKC. To forget saved passwords, close Console and remove the relevant profile's `EkcCredentials` folder.
 
-```yaml
-keys:
-  - keyId: 0x1
-    algId: 0x84
-    key: "1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR"
+Create traffic encryption keys (TEKs), matching the channel algorithm and key ID:
 
-  - keyId: 0x2
-    algId: 0xAA
-    key: "1234567890"
-```
+| Use | EKC algorithm | Key length |
+| --- | --- | --- |
+| P25 / NXDN DES | `0x81` | 8 bytes |
+| P25 / NXDN AES-256 | `0x84` | 32 bytes |
+| P25 ARC4 | `0xAA` | 5 bytes |
+| NXDN EHR | `0x01` | 2 bytes, value 1-32767 |
 
-Fields:
+Only traffic keys are loaded. KEKs, UKEKs, LLAs, and unsupported algorithms are not voice keys. For Auto key types, SLNs 0-61439 identify traffic keys; 61440-65535 identify KEKs.
 
-- `keyId`: key ID referenced by channels.
-- `algId`: algorithm ID.
-- `key`: key material.
+Console matches keys by algorithm and key ID, not keyset or SLN. Conflicting values for the same algorithm/key ID reject the container rather than selecting one arbitrarily. Use a dedicated Console container with only the traffic keys it needs.
+
+Local keys apply to matching channels across systems in this codeplug and take precedence over downloaded keys. Use distinct key IDs where different systems need different material. No decrypted container or traffic keys are written to disk.
 
 ---
 
@@ -67,9 +65,9 @@ Supported P25 `algo` values include:
 
 For P25, if `keyId` is blank or zero, the channel is treated as clear for normal operation. DMR and NXDN encrypted channels instead block TX when the key configuration is invalid; they never silently fall back to clear.
 
-NXDN supports `ehr` (15-bit scrambling), `des`, and `aes` (AES-256). Local NXDN entries require `protocol: nxdn` and use wire algorithm IDs 1, 2, and 3 rather than P25 algorithm IDs. See **NXDN** for key sizes, examples, and FNE key-service behavior.
+NXDN supports `ehr` (15-bit scrambling), `des`, and `aes` (AES-256). EKC algorithm IDs match the FNE key service, not the NXDN wire cipher IDs. See **NXDN** for key sizes and FNE key-service behavior.
 
-Encrypted DMR is temporarily unavailable. DMR channels must use `algo: "none"` to transmit; local DMR key entries are skipped. See **DMR** for current limits.
+Encrypted DMR is temporarily unavailable. DMR channels must use `algo: "none"` to transmit. Loading an EKC does not enable encrypted DMR. See **DMR** for current limits.
 
 ---
 
@@ -123,6 +121,7 @@ If an encrypted channel does not decrypt correctly:
 
 # Safety Notes
 
-- Protect clear key files.
+- Protect the EKC container and your Windows account. DPAPI is not protection against software already running as your account.
+- Migrate old clear keys into KFDEKC and securely retire the old files yourself; Console does not delete personal key files.
 - Do not commit operational key material to source control.
 - Use test keys for development environments.

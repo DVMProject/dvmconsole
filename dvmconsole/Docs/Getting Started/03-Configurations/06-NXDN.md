@@ -47,29 +47,18 @@ Use distinct talkgroup IDs for different protocols within a system: console reso
 
 # Encryption
 
-| Channel `algo` | NXDN key-file `algId` | Key material |
+| Channel `algo` | EKC algorithm | Key material |
 | --- | --- | --- |
 | `none` | Not applicable | Clear voice |
-| `ehr` or `scrambler` | 1 | 2 bytes / 4 hex digits; value 1-32767 |
-| `des` | 2 | 8 bytes / 16 hex digits; weak DES keys rejected |
-| `aes` or `aes256` | 3 | 32 bytes / 64 hex digits |
+| `ehr` or `scrambler` | `0x01` | 2 bytes / 4 hex digits; value 1-32767 |
+| `des` | `0x81` | 8 bytes / 16 hex digits; weak DES keys rejected |
+| `aes` or `aes256` | `0x84` | 32 bytes / 64 hex digits |
 
-EHR is scrambling, not strong encryption. NXDN key IDs are 1-63. Channel `keyId` strings are hexadecimal, so `"3F"` means key 63. Key-file IDs are YAML numbers.
+EHR is scrambling, not strong encryption. NXDN key IDs are 1-63. Channel `keyId` strings are hexadecimal, so `"3F"` means key 63.
 
-Reference the key file using the existing top-level `keyFile` setting. NXDN entries must specify `protocol: nxdn`. The optional `system` field limits a local key to one FNE; omit it only when that key should be shared across systems.
+Reference a KFDEKC encrypted `.ekc` container using the top-level `keyFile` setting. Console prompts for its password and remembers it using Windows account encryption. Clear key files are no longer supported.
 
-Synthetic test key example (do not use as an operational key):
-
-```yaml
-keys:
-  - protocol: nxdn
-    system: "System 1"
-    algId: 3
-    keyId: 3
-    key: "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F"
-```
-
-Existing P25 key entries without `protocol` keep their existing meaning. Explicit NXDN local keys take precedence over FNE responses.
+EKC traffic keys apply to matching algorithms and key IDs across systems in this codeplug and take precedence over FNE responses. See **Encryption Keys** for container setup and duplicate-key handling.
 
 ## FNE-Supplied Keys
 
@@ -81,7 +70,7 @@ Selected NXDN resources can request EHR, DES, and AES material from the FNE with
 | DES | `0x81` | 8 bytes |
 | AES | `0x84` | 32 bytes |
 
-These FNE algorithm IDs differ from the NXDN local key-file/wire cipher IDs. EHR requires a container entry with algorithm 1 and a two-byte key; not every container editor exposes that combination. The FNE looks up material by key ID, so use distinct key IDs for different keys across protocols in the same container.
+These algorithm IDs are also used for local EKC keys, but differ from NXDN wire cipher IDs. EHR requires a container entry with algorithm 1 and a two-byte key; not every container editor exposes that combination. The FNE looks up material by key ID, so use distinct key IDs for different keys across protocols in the same container.
 
 The FNE must have crypto-container support compiled in, a successfully loaded container, and RID authorization for the requested keys. Authorize the console system's regular `rid`, **not** `nxdnRid`, with `CanRequestKeys` and the appropriate allowed KIDs in the FNE radio-ID list.
 

@@ -27,7 +27,7 @@ There have been major changes to resource configuration. Do not assume an older 
 # Basic Structure
 
 ```yaml
-keyFile: "Full/Path/To/Keyfile.clear"
+keyFile: "Full/Path/To/Keys.ekc"
 
 systems:
   - ...
@@ -234,20 +234,20 @@ When `true`, the console attempts to pass through the inbound source ID while fo
 
 # Key File
 
-Use `keyFile` to reference a YAML key file:
+Use `keyFile` to reference a KFDEKC encrypted container:
 
 ```yaml
-keyFile: "Full/Path/To/Keyfile.clear"
+keyFile: "Full/Path/To/Keys.ekc"
 ```
 
-See **Encryption Keys** for the key file format and runtime behavior.
+Relative paths resolve beside the codeplug. Console prompts for the password and remembers it using Windows account encryption. Do not put the password in the codeplug. Clear key files are no longer supported. See **Encryption Keys** for setup and runtime behavior.
 
 ---
 
 # Example Codeplug
 
 ```yaml
-keyFile: "C:/Example/keys.clear"
+keyFile: "C:/Example/Keys.ekc"
 
 systems:
   - name: "System 1"
