@@ -27,7 +27,7 @@ There have been major changes to resource configuration. Do not assume an older 
 # Basic Structure
 
 ```yaml
-keyFile: "Full/Path/To/Keys.ekc"
+keyFile: 'Keys.ekc'
 
 systems:
   - ...
@@ -45,6 +45,8 @@ zones:
 
 # Systems
 
+Local file paths (`keyFile` and `aliasPath`) can be filenames or relative paths, resolved from the codeplug's directory, not Console's working directory. For example, `'Keys.ekc'` uses a file beside the codeplug, and `'Aliases\alias.yml'` uses a subfolder. Absolute paths still work. Use single quotes around Windows paths such as `'C:\Radio\alias.yml'`; double-quoted YAML treats backslashes as escapes. Existing forward-slash paths remain supported.
+
 Systems define FNE connections.
 
 Example:
@@ -60,7 +62,7 @@ systems:
     password: "RPT_PASSWORD"
     encrypted: false
     presharedKey: "123ABC1234"
-    aliasPath: "Full/Path/To/alias.yml"
+    aliasPath: 'alias.yml'
 ```
 
 Fields:
@@ -76,7 +78,7 @@ Fields:
 - `encrypted`: whether the FNE connection uses transport encryption.
 - `presharedKey`: key used when `encrypted` is enabled.
 - `kmfPresharedKey`: optional 64-hex-character AES-256 key for FNE-wrapped key responses. Required when the FNE enables `kmfEncKeyRequest`; separate from the transport key.
-- `aliasPath`: optional RID alias YAML file.
+- `aliasPath`: optional RID alias YAML file; defaults to `alias.yml` beside the codeplug.
 - `syncRadioAliases`: optional, defaults to `false`. Download and cache this system's RID aliases from a supporting FNE after connecting. See **RID Aliases** for requirements and local-file fallback.
 
 ---
@@ -237,7 +239,7 @@ When `true`, the console attempts to pass through the inbound source ID while fo
 Use `keyFile` to reference a KFDEKC encrypted container:
 
 ```yaml
-keyFile: "Full/Path/To/Keys.ekc"
+keyFile: 'Keys.ekc'
 ```
 
 Relative paths resolve beside the codeplug. Console prompts for the password and remembers it using Windows account encryption. Do not put the password in the codeplug. Clear key files are no longer supported. See **Encryption Keys** for setup and runtime behavior.
@@ -247,7 +249,7 @@ Relative paths resolve beside the codeplug. Console prompts for the password and
 # Example Codeplug
 
 ```yaml
-keyFile: "C:/Example/Keys.ekc"
+keyFile: 'C:\Example\Keys.ekc'
 
 systems:
   - name: "System 1"
@@ -259,7 +261,7 @@ systems:
     password: "RPT_PASSWORD"
     encrypted: false
     presharedKey: "123ABC1234"
-    aliasPath: "C:/Example/alias.yml"
+    aliasPath: 'C:\Example\alias.yml'
 
 groups:
   - name: "Patch 1"

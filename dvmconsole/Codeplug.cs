@@ -16,6 +16,7 @@
 */
 
 using fnecore.P25;
+using System.IO;
 using YamlDotNet.Serialization;
 
 namespace dvmconsole
@@ -39,6 +40,12 @@ namespace dvmconsole
         /*
         ** Properties
         */
+
+        /// <summary>
+        /// Loaded codeplug location used to resolve local file references.
+        /// </summary>
+        [YamlIgnore]
+        public string SourcePath { get; internal set; }
 
         /// <summary>
         /// The location of a password-protected KFDEKC container.
@@ -132,7 +139,7 @@ namespace dvmconsole
             /// <summary>
             /// 
             /// </summary>
-            public string AliasPath { get; set; } = "./alias.yml";
+            public string AliasPath { get; set; } = "alias.yml";
             /// <summary>
             /// Automatically download RID aliases from the connected FNE.
             /// </summary>
@@ -486,6 +493,17 @@ namespace dvmconsole
         public System GetSystemForChannel(Channel channel)
         {
             return Systems.FirstOrDefault(s => s.Name == channel.System);
+        }
+
+        /// <summary>
+        /// Resolve local files beside the codeplug, not the process working directory.
+        /// </summary>
+        public string ResolveFilePath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return null;
+
+            return Path.GetFullPath(path, Path.GetDirectoryName(SourcePath));
         }
 
         /// <summary>

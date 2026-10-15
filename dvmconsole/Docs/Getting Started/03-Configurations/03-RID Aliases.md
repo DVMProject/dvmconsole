@@ -18,8 +18,10 @@ Reference an alias file from a system entry in the codeplug:
 ```yaml
 systems:
   - name: "System 1"
-    aliasPath: "Full/Path/To/alias.yml"
+    aliasPath: 'alias.yml'
 ```
+
+Relative paths resolve beside the codeplug, including subfolders such as `'Aliases\alias.yml'`. If omitted, `aliasPath` defaults to `alias.yml` in that directory. Absolute paths such as `'C:\Radio\alias.yml'` also work. Use single quotes for Windows paths in YAML so backslashes remain literal.
 
 If neither a downloaded alias nor a local alias is available, the console falls back to numeric RIDs.
 

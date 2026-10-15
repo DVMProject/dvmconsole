@@ -19,7 +19,7 @@ Older FNE builds are not recommended for encrypted console operation.
 Reference the key file with `keyFile` in the codeplug:
 
 ```yaml
-keyFile: "Full/Path/To/Keys.ekc"
+keyFile: 'Keys.ekc'
 ```
 
 ---

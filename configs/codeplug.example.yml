@@ -24,7 +24,8 @@
 
 # Local KFDEKC encrypted container; password is prompted for, never placed here.
 # Relative paths resolve beside this codeplug. Clear key files are not supported.
-#keyFile: "Full/Path/To/Keys.ekc"
+#keyFile: 'Keys.ekc'
+# Windows absolute paths also work; use single quotes, e.g. 'C:\Radio\Keys.ekc'.
 
 #
 # FNE Masters
@@ -53,8 +54,9 @@ systems:
     # Optional key-response wrapping key when FNE kmfEncKeyRequest is enabled.
     # Must match the FNE kmfPresharedKey: exactly 64 hex characters (AES-256).
     #kmfPresharedKey: "REPLACE_WITH_64_HEX_CHARACTERS"
-    # Path to Radio Alias file for this system
-    #aliasPath: "Full/Path/To/alias.yml"
+    # RID alias file for this system, relative to this codeplug (default: alias.yml).
+    # Absolute paths also work, e.g. 'C:\Radio\alias.yml'.
+    #aliasPath: 'alias.yml'
     
 # Optional groups (each group becomes a tab in the Groups window)
 # Group memberships are assigned at runtime from the Groups window and persist in user settings.

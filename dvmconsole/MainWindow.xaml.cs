@@ -1106,8 +1106,11 @@ namespace dvmconsole
                     .IgnoreUnmatchedProperties()
                     .Build();
 
+                filePath = Path.GetFullPath(filePath);
                 string yaml = File.ReadAllText(filePath);
                 Codeplug = deserializer.Deserialize<Codeplug>(yaml);
+                if (Codeplug != null)
+                    Codeplug.SourcePath = filePath;
                 Codeplug?.NormalizeGroups();
 
                 // perform codeplug validation
@@ -1196,7 +1199,7 @@ namespace dvmconsole
                     MessageBox.Show(messageBoxString, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
 
-                LoadConfiguredEkcKeys(filePath);
+                LoadConfiguredEkcKeys();
 
                 // generate widgets and enable controls
                 GenerateChannelWidgets();

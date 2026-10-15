@@ -16,12 +16,13 @@ namespace dvmconsole
 {
     public partial class MainWindow
     {
-        private static void LoadSystemAliases(Codeplug.System system)
+        private void LoadSystemAliases(Codeplug.System system)
         {
             try
             {
-                if (File.Exists(system.AliasPath))
-                    system.RidAlias = AliasTools.LoadAliases(system.AliasPath);
+                string path = Codeplug.ResolveFilePath(system.AliasPath);
+                if (File.Exists(path))
+                    system.RidAlias = AliasTools.LoadAliases(path);
             }
             catch (Exception ex)
             {

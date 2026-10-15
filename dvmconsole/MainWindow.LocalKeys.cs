@@ -26,14 +26,14 @@ namespace dvmconsole
         /// <summary>
         /// Unlock once per codeplug load, before resources or key requests are started.
         /// </summary>
-        private void LoadConfiguredEkcKeys(string codeplugPath)
+        private void LoadConfiguredEkcKeys()
         {
             if (string.IsNullOrWhiteSpace(Codeplug?.KeyFile))
                 return;
 
             try
             {
-                string path = Path.GetFullPath(Codeplug.KeyFile, Path.GetDirectoryName(Path.GetFullPath(codeplugPath)));
+                string path = Codeplug.ResolveFilePath(Codeplug.KeyFile);
                 if (!string.Equals(Path.GetExtension(path), ".ekc", StringComparison.OrdinalIgnoreCase))
                     throw new InvalidDataException("Local keys require a KFDEKC .ekc container. Clear key files are no longer supported.");
                 if (!File.Exists(path))
