@@ -109,14 +109,14 @@ namespace dvmconsole
                             continue;
                         }
 
-                        Codeplug.System system = Codeplug.GetSystemForChannel(channelBox.ChannelName);
+                        Codeplug.System system = Codeplug.GetSystemForChannel(channelBox.ConfiguredChannel);
                         if (system == null)
                         {
                             Log.WriteLine($"System not found for {channelBox.ChannelName}");
                             continue;
                         }
 
-                        Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channelBox.ChannelName);
+                        Codeplug.Channel cpgChannel = channelBox.ConfiguredChannel;
                         if (cpgChannel == null)
                         {
                             Log.WriteLine($"Channel not found for {channelBox.ChannelName}");

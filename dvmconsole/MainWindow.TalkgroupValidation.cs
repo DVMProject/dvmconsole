@@ -50,7 +50,7 @@ namespace dvmconsole
 
         private bool CanStartChannelPtt(ChannelBox channel, bool showWarning)
         {
-            if (channel == null || channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+            if (channel == null || channel.IsLocalPlayback)
                 return true;
 
             if (!CanStartPttOutsidePatchEditMode(showWarning))

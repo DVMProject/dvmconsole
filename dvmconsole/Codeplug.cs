@@ -492,7 +492,10 @@ namespace dvmconsole
         /// <returns></returns>
         public System GetSystemForChannel(Channel channel)
         {
-            return Systems.FirstOrDefault(s => s.Name == channel.System);
+            if (channel == null || string.IsNullOrWhiteSpace(channel.System))
+                return null;
+
+            return Systems?.FirstOrDefault(s => ResourceIdentity.SystemMatches(s.Name, channel.System));
         }
 
         /// <summary>
@@ -506,44 +509,5 @@ namespace dvmconsole
             return Path.GetFullPath(path, Path.GetDirectoryName(SourcePath));
         }
 
-        /// <summary>
-        /// Helper to return a system by looking up a channel name
-        /// </summary>
-        /// <param name="channelName"></param>
-        /// <returns></returns>
-        public System GetSystemForChannel(string channelName)
-        {
-            if (Zones == null)
-                return null;
-
-            foreach (Zone zone in Zones)
-            {
-                Channel channel = zone.Channels.FirstOrDefault(c => c.Name == channelName);
-                if (channel != null)
-                    return Systems.FirstOrDefault(s => s.Name == channel.System);
-            }
-
-            return null;
-        }
-
-        /// <summary>
-        /// Helper to return a <see cref="Channel"/> by channel name
-        /// </summary>
-        /// <param name="channelName"></param>
-        /// <returns></returns>
-        public Channel GetChannelByName(string channelName)
-        {
-            if (Zones == null)
-                return null;
-
-            foreach (Zone zone in Zones)
-            {
-                Channel channel = zone.Channels.FirstOrDefault(c => c.Name == channelName);
-                if (channel != null)
-                    return channel;
-            }
-
-            return null;
-        }
     } //public class Codeplug
 } // namespace dvmconsole

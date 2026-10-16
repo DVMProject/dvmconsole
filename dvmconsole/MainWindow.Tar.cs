@@ -69,10 +69,8 @@ namespace dvmconsole
             {
                 foreach (ChannelBox channel in canvas.Children.OfType<ChannelBox>())
                 {
-                    string systemName = NormalizeChannelSystemName(channel.SystemName);
-                    bool enabled = channel.SystemName != PLAYBACKSYS &&
-                        channel.ChannelName != PLAYBACKCHNAME &&
-                        channel.DstId != PLAYBACKTG &&
+                    string systemName = channel.ResourceSystemName;
+                    bool enabled = !channel.IsLocalPlayback &&
                         tarManager.IsChannelEnabled(systemName, channel.DstId, channel.ChannelName);
                     channel.SetTarRecordingIndicator(enabled);
                 }

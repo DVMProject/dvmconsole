@@ -34,7 +34,7 @@ namespace dvmconsole
         {
             foreach (var channel in selectedChannelsManager.GetSelectedChannels())
             {
-                Codeplug.Channel config = Codeplug?.GetChannelByName(channel.ChannelName);
+                Codeplug.Channel config = channel.ConfiguredChannel;
                 if (config == null || !ResourceIdentity.SystemMatches(config.System, systemName) ||
                     !config.HasEncryptionConfig() || channel.HasLoadedTransmitKey())
                     continue;

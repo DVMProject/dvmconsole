@@ -121,7 +121,7 @@ namespace dvmconsole
         {
             foreach (ChannelBox channel in GetAllCanvases().SelectMany(canvas => canvas.Children.OfType<ChannelBox>()))
             {
-                Codeplug.Channel config = Codeplug?.GetChannelByName(channel.ChannelName);
+                Codeplug.Channel config = channel.ConfiguredChannel;
                 if (config?.GetChannelMode() != Codeplug.ChannelMode.Analog)
                     continue;
                 Codeplug.System system = Codeplug.GetSystemForChannel(config);
@@ -147,7 +147,7 @@ namespace dvmconsole
             {
                 foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels().ToList())
                 {
-                    Codeplug.Channel config = Codeplug.GetChannelByName(channel.ChannelName);
+                    Codeplug.Channel config = channel.ConfiguredChannel;
                     Codeplug.System system = config == null ? null : Codeplug.GetSystemForChannel(config);
                     if (system == null || config.GetChannelMode() != Codeplug.ChannelMode.Analog ||
                         !ResourceIdentity.SystemMatches(system.Name, sourceSystemName) || config.Tgid != e.DstId.ToString() ||

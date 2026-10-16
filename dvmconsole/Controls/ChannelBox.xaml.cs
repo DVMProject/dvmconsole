@@ -145,6 +145,13 @@ namespace dvmconsole.Controls
         public P25Crypto Crypter = new P25Crypto();
         internal P25ReceiveCrypto ReceiveCrypto { get; } = new();
 
+        /// <summary>
+        /// Exact codeplug entry for this card; null for local playback.
+        /// </summary>
+        internal Codeplug.Channel ConfiguredChannel { get; }
+        internal bool IsLocalPlayback => ConfiguredChannel == null;
+        internal string ResourceSystemName => ConfiguredChannel?.System ?? MainWindow.PLAYBACKSYS;
+
         private bool pttToggleMode = false;
         private bool suppressSelectionToggle = false;
         private CancellationTokenSource pendingPttReleaseCts;
@@ -260,7 +267,7 @@ namespace dvmconsole.Controls
         public string AudioOutputKey { get; private set; }
 
         public string ChannelSettingsKey =>
-            ChannelName == MainWindow.PLAYBACKCHNAME || DstId == MainWindow.PLAYBACKTG
+            IsLocalPlayback
                 ? MainWindow.PLAYBACKCHNAME
                 : AudioOutputKey;
 
@@ -843,12 +850,27 @@ namespace dvmconsole.Controls
         /// </summary>
         /// <param name="selectedChannelsManager"></param>
         /// <param name="audioManager"></param>
-        /// <param name="channelName"></param>
-        /// <param name="systemName"></param>
-        /// <param name="dstId"></param>
+        /// <param name="channel"></param>
         /// <param name="pttToggleMode"></param>
-        public ChannelBox(SelectedChannelsManager selectedChannelsManager, AudioManager audioManager, string channelName, string systemName, string dstId, bool pttToggleMode = false)
+        public ChannelBox(SelectedChannelsManager selectedChannelsManager, AudioManager audioManager, Codeplug.Channel channel, bool pttToggleMode = false)
+            : this(selectedChannelsManager, audioManager,
+                  (channel ?? throw new ArgumentNullException(nameof(channel))).Name, channel.System, channel.Tgid, pttToggleMode, channel)
         {
+        }
+
+        /// <summary>
+        /// Initializes the local playback card without a network channel binding.
+        /// </summary>
+        /// <param name="selectedChannelsManager"></param>
+        /// <param name="audioManager"></param>
+        public ChannelBox(SelectedChannelsManager selectedChannelsManager, AudioManager audioManager)
+            : this(selectedChannelsManager, audioManager, MainWindow.PLAYBACKCHNAME, MainWindow.PLAYBACKSYS, MainWindow.PLAYBACKTG, false, null)
+        {
+        }
+
+        private ChannelBox(SelectedChannelsManager selectedChannelsManager, AudioManager audioManager, string channelName, string systemName, string dstId, bool pttToggleMode, Codeplug.Channel channel)
+        {
+            ConfiguredChannel = channel;
             InitializeComponent();
 
             this.InternalID = ChannelIdx;
@@ -897,7 +919,7 @@ namespace dvmconsole.Controls
             ApplyCardSizeLayout();
             DisableControls();
 
-            if (SystemName == MainWindow.PLAYBACKSYS || ChannelName == MainWindow.PLAYBACKCHNAME || DstId == MainWindow.PLAYBACKTG)
+            if (IsLocalPlayback)
             {
                 PttButton.IsEnabled = false;
 
@@ -1280,7 +1302,7 @@ namespace dvmconsole.Controls
         /// </summary>
         private void UpdateBackground()
         {
-            if (SystemName == MainWindow.PLAYBACKSYS || ChannelName == MainWindow.PLAYBACKCHNAME || DstId == MainWindow.PLAYBACKTG)
+            if (IsLocalPlayback)
             {
                 SetCardBackground(IsSelected ? RED_GRADIENT : DARK_GRAY_GRADIENT);
                 return;

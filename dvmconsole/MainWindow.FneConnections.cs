@@ -418,15 +418,11 @@ namespace dvmconsole
             {
                 foreach (ChannelBox channel in canvas.Children.OfType<ChannelBox>())
                 {
-                    if (!string.Equals(NormalizeChannelSystemName(channel.SystemName), normalizedSystemName, StringComparison.OrdinalIgnoreCase))
+                    if (!string.Equals(channel.ResourceSystemName, normalizedSystemName, StringComparison.OrdinalIgnoreCase))
                         continue;
 
-                    Codeplug.System disconnectedSystem = Codeplug?.Systems?
-                        .FirstOrDefault(system => ResourceIdentity.SystemMatches(system.Name, normalizedSystemName));
-                    Codeplug.Channel disconnectedChannel = GetConfiguredChannels()
-                        .FirstOrDefault(cpgChannel =>
-                            ResourceIdentity.SystemMatches(cpgChannel.System, normalizedSystemName) &&
-                            string.Equals(cpgChannel.Tgid?.Trim() ?? string.Empty, channel.DstId?.Trim() ?? string.Empty, StringComparison.OrdinalIgnoreCase));
+                    Codeplug.Channel disconnectedChannel = channel.ConfiguredChannel;
+                    Codeplug.System disconnectedSystem = Codeplug?.GetSystemForChannel(disconnectedChannel);
                     bool hadReceiveState = channel.IsReceiving || channel.IsReceivingEncrypted;
                     bool hadTransmitState = channel.PttState || channel.PatchForwardingTxState || channel.TxStreamId != 0;
                     SlotStatus slotStatus = FindActiveReceiveStatus(channel, disconnectedChannel);
@@ -527,7 +523,7 @@ namespace dvmconsole
             {
                 foreach (ChannelBox channel in canvas.Children.OfType<ChannelBox>())
                 {
-                    if (string.Equals(NormalizeChannelSystemName(channel.SystemName), NormalizeChannelSystemName(systemName), StringComparison.OrdinalIgnoreCase))
+                    if (string.Equals(channel.ResourceSystemName, NormalizeChannelSystemName(systemName), StringComparison.OrdinalIgnoreCase))
                         UpdateChannelConnectionVisual(channel);
                 }
             }
@@ -535,10 +531,10 @@ namespace dvmconsole
 
         private void UpdateChannelConnectionVisual(ChannelBox channel)
         {
-            if (channel == null || channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+            if (channel == null || channel.IsLocalPlayback)
                 return;
 
-            string systemName = NormalizeChannelSystemName(channel.SystemName);
+            string systemName = channel.ResourceSystemName;
             bool disconnected = !IsFneSystemConnected(systemName);
             channel.SetFneConnectionWarning(
                 disconnected,
