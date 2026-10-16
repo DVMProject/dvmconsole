@@ -28,6 +28,7 @@
                 <DataGridTextColumn x:Name="RidAliasColumn" Header="RID Alias" Binding="{Binding RidAlias}" Width="160" />
                 <DataGridTextColumn x:Name="RidColumn" Header="RID" Binding="{Binding SrcIdText}" Width="90" />
                 <DataGridTextColumn x:Name="TgidColumn" Header="TGID" Binding="{Binding DstIdText}" Width="80" />
+                <DataGridTextColumn x:Name="EncryptionKeyIdColumn" Header="ENC KID (hex)" Binding="{Binding EncryptionKeyId, StringFormat='{}{0:X4}'}" Width="115" />
             </DataGrid.Columns>
         </DataGrid>
         <DockPanel Grid.Row="1" Margin="10,0,10,10">

@@ -22,6 +22,17 @@ namespace dvmconsole
     public partial class MainWindow
     {
         private EkcKeyStore localKeys;
+        private readonly TrafficKeyCache networkKeys = new();
+
+        private bool TryGetTrafficKey(string system, byte algorithm, ushort id, out byte[] material)
+        {
+            if (localKeys != null && localKeys.TryGetKey(algorithm, id, out byte[] local))
+            {
+                material = local.ToArray();
+                return true;
+            }
+            return networkKeys.TryGet(system, algorithm, id, out material);
+        }
 
         /// <summary>
         /// Unlock once per codeplug load, before resources or key requests are started.
@@ -121,10 +132,10 @@ namespace dvmconsole
             }
         }
 
-        private bool ApplyLocalP25Key(ChannelBox channel, Codeplug.Channel config)
+        private bool ApplyP25TransmitKey(ChannelBox channel, Codeplug.Channel config)
         {
-            if (config.GetChannelMode() != Codeplug.ChannelMode.P25 || localKeys == null ||
-                !localKeys.TryGetKey(config.GetAlgoId(), config.GetKeyId(), out byte[] material))
+            if (config.GetChannelMode() != Codeplug.ChannelMode.P25 ||
+                !TryGetTrafficKey(config.System, config.GetAlgoId(), config.GetKeyId(), out byte[] material))
                 return false;
             channel.Crypter.SetKey(config.GetKeyId(), config.GetAlgoId(), material);
             return true;
@@ -132,6 +143,7 @@ namespace dvmconsole
 
         private void ClearLocalKeys()
         {
+            networkKeys.Clear();
             localKeys?.Dispose();
             localKeys = null;
         }

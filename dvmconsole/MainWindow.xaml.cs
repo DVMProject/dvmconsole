@@ -1399,7 +1399,7 @@ namespace dvmconsole
                         channelBox.CardSize = ChannelBox.ParseCardSize(channel.CardSize);
                         channelBox.ChannelMode = channel.Mode.ToUpperInvariant();
                         channelBox.IsRxOnly = channel.RxOnly;
-                        ApplyLocalP25Key(channelBox, channel);
+                        ApplyP25TransmitKey(channelBox, channel);
                         channelBox.CanStartPtt = CanStartChannelPtt;
                         channelBox.HasTransmitKey = () => channel.GetChannelMode() switch
                         {
@@ -2009,7 +2009,7 @@ namespace dvmconsole
                       // if the channel is configured for encryption request the key from the FNE
                       if (cpgChannel.HasEncryptionConfig() && cpgChannel.GetKeyId() != 0)
                       {
-                          if (ApplyLocalP25Key(channel, cpgChannel))
+                          if (ApplyP25TransmitKey(channel, cpgChannel))
                               continue;
 
                           // DMR and NXDN use protocol-specific keyrings but share the FNE key service.
@@ -2557,6 +2557,7 @@ namespace dvmconsole
         /// </summary>
         private void ClearReceiveState(ChannelBox channel, SlotStatus slotStatus = null)
         {
+            channel.ReceiveCrypto.Reset();
             channel.DmrRx?.Dispose();
             channel.DmrRx = null;
             channel.NxdnRx?.Dispose();
@@ -7946,66 +7947,28 @@ namespace dvmconsole
         /// <param name="e"></param>
         public void KeyResponseReceived(KeyResponseEvent e, string sourceSystemName = null)
         {
-            ImportNxdnNetworkKeys(e, sourceSystemName);
-            //Log.WriteLine($"Message ID: {e.KmmKey.MessageId}");
-            //Log.WriteLine($"Decrypt Info Format: {e.KmmKey.DecryptInfoFmt}");
-            //Log.WriteLine($"Algorithm ID: {e.KmmKey.AlgId}");
-            //Log.WriteLine($"Key ID: {e.KmmKey.KeyId}");
-            //Log.WriteLine($"Keyset ID: {e.KmmKey.KeysetItem.KeysetId}");
-            //Log.WriteLine($"Keyset Alg ID: {e.KmmKey.KeysetItem.AlgId}");
-            //Log.WriteLine($"Keyset Key Length: {e.KmmKey.KeysetItem.KeyLength}");
-            //Log.WriteLine($"Number of Keys: {e.KmmKey.KeysetItem.Keys.Count}");
+            if (e?.KmmKey?.KeysetItem?.Keys == null || string.IsNullOrWhiteSpace(sourceSystemName))
+                return;
 
-            foreach (var key in e.KmmKey.KeysetItem.Keys)
+            Dispatcher.Invoke(() =>
             {
-                //Log.WriteLine($"  Key Format: {key.KeyFormat}");
-                //Log.WriteLine($"  SLN: {key.Sln}");
-                //Log.WriteLine($"  Key ID: {key.KeyId}");
-                //Log.WriteLine($"  Key Data: {BitConverter.ToString(key.GetKey())}");
+                if (!(Codeplug?.Systems?.Any(system => ResourceIdentity.SystemMatches(system.Name, sourceSystemName)) ?? false))
+                    return;
 
-                Dispatcher.Invoke(() =>
+                KeysetItem received = e.KmmKey.KeysetItem;
+                foreach (var key in received.Keys)
                 {
-                    foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
-                    {
-                        if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
-                            continue;
-
-                        Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
-                        if (system == null)
-                        {
-                            Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}.");
-                            channel.IsSelected = false;
-                            selectedChannelsManager.RemoveSelectedChannel(channel);
-                            continue;
-                        }
-
-                        Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                        if (cpgChannel == null)
-                        {
-                            Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.");
-                            channel.IsSelected = false;
-                            selectedChannelsManager.RemoveSelectedChannel(channel);
-                            continue;
-                        }
-
-                        KeysetItem receivedKey = e.KmmKey.KeysetItem;
-
-                        if (sourceSystemName != null && !ResourceIdentity.SystemMatches(sourceSystemName, system.Name))
-                            continue;
-
-                        if (cpgChannel.GetChannelMode() != Codeplug.ChannelMode.P25)
-                            continue;
-
-                        if (ApplyLocalP25Key(channel, cpgChannel))
-                            continue;
-
-                        ushort keyId = cpgChannel.GetKeyId();
-                        byte algoId = cpgChannel.GetAlgoId();
-                        if (keyId != 0 && algoId != 0 && keyId == key.KeyId && algoId == receivedKey.AlgId)
-                            channel.Crypter.SetKey(key.KeyId, receivedKey.AlgId, key.GetKey());
-                    }
-                });
-            }
+                    if (key != null && !networkKeys.Store(sourceSystemName, received.AlgId, key.KeyId, key.GetKey()))
+                        Log.WriteWarning($"({sourceSystemName}) Ignoring unsupported key ALGID {received.AlgId} KID {key.KeyId}.");
+                }
+                ImportNxdnNetworkKeys(e, sourceSystemName);
+                foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
+                {
+                    Codeplug.Channel config = Codeplug.GetChannelByName(channel.ChannelName);
+                    if (config != null && ResourceIdentity.SystemMatches(config.System, sourceSystemName))
+                        ApplyP25TransmitKey(channel, config);
+                }
+            });
         }
 
         /** Keyboard Shortcuts */

@@ -344,7 +344,8 @@ namespace dvmconsole
 
                     short[] samples = new short[FneSystemBase.MBE_SAMPLES_LENGTH];
 
-                    channel.Crypter.Process(imbe, duid);
+                    if (!channel.ReceiveCrypto.Process(imbe, duid))
+                        continue;
 
                     // do we have the external vocoder library?
                     if (channel.ExternalVocoderEnabled)
@@ -458,25 +459,6 @@ namespace dvmconsole
                     SlotStatus slot = systemStatuses[statusKey];
                     channel.LastPktTime = pktTime;
 
-                    // if this is an LDU1 see if this is the first LDU with HDU encryption data
-                    if (e.DUID == P25DUID.LDU1)
-                    {
-                        byte frameType = e.Data[180];
-
-                        // get the initial MI and other enc info (bug found by the screeeeeeeeech on initial tx...)
-                        if (frameType == P25Defines.P25_FT_HDU_VALID)
-                        {
-                            channel.algId = e.Data[181];
-                            channel.kId = (ushort)((e.Data[182] << 8) | e.Data[183]);
-                            Array.Copy(e.Data, 184, channel.mi, 0, P25Defines.P25_MI_LENGTH);
-
-                            channel.Crypter.Prepare(channel.algId, channel.kId, channel.mi);
-
-                            if (channel.algId != P25Defines.P25_ALGO_UNENCRYPT)
-                                encrypted = true;
-                        }
-                    }
-
                     // is the Rx stream ID being Rx'ed on another copy of this same resource?
                     bool duplicateRx = selectedChannelsManager.GetSelectedChannels().Any(other =>
                         other.InternalID != channel.InternalID &&
@@ -504,6 +486,24 @@ namespace dvmconsole
                         continue;
                     }
 
+                    if (!channel.IsReceiving || e.StreamId != slot.RxStreamId)
+                    {
+                        channel.ReceiveCrypto.Reset();
+                        channel.algId = 0;
+                        channel.kId = 0;
+                        Array.Clear(channel.mi);
+                    }
+
+                    // HDU crypto applies to this LDU1; preserve its MI through call startup.
+                    if (e.DUID == P25DUID.LDU1 && e.Data.Length >= 193 && e.Data[180] == P25Defines.P25_FT_HDU_VALID)
+                    {
+                        channel.algId = e.Data[181];
+                        channel.kId = (ushort)((e.Data[182] << 8) | e.Data[183]);
+                        Array.Copy(e.Data, 184, channel.mi, 0, P25Defines.P25_MI_LENGTH);
+                        PrepareP25Receive(channel, system.Name);
+                        encrypted = channel.algId != P25Defines.P25_ALGO_UNENCRYPT;
+                    }
+
                     string alias = TryResolveSubscriberAlias(system, (int)e.SrcId);
                     bool isConsoleRid = IsConsoleSourceRid(system, e.SrcId);
 
@@ -524,8 +524,6 @@ namespace dvmconsole
 
                         slot.RxStart = pktTime;
                         Log.WriteLine($"({system.Name}) P25D: Traffic *CALL START     * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
-
-                        FneUtils.Memset(channel.mi, 0x00, P25Defines.P25_MI_LENGTH);
 
                         // make channel enc parameters sane
                         if (channel.algId == 0 && channel.kId == 0)
@@ -747,8 +745,11 @@ namespace dvmconsole
                             break;
                     }
 
-                    if (channel.mi != null)
-                        channel.Crypter.Prepare(channel.algId, channel.kId, channel.mi);
+                    channel.IsReceivingEncrypted = channel.algId != P25Defines.P25_ALGO_UNENCRYPT;
+                    channel.RxHistory?.UpdateEncryption(e.StreamId, channel.IsReceivingEncrypted, channel.kId);
+                    // LDU2 carries the MI for the next pair. Do not restart crypto after LDU1.
+                    if (e.DUID == P25DUID.LDU2)
+                        PrepareP25Receive(channel, system.Name);
 
                     slot.RxRFS = e.SrcId;
                     slot.RxType = e.FrameType;
@@ -769,6 +770,26 @@ namespace dvmconsole
             {
                 Log.WriteError($"P25 RX handler exception: {ex.Message}");
                 Log.StackTrace(ex, false);
+            }
+        }
+
+        private void PrepareP25Receive(ChannelBox channel, string systemName)
+        {
+            byte[] key = null;
+            try
+            {
+                TryGetTrafficKey(systemName, channel.algId, channel.kId, out key);
+                channel.ReceiveCrypto.Prepare(channel.algId, channel.kId, channel.mi, key);
+            }
+            catch (System.Security.Cryptography.CryptographicException)
+            {
+                channel.ReceiveCrypto.Reset();
+                Log.WriteWarning($"({systemName}) Cannot use P25 RX key ALGID {channel.algId} KID {channel.kId}; audio muted.");
+            }
+            finally
+            {
+                if (key != null)
+                    System.Security.Cryptography.CryptographicOperations.ZeroMemory(key);
             }
         }
     } // public partial class MainWindow : Window

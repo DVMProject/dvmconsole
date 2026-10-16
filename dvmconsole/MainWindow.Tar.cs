@@ -275,7 +275,8 @@ namespace dvmconsole
                 ResolveConsoleHistoryDisplayName(system),
                 DateTime.Now.ToString("HH:mm:ss"),
                 streamId,
-                recording);
+                recording,
+                channel.GetChannelMode() != Codeplug.ChannelMode.Analog && channelBox.IsTxEncrypted ? channel.GetKeyId() : null);
         }
 
         private void ClearConsoleTxHistoryEntry(ChannelBox channelBox, Codeplug.System system, Codeplug.Channel channel)

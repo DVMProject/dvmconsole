@@ -63,7 +63,7 @@ Supported P25 `algo` values include:
 - `arc4`
 - `none`
 
-For P25, if `keyId` is blank or zero, the channel is treated as clear for normal operation. DMR and NXDN encrypted channels instead block TX when the key configuration is invalid; they never silently fall back to clear.
+For P25, if `keyId` is blank or zero, the channel transmits clear. This does not prevent secure receive when the incoming key is available. DMR and NXDN encrypted channels instead block TX when the key configuration is invalid; they never silently fall back to clear.
 
 NXDN supports `ehr` (15-bit scrambling), `des`, and `aes` (AES-256). EKC algorithm IDs match the FNE key service, not the NXDN wire cipher IDs. See **NXDN** for key sizes and FNE key-service behavior.
 
@@ -87,6 +87,10 @@ The selected encrypted/clear state is saved and restored across restarts. The ke
 
 Analog voice inversion can use the same **SELECT** control, but it is not encryption and does not use a key. See [Analog](08-Analog.md).
 
+P25 and NXDN receive use the incoming algorithm and key ID, not the channel's configured transmit key or **SELECT** state. A matching key anywhere in the unlocked EKC can be used; downloaded keys are shared between resources on the same FNE system only. Local keys take precedence. Without a usable matching key, encrypted audio is muted rather than played as noise. This does not enable DMR encryption or change analog inversion.
+
+The **ENC KID** column in Event History and channel Call History shows the on-air key ID in hexadecimal, including late-entry updates. Clear calls and non-call events leave it blank. This works without TAR recording enabled.
+
 ---
 
 # FNE Key Requests
@@ -96,6 +100,8 @@ When **Restore Selected Channels On Startup** is enabled, selected encrypted cha
 The console waits for the relevant FNE connection to complete before sending startup key requests. It then waits a short post-connect delay and spaces multiple key requests apart so the FNE is not flooded.
 
 Missing keys on selected encrypted resources are also requested again after an FNE reconnect. Keys must exist in the FNE crypto container, and the system's regular `rid` must be authorized to request each KID.
+
+Selecting multiple resources with the same algorithm/key ID sends one request per FNE system. Loaded keys are reused, and unanswered requests have a 30-second cooldown before a later selection can retry. Reconnecting clears the cooldown for missing keys. Keys and request state are cleared when the codeplug is reloaded. Receive traffic does not automatically request unknown keys.
 
 NXDN EHR, DES, and AES use this same service. Their request/container algorithm IDs are `0x01`, `0x81`, and `0x84`, respectively; see **NXDN** for details and key lengths. Use unique key IDs for distinct material across protocols in the FNE container.
 

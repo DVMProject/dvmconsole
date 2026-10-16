@@ -882,7 +882,8 @@ namespace dvmconsole
                 new GridColumnConfig { Key = "Channel", DisplayIndex = 1, Width = 150, Visible = true },
                 new GridColumnConfig { Key = "RidAlias", DisplayIndex = 2, Width = 160, Visible = true },
                 new GridColumnConfig { Key = "Rid", DisplayIndex = 3, Width = 90, Visible = true },
-                new GridColumnConfig { Key = "Tgid", DisplayIndex = 4, Width = 80, Visible = true }
+                new GridColumnConfig { Key = "Tgid", DisplayIndex = 4, Width = 80, Visible = true },
+                new GridColumnConfig { Key = "EncryptionKeyId", DisplayIndex = 5, Width = 115, Visible = true }
             };
         }
 

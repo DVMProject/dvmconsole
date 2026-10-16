@@ -49,6 +49,10 @@ namespace dvmconsole
 
         private byte[] GetNxdnKey(string system, byte cipher, ushort id)
         {
+            if (cipher is < 1 or > 3 || id is 0 or > 63)
+                return null;
+            if (localKeys != null && localKeys.TryGetKey(NXDNCrypto.ToKeyRequestAlgorithm(cipher), id, out byte[] local))
+                return local.ToArray();
             lock (nxdnKeySync)
             {
                 if (nxdnLocalKeys.Contains((string.Empty, cipher, id)) &&
@@ -82,13 +86,8 @@ namespace dvmconsole
             {
                 if (sourceSystemName != null && !ResourceIdentity.SystemMatches(sourceSystemName, system.Name))
                     continue;
-                foreach (var key in e.KmmKey.KeysetItem.Keys.Where(key => key.KeyId is > 0 and <= 63))
+                foreach (var key in e.KmmKey.KeysetItem.Keys.Where(key => key != null && key.KeyId is > 0 and <= 63))
                 {
-                    if (!(Codeplug.Zones ?? []).SelectMany(zone => zone.Channels ?? []).Any(channel =>
-                        channel.GetChannelMode() == Codeplug.ChannelMode.NXDN &&
-                        ResourceIdentity.SystemMatches(channel.System, system.Name) &&
-                        channel.GetNxdnCipherType() == cipher && channel.GetKeyId() == key.KeyId))
-                        continue;
                     byte[] material = key.GetKey().ToArray();
                     try
                     {
@@ -345,6 +344,7 @@ namespace dvmconsole
                             Log.WriteLine($"({system.Name}) NXDD: Traffic *CALL START     * SRC_ID {e.SrcId} TGID {e.DstId} [STREAM ID {e.StreamId}]");
                         }
                         channel.RxHistory?.UpdateSource(e.StreamId, (int)e.SrcId, alias);
+                        channel.RxHistory?.UpdateEncryption(e.StreamId, call.IsEncrypted, call.KeyId);
                         if (call.IsReleased)
                         {
                             EndTarRxRecordingFromChannelState(system, config, channel, status, packetTime);

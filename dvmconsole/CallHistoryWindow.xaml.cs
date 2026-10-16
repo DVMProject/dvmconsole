@@ -42,6 +42,17 @@ namespace dvmconsole
             DependencyProperty.Register(nameof(SrcIdText), typeof(string), typeof(CallEntry), new PropertyMetadata(string.Empty));
         public static readonly DependencyProperty RidAliasProperty =
             DependencyProperty.Register(nameof(RidAlias), typeof(string), typeof(CallEntry), new PropertyMetadata(string.Empty));
+        public static readonly DependencyProperty EncryptionKeyIdProperty =
+            DependencyProperty.Register(nameof(EncryptionKeyId), typeof(ushort?), typeof(CallEntry), new PropertyMetadata(null));
+
+        /// <summary>
+        /// On-air key ID, independent of recording and the channel's transmit key.
+        /// </summary>
+        public ushort? EncryptionKeyId
+        {
+            get { return (ushort?)GetValue(EncryptionKeyIdProperty); }
+            set { SetValue(EncryptionKeyIdProperty, value); }
+        }
 
         /*
         ** Properties
@@ -201,7 +212,8 @@ namespace dvmconsole
                 { "Channel", ChannelColumn },
                 { "RidAlias", RidAliasColumn },
                 { "Rid", RidColumn },
-                { "Tgid", TgidColumn }
+                { "Tgid", TgidColumn },
+                { "EncryptionKeyId", EncryptionKeyIdColumn }
             };
 
             // clamp max call history count
@@ -485,7 +497,7 @@ namespace dvmconsole
         /// <param name="timestamp"></param>
         /// <param name="streamId"></param>
         /// <param name="recording"></param>
-        public void AddConsoleTransmission(string channel, int srcId, int dstId, string ridAlias, string timestamp, uint streamId, Task<TarRecordingMetadata> recording = null)
+        public void AddConsoleTransmission(string channel, int srcId, int dstId, string ridAlias, string timestamp, uint streamId, Task<TarRecordingMetadata> recording = null, ushort? encryptionKeyId = null)
         {
             if (!eventHistoryMode || string.IsNullOrWhiteSpace(channel) || streamId == 0)
                 return;
@@ -504,6 +516,7 @@ namespace dvmconsole
                     RidAlias = ridAlias ?? string.Empty,
                     Timestamp = timestamp,
                     IsConsoleTx = true,
+                    EncryptionKeyId = encryptionKeyId,
                     StreamId = streamId,
                     Recording = recording,
                     ForegroundColor = Brushes.White,

@@ -143,6 +143,7 @@ namespace dvmconsole.Controls
         public MBEToneDetector ToneDetector = new MBEToneDetector();
 
         public P25Crypto Crypter = new P25Crypto();
+        internal P25ReceiveCrypto ReceiveCrypto { get; } = new();
 
         private bool pttToggleMode = false;
         private bool suppressSelectionToggle = false;

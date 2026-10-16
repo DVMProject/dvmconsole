@@ -406,6 +406,7 @@ namespace dvmconsole
                     }
 
                     channel.RxHistory?.UpdateSource(e.StreamId, (int)e.SrcId, alias);
+                    channel.RxHistory?.UpdateEncryption(e.StreamId, dmrCall.IsEncrypted, dmrCall.KeyId);
                     if (channel.IsReceiving && channel.RxStreamId == e.StreamId && !isConsoleRid)
                         channel.LastSrcId = string.IsNullOrEmpty(alias) ? "Last ID: " + e.SrcId : "Last: " + alias;
 

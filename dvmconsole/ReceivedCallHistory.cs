@@ -42,6 +42,15 @@ namespace dvmconsole
             UpdateEntry(channelEntry, sourceId, alias);
         }
 
+        public void UpdateEncryption(uint receivedStreamId, bool encrypted, ushort? keyId)
+        {
+            if (receivedStreamId != streamId)
+                return;
+
+            globalEntry.EncryptionKeyId = encrypted ? keyId : null;
+            channelEntry.EncryptionKeyId = encrypted ? keyId : null;
+        }
+
         private static void UpdateEntry(CallEntry entry, int sourceId, string alias)
         {
             entry.Dispatcher.VerifyAccess();
