@@ -63,6 +63,7 @@ systems:
     encrypted: false
     presharedKey: "123ABC1234"
     aliasPath: 'alias.yml'
+    syncRadioAliases: false # Enable only when the FNE supports radio alias sync.
 ```
 
 Fields:
@@ -122,7 +123,7 @@ channels:
     system: "System 1"
     tgid: "2001"
     mode: "p25"
-    keyId: 0x50
+    keyId: "50"
     algo: "aes"
     selectable_encryption: true
     resourceColor: "#150282"
@@ -136,7 +137,7 @@ Fields:
 - `system`: system name from the `systems` section.
 - `tgid`: target talkgroup ID.
 - `mode`: `p25`, `dmr`, `nxdn`, or `analog`. If omitted, P25 is used.
-- `keyId`: optional encryption key ID.
+- `keyId`: optional encryption key ID, written as a hexadecimal string (for example, `"50"` means `0x50`).
 - `algo`: optional encryption algorithm, such as `aes`, `des`, `arc4`, or `none`.
 - `scrambler_code`: optional analog voice-inversion code (`0` for off, or `2` through `16`); see [Analog](08-Analog.md). This is not an FNE encryption key.
 - `selectable_encryption`: optional flag for P25, NXDN, or analog resources with `scrambler_code`. When `true`, the card shows a **SELECT** toggle so operators can choose protected or clear transmit. Digital modes require a valid `keyId` and `algo`; analog inversion uses its codeplug frequency and no key. Encrypted DMR is temporarily unavailable.
@@ -262,6 +263,7 @@ systems:
     encrypted: false
     presharedKey: "123ABC1234"
     aliasPath: 'C:\Example\alias.yml'
+    syncRadioAliases: false # Enable only when the FNE supports radio alias sync.
 
 groups:
   - name: "Patch 1"
@@ -280,7 +282,7 @@ zones:
         system: "System 1"
         tgid: "2001"
         mode: "p25"
-        keyId: 0x50
+        keyId: "50"
         algo: "aes"
         resourceColor: "#150282"
         card_size: normal
@@ -307,6 +309,8 @@ zones:
         system: "System 1"
         tgid: "3001"
         mode: "dmr"
+        slot: 1
+        algo: "none"
 ```
 
 ---
@@ -314,7 +318,7 @@ zones:
 # Recommended Practices
 
 - Keep system names stable after deployment because channels reference them.
-- Use clear channel names because saved positions and volume are keyed by channel name.
+- Use clear channel names as display labels. Routing uses each card's codeplug entry; saved channel positions, volume, and selection use system/TG identity. Matching channel names or TGIDs on different systems are supported.
 - Use clear group names, such as `Patch 1` or `Multi Select 1`.
 - Keep zone tabs short enough for operators to scan quickly.
 - Verify each channel references a valid system.
