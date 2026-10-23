@@ -52,6 +52,20 @@ namespace dvmconsole
         /// </summary>
         public string KeyFile { get; set; } = null;
         /// <summary>
+        /// Maximum operator PTT duration in seconds. Zero disables the timeout.
+        /// </summary>
+        public int TransmitTimeoutSeconds
+        {
+            get => transmitTimeoutSeconds;
+            set
+            {
+                if (value < 0)
+                    throw new ArgumentOutOfRangeException(nameof(TransmitTimeoutSeconds), "Transmit timeout must be zero or a positive number of seconds.");
+                transmitTimeoutSeconds = value;
+            }
+        }
+        private int transmitTimeoutSeconds = 180;
+        /// <summary>
         /// List of systems.
         /// </summary>
         public List<System> Systems { get; set; }

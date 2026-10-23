@@ -375,8 +375,29 @@ namespace dvmconsole.Controls
             }
         }
 
+        private volatile bool pttTimedOut;
+
         /// <summary>
-        /// Flag indicating the current PTT state of this channel.
+        /// Holds off another operator transmission until the timed-out PTT is released.
+        /// </summary>
+        internal bool PttTimedOut
+        {
+            get => pttTimedOut;
+            set
+            {
+                pttTimedOut = value;
+                UpdatePTTColor();
+                PttButton.ToolTip = value ? "Transmit timed out. Release PTT before rekeying." : "Push To Talk";
+            }
+        }
+
+        /// <summary>
+        /// Whether operator PTT is still transmitting rather than latched after timeout.
+        /// </summary>
+        internal bool IsOperatorTransmitting => PttState && !PttTimedOut;
+
+        /// <summary>
+        /// Flag indicating the current PTT input state of this channel.
         /// </summary>
         public bool PttState
         {
@@ -384,6 +405,8 @@ namespace dvmconsole.Controls
             set
             {
                 pttState = value;
+                if (!value)
+                    PttTimedOut = false;
                 UpdatePTTColor();
                 Dispatcher.Invoke(() => UpdateBackground());
             }
@@ -1242,7 +1265,7 @@ namespace dvmconsole.Controls
         /// </summary>
         private void UpdatePTTColor()
         {
-            if (PttState || PatchForwardingTxState)
+            if (IsOperatorTransmitting || PatchForwardingTxState)
             {
                 if (IsTxEncrypted)
                     PttButton.Background = ORANGE_GRADIENT;

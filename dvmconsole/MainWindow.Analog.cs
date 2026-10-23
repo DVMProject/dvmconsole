@@ -151,7 +151,7 @@ namespace dvmconsole
                     Codeplug.System system = config == null ? null : Codeplug.GetSystemForChannel(config);
                     if (system == null || config.GetChannelMode() != Codeplug.ChannelMode.Analog ||
                         !ResourceIdentity.SystemMatches(system.Name, sourceSystemName) || config.Tgid != e.DstId.ToString() ||
-                        !channel.IsEnabled || channel.PttState || channel.TxStreamId != 0 ||
+                        !channel.IsEnabled || channel.IsOperatorTransmitting || channel.TxStreamId != 0 ||
                         patchManager.IsPatchedTransmitStream(system.Name, config.Tgid, e.StreamId))
                         continue;
                     bool duplicate = selectedChannelsManager.GetSelectedChannels().Any(other => other.InternalID != channel.InternalID &&

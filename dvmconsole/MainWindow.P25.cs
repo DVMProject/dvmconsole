@@ -76,7 +76,8 @@ namespace dvmconsole
                 smpIdx++;
             }
 
-            UpdateVolumeMeterFromSamples(channel, samples, VolumeMeterSource.ConsoleTx);
+            Dispatcher.BeginInvoke(new Action(() =>
+                UpdateVolumeMeterFromSamples(channel, samples, VolumeMeterSource.ConsoleTx)));
 
             // Convert to floats
             float[] fSamples = AudioConverter.PcmToFloat(samples);
@@ -443,7 +444,7 @@ namespace dvmconsole
                     if (patchManager.IsPatchedTransmitStream(system.Name, cpgChannel.Tgid, e.StreamId))
                         continue;
 
-                    if (channel.PttState)
+                    if (channel.IsOperatorTransmitting)
                         continue;
 
                     if (e.DUID == P25DUID.TSDU || e.DUID == P25DUID.PDU)

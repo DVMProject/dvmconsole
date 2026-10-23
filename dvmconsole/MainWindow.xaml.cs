@@ -238,6 +238,7 @@ namespace dvmconsole
             public Codeplug.System CodeplugSystem { get; set; }
             public PeerSystem Fne { get; set; }
             public uint SourceId { get; set; }
+            public uint StreamId { get; set; }
         }
 
         private sealed class ToneTransmitTarget
@@ -1089,6 +1090,7 @@ namespace dvmconsole
         /// <param name="filePath"></param>
         private void LoadCodeplug(string filePath)
         {
+            StopOperatorPttTimers();
             StopDmrChannels();
             StopNxdnChannels();
             StopAnalogChannels();
@@ -1246,6 +1248,7 @@ namespace dvmconsole
         /// </summary>
         private void GenerateChannelWidgets()
         {
+            StopOperatorPttTimers();
             StopDmrChannels();
             StopNxdnChannels();
             StopAnalogChannels();
@@ -2090,6 +2093,7 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void ResetChannel(ChannelBox e)
         {
+            StopOperatorPtt(e);
             lock (e.AnalogSync)
             {
                 EndAnalogTransmission(e);
@@ -3704,12 +3708,9 @@ namespace dvmconsole
             if (!settingsManager.MuteRxAudioWhileTransmitting)
                 return false;
 
-            if (globalPttState)
-                return true;
-
             lock (patchPttSync)
             {
-                if (activePatchPttTargets.Count > 0)
+                if (activePatchPttTargets.Values.Any(s => s.Channel.TxStreamId != 0 && !s.Channel.PttTimedOut))
                     return true;
             }
 
@@ -3718,7 +3719,7 @@ namespace dvmconsole
                 if (channel.IsLocalPlayback)
                     continue;
 
-                if (channel.PttState || channel.TxStreamId != 0 || channel.PatchForwardingTxState)
+                if (channel.IsOperatorTransmitting || channel.TxStreamId != 0 || channel.PatchForwardingTxState)
                     return true;
             }
 
@@ -3915,6 +3916,7 @@ namespace dvmconsole
                 PersistSelectedResourceState(saveSettings: false);
 
             isShuttingDown = true;
+            StopOperatorPttTimers();
             channelHoldTimer.Stop();
             channelHoldTimer.Elapsed -= OnHoldTimerElapsed;
             channelHoldTimer.Dispose();
@@ -4242,11 +4244,12 @@ namespace dvmconsole
             List<ChannelBox> selectedChannels = selectedChannelsManager.GetSelectedChannels().ToList();
             bool patchPttActive;
             lock (patchPttSync)
-                patchPttActive = activePatchPttTargets.Count > 0;
+                patchPttActive = activePatchPttTargets.Values.Any(s => s.Channel.TxStreamId == s.StreamId &&
+                    CanSendOperatorPttAudio(s.Channel, s.StreamId));
 
             bool micTransmitActive = patchPttActive || selectedChannels.Any(channel =>
                 channel.IsSelected &&
-                channel.PttState &&
+                channel.PttState && CanSendOperatorPttAudio(channel, channel.TxStreamId) &&
                 !channel.IsLocalPlayback);
 
             // Avoid letting local speaker playback or generated tones train mic processing while the console is idle.
@@ -4300,7 +4303,7 @@ namespace dvmconsole
                 }
 
                 // is the channel selected and in a PTT state?
-                  if (channel.IsSelected && channel.PttState)
+                  if (channel.IsSelected && channel.PttState && CanSendOperatorPttAudio(channel, channel.TxStreamId))
                   {
                       if (!IsFneSystemConnected(system.Name))
                       {
@@ -4319,15 +4322,19 @@ namespace dvmconsole
                       isAnyTgOn = true;
                       transmittedTargets.Add(BuildPatchTargetKey(system.Name, cpgChannel.Tgid));
                       AppendTarTxAudio(system.Name, channel.DstId, channel.TxStreamId, micBuffer);
+                      uint operatorStream = channel.TxStreamId;
                       if (cpgChannel.GetChannelMode() is Codeplug.ChannelMode.NXDN or Codeplug.ChannelMode.Analog)
                       {
                           uint stream = channel.TxStreamId;
                           foreach (byte[] chunk in AudioConverter.SplitToChunks(micBuffer))
                           {
-                              if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN)
-                                  NXDNEncodeAudioFrame(chunk, fne, channel, cpgChannel, system, expectedStreamId: stream);
-                              else if (chunk.Length == PCM_SAMPLES_LENGTH)
-                                  AnalogEncodeAudioFrame(chunk, fne, channel, cpgChannel, system, expectedStreamId: stream);
+                              SendOperatorPttFrame(channel, stream, () =>
+                              {
+                                  if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN)
+                                      NXDNEncodeAudioFrame(chunk, fne, channel, cpgChannel, system, expectedStreamId: stream);
+                                  else if (chunk.Length == PCM_SAMPLES_LENGTH)
+                                      AnalogEncodeAudioFrame(chunk, fne, channel, cpgChannel, system, expectedStreamId: stream);
+                              });
                           }
                           continue;
                       }
@@ -4338,10 +4345,13 @@ namespace dvmconsole
                           {
                               if (chunk.Length == PCM_SAMPLES_LENGTH)
                               {
-                                  if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                                      P25EncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
-                                else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                                    DMREncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
+                                  SendOperatorPttFrame(channel, operatorStream, () =>
+                                  {
+                                      if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                                          P25EncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
+                                      else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                                          DMREncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
+                                  });
                             }
                             else
                                 Log.WriteLine("bad sample length: " + chunk.Length);
@@ -5904,6 +5914,8 @@ namespace dvmconsole
         {
             if (e.IsLocalPlayback)
                 return;
+            if (!e.PttState && e.TxStreamId == 0)
+                return;
 
             Codeplug.System system = Codeplug.GetSystemForChannel(e.ConfiguredChannel);
             if (system == null)
@@ -5974,6 +5986,7 @@ namespace dvmconsole
                     Log.WriteWarning($"{e.ChannelName} CHANNEL still had a TxStreamId? This shouldn't happen.");
 
                 e.TxStreamId = fne.NewStreamId();
+                StartOperatorPtt(e);
                 Log.WriteLine($"({system.Name}) {e.ChannelMode.ToUpperInvariant()} Traffic *CALL START     * SRC_ID {srcId} TGID {dstId} [STREAM ID {e.TxStreamId}]");
                 e.VolumeMeterLevel = 0;
                 BeginTarTxRecording(e, system, cpgChannel, e.TxStreamId);
@@ -5985,6 +5998,7 @@ namespace dvmconsole
             }
             else
             {
+                StopOperatorPtt(e);
                 e.VolumeMeterLevel = 0;
                 Log.WriteLine($"({system.Name}) {e.ChannelMode.ToUpperInvariant()} Traffic *CALL END       * SRC_ID {srcId} TGID {dstId} [STREAM ID {e.TxStreamId}]");
                 EndTarTxRecording(e, system, cpgChannel);
@@ -6085,6 +6099,7 @@ namespace dvmconsole
                     Log.WriteWarning($"{e.ChannelName} CHANNEL still had a TxStreamId? This shouldn't happen.");
 
                 e.TxStreamId = fne.NewStreamId();
+                StartOperatorPtt(e);
                 Log.WriteLine($"({system.Name}) {e.ChannelMode.ToUpperInvariant()} Traffic *CALL START     * SRC_ID {srcId} TGID {dstId} [STREAM ID {e.TxStreamId}]");
                 e.VolumeMeterLevel = 0;
                 BeginTarTxRecording(e, system, cpgChannel, e.TxStreamId);
@@ -6106,6 +6121,9 @@ namespace dvmconsole
         {
             if (e.IsLocalPlayback)
                 return;
+            if (e.TxStreamId == 0)
+                return;
+            StopOperatorPtt(e);
 
             if (e.PttState)
             {
@@ -6686,7 +6704,7 @@ namespace dvmconsole
             if (channel == null)
                 return PatchGroupsWindow.PatchTalkgroupState.Idle;
 
-            if (channel.PttState)
+            if (channel.IsOperatorTransmitting)
                 return PatchGroupsWindow.PatchTalkgroupState.Transmitting;
             if (channel.IsReceiving || channel.IsReceivingEncrypted)
                 return PatchGroupsWindow.PatchTalkgroupState.Receiving;
@@ -7080,6 +7098,11 @@ namespace dvmconsole
                     continue;
                 if (!IsGroupTransmitAllowed(channelBox))
                     continue;
+                if (channelBox.PttTimedOut)
+                {
+                    PlayTransmitTimeoutAlert(true);
+                    continue;
+                }
 
                 if (!ValidateFneConnectionAvailable(system.Name, channelBox, null, showWarning: false))
                     continue;
@@ -7101,6 +7124,7 @@ namespace dvmconsole
 
                 FneUtils.Memset(channelBox.mi, 0x00, P25Defines.P25_MI_LENGTH);
                 channelBox.TxStreamId = fne.NewStreamId();
+                StartOperatorPtt(channelBox);
                 channelBox.PatchForwardingTxState = true;
                 channelBox.VolumeMeterLevel = 0;
 
@@ -7124,7 +7148,8 @@ namespace dvmconsole
                         CodeplugChannel = cpgChannel,
                         CodeplugSystem = system,
                         Fne = fne,
-                        SourceId = sourceId
+                        SourceId = sourceId,
+                        StreamId = channelBox.TxStreamId
                     };
                 }
             }
@@ -7147,7 +7172,12 @@ namespace dvmconsole
             }
 
             foreach (PatchPttTargetSession session in sessionsToStop)
+            {
+                if (!session.Channel.PttState)
+                    session.Channel.PttTimedOut = false;
                 StopPatchPttSession(session);
+            }
+            patchGroupsWindow.SetPttTimedOut(groupName, false);
         }
 
         /// <summary>
@@ -7163,7 +7193,12 @@ namespace dvmconsole
             }
 
             foreach (PatchPttTargetSession session in sessionsToStop)
+            {
+                if (!session.Channel.PttState)
+                    session.Channel.PttTimedOut = false;
                 StopPatchPttSession(session);
+                patchGroupsWindow.SetPttTimedOut(session.GroupName, false);
+            }
         }
 
         /// <summary>
@@ -7177,7 +7212,11 @@ namespace dvmconsole
                 activePatchPttTargets.Remove(key, out session);
 
             if (session != null)
+            {
+                if (!channel.PttState)
+                    channel.PttTimedOut = false;
                 StopPatchPttSession(session);
+            }
             patchManager?.StopMember(channel.ResourceSystemName, channel.DstId);
         }
 
@@ -7186,9 +7225,11 @@ namespace dvmconsole
         /// </summary>
         private void StopPatchPttSession(PatchPttTargetSession session)
         {
-            if (session?.Channel == null || session.CodeplugChannel == null || session.CodeplugSystem == null || session.Fne == null || session.Channel.TxStreamId == 0)
+            if (session?.Channel == null || session.CodeplugChannel == null || session.CodeplugSystem == null || session.Fne == null ||
+                session.Channel.TxStreamId == 0 || session.Channel.TxStreamId != session.StreamId)
                 return;
 
+            StopOperatorPtt(session.Channel);
             uint dstId = uint.Parse(session.CodeplugChannel.Tgid);
             Log.WriteLine($"({session.CodeplugSystem.Name}) {session.CodeplugChannel.GetChannelMode().ToString().ToUpperInvariant()} Traffic *CALL END       * SRC_ID {session.SourceId} TGID {dstId} [STREAM ID {session.Channel.TxStreamId}] (Patch PTT: {session.GroupName})");
             EndTarTxRecording(session.Channel, session.CodeplugSystem, session.CodeplugChannel);
@@ -7221,9 +7262,12 @@ namespace dvmconsole
 
             foreach (PatchPttTargetSession session in sessions)
             {
-                if (session.Channel == null || session.CodeplugChannel == null || session.CodeplugSystem == null || session.Fne == null || session.Channel.TxStreamId == 0)
+                if (session.Channel == null || session.CodeplugChannel == null || session.CodeplugSystem == null || session.Fne == null ||
+                    session.Channel.TxStreamId == 0 || session.Channel.TxStreamId != session.StreamId)
                     continue;
                 if (!IsGroupTransmitAllowed(session.Channel))
+                    continue;
+                if (!CanSendOperatorPttAudio(session.Channel, session.Channel.TxStreamId))
                     continue;
                 if (alreadySentTargets.Contains(session.Key))
                     continue;
@@ -7239,10 +7283,13 @@ namespace dvmconsole
                     {
                         if (!IsGroupTransmitAllowed(session.Channel) || session.Channel.TxStreamId != stream)
                             break;
-                        if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN)
-                            NXDNEncodeAudioFrame(chunk, session.Fne, session.Channel, session.CodeplugChannel, session.CodeplugSystem, expectedStreamId: stream);
-                        else if (chunk.Length == PCM_SAMPLES_LENGTH)
-                            AnalogEncodeAudioFrame(chunk, session.Fne, session.Channel, session.CodeplugChannel, session.CodeplugSystem, expectedStreamId: stream);
+                        SendOperatorPttFrame(session.Channel, stream, () =>
+                        {
+                            if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN)
+                                NXDNEncodeAudioFrame(chunk, session.Fne, session.Channel, session.CodeplugChannel, session.CodeplugSystem, expectedStreamId: stream);
+                            else if (chunk.Length == PCM_SAMPLES_LENGTH)
+                                AnalogEncodeAudioFrame(chunk, session.Fne, session.Channel, session.CodeplugChannel, session.CodeplugSystem, expectedStreamId: stream);
+                        });
                     }
                     continue;
                 }
@@ -7257,10 +7304,13 @@ namespace dvmconsole
                         if (chunk.Length != PCM_SAMPLES_LENGTH)
                             continue;
 
-                        if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                            P25EncodeAudioFrame(chunk, session.Fne, session.Channel, session.CodeplugChannel, session.CodeplugSystem);
-                        else if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                            DMREncodeAudioFrame(chunk, session.Fne, session.Channel, session.CodeplugChannel, session.CodeplugSystem);
+                        SendOperatorPttFrame(session.Channel, stream, () =>
+                        {
+                            if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                                P25EncodeAudioFrame(chunk, session.Fne, session.Channel, session.CodeplugChannel, session.CodeplugSystem);
+                            else if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                                DMREncodeAudioFrame(chunk, session.Fne, session.Channel, session.CodeplugChannel, session.CodeplugSystem);
+                        });
                     }
                 });
             }
@@ -7273,7 +7323,8 @@ namespace dvmconsole
         {
             string key = BuildPatchTargetKey(systemName, tgid);
             lock (patchPttSync)
-                return activePatchPttTargets.ContainsKey(key);
+                return activePatchPttTargets.TryGetValue(key, out PatchPttTargetSession session) &&
+                    session.Channel.TxStreamId != 0 && session.Channel.TxStreamId == session.StreamId && !session.Channel.PttTimedOut;
         }
 
         /// <summary>

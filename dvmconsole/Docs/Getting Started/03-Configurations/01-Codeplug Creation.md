@@ -12,6 +12,7 @@ Common optional sections include:
 - `groups`
 - `keyFile`
 - `patchSourceIdPassthrough`
+- `transmitTimeoutSeconds`
 - `web_streams` under a zone
 
 ---
@@ -42,6 +43,12 @@ zones:
 ```
 
 ---
+
+# Transmit Timeout
+
+The top-level `transmitTimeoutSeconds` setting limits each operator transmission, including individual, global, patch-group, and MSEL PTT. It defaults to `180` seconds when omitted; set it to `0` to disable it. Negative values are rejected. There is no UI override. Generated tones, channel markers, and automatic patch forwarding are not timed out.
+
+During the final 10 seconds, Console plays a short local beep each second. At timeout it ends the call and plays a single local tone. Release PTT (or toggle it off) before starting another call. These alerts use the Console master audio output and are not added to transmitted audio.
 
 # Systems
 

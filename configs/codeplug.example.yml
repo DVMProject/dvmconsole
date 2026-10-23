@@ -27,6 +27,10 @@
 #keyFile: 'Keys.ekc'
 # Windows absolute paths also work; use single quotes, e.g. 'C:\Radio\Keys.ekc'.
 
+# Maximum operator PTT duration in seconds; 0 disables. Not adjustable in the UI.
+# Applies to individual and group PTT, not generated tones or automatic patch audio.
+transmitTimeoutSeconds: 180
+
 #
 # FNE Masters
 #

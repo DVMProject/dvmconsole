@@ -53,6 +53,12 @@ namespace dvmconsole
             if (channel == null || channel.IsLocalPlayback)
                 return true;
 
+            if (channel.PttTimedOut)
+            {
+                PlayTransmitTimeoutAlert(true);
+                return false;
+            }
+
             if (!CanStartPttOutsidePatchEditMode(showWarning))
                 return false;
 

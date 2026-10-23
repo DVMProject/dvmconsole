@@ -296,7 +296,7 @@ namespace dvmconsole
                     if (patchManager.IsPatchedTransmitStream(system.Name, cpgChannel.Tgid, e.StreamId))
                         continue;
 
-                    if (channel.PttState)
+                    if (channel.IsOperatorTransmitting)
                         continue;
 
                     string statusKey = ResourceIdentity.Build(system.Name, cpgChannel.Tgid) + $"|slot:{e.Slot}";

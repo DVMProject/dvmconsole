@@ -96,6 +96,7 @@ namespace dvmconsole
             public List<ChannelIdentity> Members { get; set; } = new List<ChannelIdentity>();
             public bool IsEditing { get; set; }
             public bool IsPttActive { get; set; }
+            public bool IsPttTimedOut { get; set; }
             public bool IsAlertToneTargetActive { get; set; }
             public bool IsAlertToneTransmitting { get; set; }
             public bool IsOneWay { get; set; }
@@ -531,6 +532,17 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// Displays an expired PTT while retaining the toggle until the operator releases it.
+        /// </summary>
+        public void SetPttTimedOut(string groupName, bool timedOut)
+        {
+            if (!tabContexts.TryGetValue(groupName, out PatchTabContext context))
+                return;
+            context.IsPttTimedOut = timedOut;
+            UpdateContextVisualState(context);
+        }
+
+        /// <summary>
         /// Resets patch control states when switching tabs.
         /// </summary>
         /// <param name="sender"></param>
@@ -556,6 +568,7 @@ namespace dvmconsole
             bool wasPttActive = context.IsPttActive;
             bool wasAlertToneTargetActive = context.IsAlertToneTargetActive;
             context.IsPttActive = false;
+            context.IsPttTimedOut = false;
             context.IsAlertToneTargetActive = false;
             context.IsAlertToneTransmitting = false;
             if (context.PttButton != null)
@@ -599,6 +612,7 @@ namespace dvmconsole
             }
 
             context.IsPttActive = !context.IsPttActive;
+            context.IsPttTimedOut = false;
             UpdateContextVisualState(context);
             RaisePatchPttStateChanged(context, context.IsPttActive);
         }
@@ -1119,12 +1133,12 @@ namespace dvmconsole
             if (context.EditIcon != null)
                 context.EditIcon.Source = context.IsEditing ? GetEditActiveIcon(context) : GetEditInactiveIcon(context);
             if (context.PttIcon != null)
-                context.PttIcon.Source = context.IsPttActive ? GetPttActiveIcon(context) : GetPttInactiveIcon(context);
+                context.PttIcon.Source = context.IsPttActive && !context.IsPttTimedOut ? GetPttActiveIcon(context) : GetPttInactiveIcon(context);
 
             if (context.EditText != null)
                 context.EditText.Text = context.IsEditing ? "Stop Editing" : "Edit Members";
             if (context.PttText != null)
-                context.PttText.Text = context.IsPttActive
+                context.PttText.Text = context.IsPttTimedOut ? "PTT Timed Out - Release" : context.IsPttActive
                     ? (isMultiSelect ? "Stop Multi-Select PTT" : "Stop Patch PTT")
                     : (isMultiSelect ? "Multi-Select PTT" : "Patch PTT");
             if (context.AlertToneText != null)
@@ -1142,12 +1156,12 @@ namespace dvmconsole
 
             if (context.PttButton != null)
             {
-                context.PttButton.Background = context.IsPttActive ? GetAccentBrush(context) : ButtonIdleBackground;
+                context.PttButton.Background = context.IsPttActive && !context.IsPttTimedOut ? GetAccentBrush(context) : ButtonIdleBackground;
                 context.PttButton.Foreground = InfoTextBrush;
                 bool pttAvailable = patchAvailable && (!IsAnyGroupEditing || context.IsPttActive);
                 context.PttButton.IsEnabled = pttAvailable;
                 context.PttButton.Opacity = pttAvailable ? 1.0 : 0.55;
-                context.PttButton.ToolTip = !patchAvailable
+                context.PttButton.ToolTip = context.IsPttTimedOut ? "Transmit timed out. Click to release PTT before rekeying." : !patchAvailable
                     ? $"Enable {context.GroupName} before using Patch PTT."
                     : IsAnyGroupEditing && !context.IsPttActive
                         ? "PTT is disabled while patch editing is active. Click Stop Editing before transmitting."
