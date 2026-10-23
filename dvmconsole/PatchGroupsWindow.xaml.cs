@@ -97,6 +97,7 @@ namespace dvmconsole
             public bool IsEditing { get; set; }
             public bool IsPttActive { get; set; }
             public bool IsAlertToneTargetActive { get; set; }
+            public bool IsAlertToneTransmitting { get; set; }
             public bool IsOneWay { get; set; }
             public bool IsPatchEnabled { get; set; }
         }
@@ -519,16 +520,14 @@ namespace dvmconsole
                 RebuildTalkgroupList(context);
         }
 
-        public void ClearAlertToneTargetStates()
+        public void SetAlertToneTransmitting(string groupName, bool transmitting)
         {
-            foreach (PatchTabContext context in tabContexts.Values)
-            {
-                if (!context.IsAlertToneTargetActive)
-                    continue;
+            if (!tabContexts.TryGetValue(groupName, out PatchTabContext context))
+                return;
 
-                context.IsAlertToneTargetActive = false;
-                UpdateContextVisualState(context);
-            }
+            context.IsAlertToneTransmitting = transmitting;
+            context.IsAlertToneTargetActive = transmitting;
+            UpdateContextVisualState(context);
         }
 
         /// <summary>
@@ -558,6 +557,7 @@ namespace dvmconsole
             bool wasAlertToneTargetActive = context.IsAlertToneTargetActive;
             context.IsPttActive = false;
             context.IsAlertToneTargetActive = false;
+            context.IsAlertToneTransmitting = false;
             if (context.PttButton != null)
                 context.PttButton.Tag = context;
             UpdateContextVisualState(context);
@@ -611,6 +611,7 @@ namespace dvmconsole
                 return;
 
             context.IsAlertToneTargetActive = !context.IsAlertToneTargetActive;
+            context.IsAlertToneTransmitting = false;
             UpdateContextVisualState(context);
             RaiseAlertToneTargetStateChanged(context, context.IsAlertToneTargetActive);
         }
@@ -679,6 +680,7 @@ namespace dvmconsole
             if (!context.IsPatchEnabled && context.IsAlertToneTargetActive)
             {
                 context.IsAlertToneTargetActive = false;
+                context.IsAlertToneTransmitting = false;
                 RaiseAlertToneTargetStateChanged(context, false);
             }
 
@@ -1126,7 +1128,8 @@ namespace dvmconsole
                     ? (isMultiSelect ? "Stop Multi-Select PTT" : "Stop Patch PTT")
                     : (isMultiSelect ? "Multi-Select PTT" : "Patch PTT");
             if (context.AlertToneText != null)
-                context.AlertToneText.Text = context.IsAlertToneTargetActive ? "Alert Armed" : "Alert Tone";
+                context.AlertToneText.Text = context.IsAlertToneTransmitting ? "Stop Tone" :
+                    context.IsAlertToneTargetActive ? "Alert Armed" : "Alert Tone";
 
             if (context.EditButton != null)
             {
@@ -1162,6 +1165,8 @@ namespace dvmconsole
                 context.AlertToneButton.Opacity = patchAvailable ? 1.0 : 0.55;
                 context.AlertToneButton.ToolTip = !patchAvailable
                     ? $"Enable {context.GroupName} before arming it for alert tones."
+                    : context.IsAlertToneTransmitting
+                        ? $"Sending tones to {context.GroupName}. Click again to cancel."
                     : context.IsAlertToneTargetActive
                         ? $"All members in {context.GroupName} are armed for the next alert tone. Click again to clear."
                         : $"Arm every member in {context.GroupName} for the next alert tone.";

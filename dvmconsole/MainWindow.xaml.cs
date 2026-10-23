@@ -198,6 +198,7 @@ namespace dvmconsole
         private Dictionary<string, bool> patchGroupEnabledStates = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         private Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> currentPatchMemberships = new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>();
         private readonly Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> activeAlertToneGroupTargets = new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, ToneTransmitGroupSession> activeToneTransmitGroups = new Dictionary<string, ToneTransmitGroupSession>(StringComparer.OrdinalIgnoreCase);
         private readonly object toneTransmitSync = new object();
         private readonly Dictionary<string, CancellationTokenSource> activeToneTransmitCancels = new Dictionary<string, CancellationTokenSource>(StringComparer.OrdinalIgnoreCase);
         private System.Windows.Threading.DispatcherTimer alertToneScheduleTimer;
@@ -245,6 +246,14 @@ namespace dvmconsole
             public Codeplug.Channel CodeplugChannel { get; set; }
             public Codeplug.System CodeplugSystem { get; set; }
             public PeerSystem Fne { get; set; }
+        }
+
+        private sealed class ToneTransmitGroupSession
+        {
+            public string GroupName { get; set; }
+            public List<SettingsManager.PatchTalkgroupMember> Members { get; set; }
+            public HashSet<ChannelBox> Targets { get; set; }
+            public HashSet<CancellationTokenSource> Cancels { get; } = new HashSet<CancellationTokenSource>();
         }
 
         private sealed class GeneratedTonePayload
@@ -2809,7 +2818,8 @@ namespace dvmconsole
                     $"ALRT {alertNumber}",
                     clearPageStateAfterSend: true,
                     sendStartSignal: true,
-                    $"Alert Tone {alertNumber}");
+                    $"Alert Tone {alertNumber}",
+                    includeArmedGroups: true);
             }
             catch (Exception ex)
             {
@@ -2872,7 +2882,8 @@ namespace dvmconsole
                     "ALRT TONE",
                     clearPageStateAfterSend: !forHold,
                     sendStartSignal: !forHold,
-                    "Alert Tone");
+                    "Alert Tone",
+                    includeArmedGroups: !forHold && targetChannel == null);
                 return true;
             }
             catch (Exception ex)
@@ -2947,10 +2958,6 @@ namespace dvmconsole
                     continue;
 
                 AddAlertToneTarget(targets, sourceChannel);
-
-                string sourceKey = BuildPatchTargetKey(sourceChannel.ResourceSystemName, sourceChannel.DstId);
-                AddAlertTonePatchTargets(targets, sourceKey);
-                AddAlertToneMultiSelectTargets(targets, sourceKey);
             }
 
             return targets.Values.ToList();
@@ -2986,53 +2993,6 @@ namespace dvmconsole
                     .Equals(memberKey, StringComparison.OrdinalIgnoreCase));
         }
 
-        private void AddAlertTonePatchTargets(Dictionary<string, ChannelBox> targets, string sourceKey)
-        {
-            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> activePatchMemberships =
-                FilterPatchMemberships(currentPatchMemberships, patchGroupEnabledStates);
-
-            foreach (KeyValuePair<string, List<SettingsManager.PatchTalkgroupMember>> kvp in activePatchMemberships)
-            {
-                List<SettingsManager.PatchTalkgroupMember> members = kvp.Value ?? new List<SettingsManager.PatchTalkgroupMember>();
-                if (!members.Any(m => BuildPatchTargetKey(m.SystemName, m.Tgid).Equals(sourceKey, StringComparison.OrdinalIgnoreCase)))
-                    continue;
-
-                bool oneWay = patchGroupModes.TryGetValue(kvp.Key, out bool isOneWay) && isOneWay;
-                if (oneWay && !BuildPatchTargetKey(members.FirstOrDefault()?.SystemName, members.FirstOrDefault()?.Tgid).Equals(sourceKey, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                AddAlertToneMemberTargets(targets, members);
-            }
-        }
-
-        private void AddAlertToneMultiSelectTargets(Dictionary<string, ChannelBox> targets, string sourceKey)
-        {
-            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> multiSelectMemberships =
-                FilterMultiSelectMemberships(currentPatchMemberships);
-
-            foreach (KeyValuePair<string, List<SettingsManager.PatchTalkgroupMember>> kvp in multiSelectMemberships)
-            {
-                List<SettingsManager.PatchTalkgroupMember> members = kvp.Value ?? new List<SettingsManager.PatchTalkgroupMember>();
-                if (!members.Any(m => BuildPatchTargetKey(m.SystemName, m.Tgid).Equals(sourceKey, StringComparison.OrdinalIgnoreCase)))
-                    continue;
-
-                AddAlertToneMemberTargets(targets, members);
-            }
-        }
-
-        private void AddAlertToneMemberTargets(Dictionary<string, ChannelBox> targets, IEnumerable<SettingsManager.PatchTalkgroupMember> members)
-        {
-            foreach (SettingsManager.PatchTalkgroupMember member in members ?? Enumerable.Empty<SettingsManager.PatchTalkgroupMember>())
-            {
-                if (string.IsNullOrWhiteSpace(member?.SystemName) || string.IsNullOrWhiteSpace(member?.Tgid))
-                    continue;
-                if (!TryResolvePatchEndpoint(member.SystemName, member.Tgid, out ChannelBox channelBox, out _, out _, out _))
-                    continue;
-
-                AddAlertToneTarget(targets, channelBox);
-            }
-        }
-
         private void AddAlertToneTarget(Dictionary<string, ChannelBox> targets, ChannelBox channel)
         {
             if (channel == null)
@@ -3066,7 +3026,8 @@ namespace dvmconsole
                 logLabel,
                 clearPageStateAfterSend,
                 sendStartSignal,
-                "Tone Presets");
+                "Tone Presets",
+                includeArmedGroups: clearPageStateAfterSend);
         }
 
         private async Task SendGeneratedTonePcmAsync(
@@ -3075,7 +3036,8 @@ namespace dvmconsole
             string logLabel,
             bool clearPageStateAfterSend,
             bool sendStartSignal,
-            string messageTitle)
+            string messageTitle,
+            bool includeArmedGroups = false)
         {
             await SendGeneratedTonePayloadAsync(
                 new GeneratedTonePayload { PcmData = pcmData },
@@ -3083,7 +3045,8 @@ namespace dvmconsole
                 logLabel,
                 clearPageStateAfterSend,
                 sendStartSignal,
-                messageTitle);
+                messageTitle,
+                includeArmedGroups: includeArmedGroups);
         }
 
         private async Task SendGeneratedTonePayloadAsync(
@@ -3093,7 +3056,8 @@ namespace dvmconsole
             bool clearPageStateAfterSend,
             bool sendStartSignal,
             string messageTitle,
-            bool forHold = false)
+            bool forHold = false,
+            bool includeArmedGroups = false)
         {
             if (payload?.PcmData == null || payload.PcmData.Length == 0)
                 return;
@@ -3101,6 +3065,8 @@ namespace dvmconsole
             List<ChannelBox> requested = (requestedChannels ?? Enumerable.Empty<ChannelBox>())
                 .Where(channel => channel != null)
                 .ToList();
+            if (includeArmedGroups)
+                requested.AddRange(GetActiveAlertToneGroupTargetChannels());
 
             if (requested.Count == 0)
             {
@@ -3109,11 +3075,6 @@ namespace dvmconsole
             }
 
             List<ChannelBox> channelsToProcess = ResolveAlertToneTransmitTargets(requested);
-            if (!forHold)
-            {
-                patchGroupsWindow.ClearAlertToneTargetStates();
-                activeAlertToneGroupTargets.Clear();
-            }
 
             List<ToneTransmitTarget> targets = new List<ToneTransmitTarget>();
             foreach (ChannelBox channel in channelsToProcess)
@@ -3161,11 +3122,63 @@ namespace dvmconsole
                 });
             }
 
-            if (targets.Count == 0)
-                return;
+            List<ToneTransmitGroupSession> groups = includeArmedGroups
+                ? BeginToneTransmitGroups(channelsToProcess)
+                : new List<ToneTransmitGroupSession>();
+            try
+            {
+                if (targets.Count == 0)
+                    return;
 
-            ApplyRxPlaybackMuteForTransmitStart();
-            await Task.WhenAll(targets.Select(target => TransmitTonePayloadToTargetAsync(payload, target, logLabel, clearPageStateAfterSend, sendStartSignal)));
+                ApplyRxPlaybackMuteForTransmitStart();
+                await Task.WhenAll(targets.Select(target => TransmitTonePayloadToTargetAsync(payload, target, logLabel, clearPageStateAfterSend, sendStartSignal, groups)));
+            }
+            finally
+            {
+                CompleteToneTransmitGroups(groups);
+            }
+        }
+
+        private List<ToneTransmitGroupSession> BeginToneTransmitGroups(IEnumerable<ChannelBox> channels)
+        {
+            List<ToneTransmitGroupSession> sessions = new List<ToneTransmitGroupSession>();
+            foreach (var group in activeAlertToneGroupTargets)
+            {
+                if (activeToneTransmitGroups.ContainsKey(group.Key))
+                    continue;
+
+                HashSet<string> memberKeys = group.Value.Select(member => BuildPatchTargetKey(member.SystemName, member.Tgid))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                HashSet<ChannelBox> targets = channels.Where(channel => memberKeys.Contains(
+                    BuildPatchTargetKey(channel.ResourceSystemName, channel.DstId))).ToHashSet();
+                if (targets.Count == 0)
+                    continue;
+
+                ToneTransmitGroupSession session = new ToneTransmitGroupSession
+                {
+                    GroupName = group.Key, Members = group.Value, Targets = targets
+                };
+                sessions.Add(session);
+                activeToneTransmitGroups[group.Key] = session;
+                patchGroupsWindow.SetAlertToneTransmitting(group.Key, true);
+            }
+            return sessions;
+        }
+
+        private void CompleteToneTransmitGroups(IEnumerable<ToneTransmitGroupSession> groups)
+        {
+            foreach (ToneTransmitGroupSession group in groups)
+            {
+                if (activeToneTransmitGroups.TryGetValue(group.GroupName, out var current) && ReferenceEquals(current, group))
+                    activeToneTransmitGroups.Remove(group.GroupName);
+
+                // An operator may have rearmed the group while the previous tone was stopping.
+                if (activeAlertToneGroupTargets.TryGetValue(group.GroupName, out var members) && ReferenceEquals(members, group.Members))
+                {
+                    activeAlertToneGroupTargets.Remove(group.GroupName);
+                    patchGroupsWindow.SetAlertToneTransmitting(group.GroupName, false);
+                }
+            }
         }
 
         private static List<SettingsManager.TonePresetStep> NormalizeToneStackSteps(IEnumerable<SettingsManager.TonePresetStep> steps)
@@ -3265,7 +3278,8 @@ namespace dvmconsole
                 logLabel,
                 clearPageStateAfterSend,
                 sendStartSignal,
-                "DTMF Presets");
+                "DTMF Presets",
+                includeArmedGroups: clearPageStateAfterSend);
         }
 
         private static List<SettingsManager.DtmfPresetStep> NormalizeDtmfStackSteps(IEnumerable<SettingsManager.DtmfPresetStep> steps)
@@ -3392,7 +3406,8 @@ namespace dvmconsole
             ToneTransmitTarget target,
             string logLabel,
             bool clearPageStateAfterSend,
-            bool sendStartSignal)
+            bool sendStartSignal,
+            IReadOnlyList<ToneTransmitGroupSession> groups)
         {
             ChannelBox channel = target.Channel;
             Codeplug.Channel cpgChannel = target.CodeplugChannel;
@@ -3422,6 +3437,9 @@ namespace dvmconsole
             uint srcId = uint.Parse(cpgChannel.GetSourceRid(system));
             uint dstId = uint.Parse(cpgChannel.Tgid);
             bool txStarted = false;
+
+            foreach (ToneTransmitGroupSession group in groups.Where(group => group.Targets.Contains(channel)))
+                group.Cancels.Add(toneCancelSource);
 
             try
             {
@@ -3504,6 +3522,8 @@ namespace dvmconsole
                         channel.PageState = false;
                 });
 
+                foreach (ToneTransmitGroupSession group in groups)
+                    group.Cancels.Remove(toneCancelSource);
                 CompleteToneTransmitSession(channel, toneCancelSource);
             }
         }
@@ -5161,6 +5181,7 @@ namespace dvmconsole
             List<ChannelBox> pageSelectedChannels = selectedChannels
                 .Where(channel => channel.PageState)
                 .ToList();
+            pageSelectedChannels = ResolveAlertToneTransmitTargets(pageSelectedChannels.Concat(GetActiveAlertToneGroupTargetChannels()));
 
             if (pageSelectedChannels.Count > 0)
             {
@@ -5262,6 +5283,7 @@ namespace dvmconsole
             List<ChannelBox> pageSelectedChannels = selectedChannels
                 .Where(channel => channel.PageState)
                 .ToList();
+            pageSelectedChannels = ResolveAlertToneTransmitTargets(pageSelectedChannels.Concat(GetActiveAlertToneGroupTargetChannels()));
 
             if (pageSelectedChannels.Count > 0)
             {
@@ -7017,6 +7039,12 @@ namespace dvmconsole
             else
             {
                 activeAlertToneGroupTargets.Remove(groupName);
+                if (activeToneTransmitGroups.TryGetValue(groupName, out ToneTransmitGroupSession session))
+                {
+                    // Cancel only this group's tone legs, not unrelated PTT or later calls.
+                    foreach (CancellationTokenSource cancelSource in session.Cancels.ToArray())
+                        cancelSource.Cancel();
+                }
             }
 
             foreach (SettingsManager.PatchTalkgroupMember member in e.Members ?? new List<SettingsManager.PatchTalkgroupMember>())

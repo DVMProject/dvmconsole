@@ -20,14 +20,16 @@ namespace dvmconsole;
 /// <summary>Spaces captured analog audio onto the network and drains it before release.</summary>
 internal sealed class AnalogTxCall : IDisposable
 {
+    private const int MaxQueuedAudioMilliseconds = 250;
     private readonly object sync = new();
     private readonly uint sourceId;
     private readonly uint destinationId;
     private readonly Action<byte[], ushort> send;
     private readonly AnalogVoiceInversion inverter;
-    private readonly Channel<short[]> audio = Channel.CreateBounded<short[]>(new BoundedChannelOptions(25)
+    private readonly Channel<(short[] Samples, long QueuedAt)> audio =
+        Channel.CreateBounded<(short[] Samples, long QueuedAt)>(new BoundedChannelOptions(25)
     {
-        SingleReader = true, SingleWriter = true, FullMode = BoundedChannelFullMode.Wait
+        SingleReader = true, SingleWriter = true, FullMode = BoundedChannelFullMode.DropOldest
     });
     private readonly CancellationTokenSource cancel = new();
     private bool ended;
@@ -57,8 +59,9 @@ internal sealed class AnalogTxCall : IDisposable
                 throw new InvalidOperationException("The analog network sender has stopped.");
             if (samples.Length != AnalogVoicePacketCodec.SampleCount)
                 throw new ArgumentException("Analog requires 160 PCM samples.", nameof(samples));
-            if (!audio.Writer.TryWrite(samples.ToArray()))
-                throw new InvalidOperationException("Analog stopped rather than transmit stale queued audio.");
+            // Prefer current speech over a full queue without ending the call.
+            if (!audio.Writer.TryWrite((samples.ToArray(), Stopwatch.GetTimestamp())))
+                throw new InvalidOperationException("The analog audio queue has closed.");
         }
     }
 
@@ -92,10 +95,14 @@ internal sealed class AnalogTxCall : IDisposable
         long interval = Stopwatch.Frequency / 50;
         try
         {
-            await foreach (short[] samples in audio.Reader.ReadAllAsync(cancel.Token).ConfigureAwait(false))
+            await foreach (var frame in audio.Reader.ReadAllAsync(cancel.Token).ConfigureAwait(false))
             {
                 await WaitUntilAsync(due, cancel.Token).ConfigureAwait(false);
                 cancel.Token.ThrowIfCancellationRequested();
+                // Check after waiting so a stalled sender cannot replay old speech on recovery.
+                if (Stopwatch.GetElapsedTime(frame.QueuedAt).TotalMilliseconds > MaxQueuedAudioMilliseconds)
+                    continue;
+                short[] samples = frame.Samples;
                 inverter?.Process(samples);
                 byte[] packet = AnalogVoicePacketCodec.Encode(sourceId, destinationId, audioSequence,
                     started ? AudioFrameType.VOICE : AudioFrameType.VOICE_START, samples);
