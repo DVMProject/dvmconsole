@@ -2600,6 +2600,7 @@ namespace dvmconsole
             Codeplug.System system = cpgChannel == null ? null : Codeplug?.GetSystemForChannel(channel.ConfiguredChannel);
             SlotStatus slotStatus = FindActiveReceiveStatus(channel, cpgChannel);
 
+            StopGroupTransmissionsForChannel(channel);
             StopTonePlaybackForChannel(channel, sendFallbackEndSignal: channel.PageState || channel.HoldState);
             EndTarRxRecordingFromChannelState(system, cpgChannel, channel, slotStatus, DateTime.Now);
             ClearReceiveState(channel, slotStatus);
@@ -2995,14 +2996,18 @@ namespace dvmconsole
 
         private void AddAlertToneTarget(Dictionary<string, ChannelBox> targets, ChannelBox channel)
         {
-            if (channel == null)
-                return;
-            if (channel.IsRxOnly)
+            if (!IsGroupTransmitAllowed(channel))
                 return;
 
             string key = BuildPatchTargetKey(channel.ResourceSystemName, channel.DstId);
             if (!targets.ContainsKey(key))
                 targets[key] = channel;
+        }
+
+        private static bool IsGroupTransmitAllowed(ChannelBox channel)
+        {
+            return channel != null && channel.IsSelected && !channel.IsLocalPlayback &&
+                !channel.IsRxOnly && channel.ConfiguredChannel?.RxOnly != true;
         }
 
         private async Task SendToneStackAsync(
@@ -3417,7 +3422,7 @@ namespace dvmconsole
             ushort?[] p25ToneFrequenciesByFrame = payload?.P25ToneFrequenciesByFrame;
             bool[] suppressP25ToneDetectionByFrame = payload?.SuppressP25ToneDetectionByFrame;
 
-            if (channel == null || cpgChannel == null || system == null || fne == null || pcmData == null || pcmData.Length == 0)
+            if (!IsGroupTransmitAllowed(channel) || cpgChannel == null || system == null || fne == null || pcmData == null || pcmData.Length == 0)
                 return;
 
             if (!ValidateNxdnTransmit(cpgChannel, channel))
@@ -7052,7 +7057,7 @@ namespace dvmconsole
                 if (!TryResolvePatchEndpoint(member.SystemName, member.Tgid, out ChannelBox channelBox, out _, out _, out _))
                     continue;
 
-                channelBox.PageState = e.IsActive || IsAlertToneGroupTargetStillActive(member);
+                channelBox.PageState = IsGroupTransmitAllowed(channelBox) && (e.IsActive || IsAlertToneGroupTargetStillActive(member));
             }
         }
 
@@ -7073,7 +7078,7 @@ namespace dvmconsole
 
                 if (!TryResolvePatchEndpoint(systemName, tgid, out ChannelBox channelBox, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne))
                     continue;
-                if (cpgChannel.RxOnly || channelBox.IsRxOnly)
+                if (!IsGroupTransmitAllowed(channelBox))
                     continue;
 
                 if (!ValidateFneConnectionAvailable(system.Name, channelBox, null, showWarning: false))
@@ -7162,6 +7167,21 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// Releases only this resource's group PTT and patch forwarding legs when it is deselected.
+        /// </summary>
+        private void StopGroupTransmissionsForChannel(ChannelBox channel)
+        {
+            string key = BuildPatchTargetKey(channel.ResourceSystemName, channel.DstId);
+            PatchPttTargetSession session;
+            lock (patchPttSync)
+                activePatchPttTargets.Remove(key, out session);
+
+            if (session != null)
+                StopPatchPttSession(session);
+            patchManager?.StopMember(channel.ResourceSystemName, channel.DstId);
+        }
+
+        /// <summary>
         /// Stops a single patch PTT call leg.
         /// </summary>
         private void StopPatchPttSession(PatchPttTargetSession session)
@@ -7203,18 +7223,22 @@ namespace dvmconsole
             {
                 if (session.Channel == null || session.CodeplugChannel == null || session.CodeplugSystem == null || session.Fne == null || session.Channel.TxStreamId == 0)
                     continue;
+                if (!IsGroupTransmitAllowed(session.Channel))
+                    continue;
                 if (alreadySentTargets.Contains(session.Key))
                     continue;
                 if (!IsFneSystemConnected(session.CodeplugSystem.Name))
                     continue;
 
                 alreadySentTargets.Add(session.Key);
+                uint stream = session.Channel.TxStreamId;
                 AppendTarTxAudio(session.CodeplugSystem.Name, session.CodeplugChannel.Tgid, session.Channel.TxStreamId, pcmBuffer);
                 if (session.CodeplugChannel.GetChannelMode() is Codeplug.ChannelMode.NXDN or Codeplug.ChannelMode.Analog)
                 {
-                    uint stream = session.Channel.TxStreamId;
                     foreach (byte[] chunk in AudioConverter.SplitToChunks(pcmBuffer))
                     {
+                        if (!IsGroupTransmitAllowed(session.Channel) || session.Channel.TxStreamId != stream)
+                            break;
                         if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN)
                             NXDNEncodeAudioFrame(chunk, session.Fne, session.Channel, session.CodeplugChannel, session.CodeplugSystem, expectedStreamId: stream);
                         else if (chunk.Length == PCM_SAMPLES_LENGTH)
@@ -7228,6 +7252,8 @@ namespace dvmconsole
                     List<byte[]> chunks = AudioConverter.SplitToChunks(pcmBuffer);
                     foreach (byte[] chunk in chunks)
                     {
+                        if (!IsGroupTransmitAllowed(session.Channel) || session.Channel.TxStreamId != stream)
+                            break;
                         if (chunk.Length != PCM_SAMPLES_LENGTH)
                             continue;
 
@@ -7286,9 +7312,8 @@ namespace dvmconsole
                 Log.WriteWarning($"Patch forward target unavailable: {systemName} TG {tgid} could not be resolved.");
                 return 0;
             }
-            if (cpgChannel.RxOnly || channelBox.IsRxOnly)
+            if (!IsGroupTransmitAllowed(channelBox))
             {
-                Log.WriteWarning($"Patch forward target blocked: {channelBox.ChannelName} ({systemName} TG {tgid}) is RX-only.");
                 return 0;
             }
 
@@ -7345,7 +7370,7 @@ namespace dvmconsole
         {
             if (!TryResolvePatchEndpoint(systemName, tgid, out ChannelBox channelBox, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne))
                 return;
-            if (channelBox.TxStreamId == 0)
+            if (channelBox.TxStreamId == 0 || channelBox.TxStreamId != streamId)
                 return;
 
             uint dstId = uint.Parse(cpgChannel.Tgid);
@@ -7388,7 +7413,7 @@ namespace dvmconsole
         {
             if (!TryResolvePatchEndpoint(systemName, tgid, out ChannelBox channelBox, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne))
                 return;
-            if (channelBox.TxStreamId == 0)
+            if (!IsGroupTransmitAllowed(channelBox) || channelBox.TxStreamId == 0)
                 return;
             if (!IsFneSystemConnected(system.Name))
                 return;

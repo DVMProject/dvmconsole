@@ -364,6 +364,37 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// Stops active calls involving a deselected resource without changing group membership.
+        /// </summary>
+        public void StopMember(string systemName, string tgid)
+        {
+            string memberKey = BuildKey(systemName, tgid);
+            List<StopWorkItem> stops = new List<StopWorkItem>();
+            lock (sync)
+            {
+                // Reject starts already in flight; eligible destinations can retry on the next audio frame.
+                membershipGeneration++;
+                foreach (GroupRuntime group in groups.Values)
+                {
+                    if (group.Source?.SourceKey == memberKey)
+                    {
+                        CollectAndClearStops(group, stops);
+                        group.Source = null;
+                    }
+                    else if (group.ActiveTargets.Remove(memberKey, out ForwardTarget target))
+                    {
+                        stops.Add(new StopWorkItem(target.SystemName, target.Tgid, target.StreamId, target.OutboundSourceId));
+                        string streamKey = BuildStreamKey(target.SystemName, target.Tgid, target.StreamId);
+                        outboundStreams.Remove(streamKey);
+                        recentlyEndedOutboundStreams[streamKey] = DateTime.UtcNow + LatePacketSuppressWindow;
+                        activeTargetKeys.Remove(memberKey);
+                    }
+                }
+            }
+            ExecuteStops(stops);
+        }
+
+        /// <summary>
         /// Determines if a stream belongs to patch-generated traffic.
         /// </summary>
         public bool IsPatchedTransmitStream(string systemName, string tgid, uint streamId)
