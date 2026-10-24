@@ -130,7 +130,6 @@ namespace dvmconsole
         private bool isShuttingDown = false;
         private bool suppressSelectedResourcePersistence = false;
         private bool globalPttState = false;
-        private bool keyboardPttShortcutDown = false;
 
         private const int GridSize = 5;
 
@@ -213,7 +212,6 @@ namespace dvmconsole
 
         private CancellationTokenSource maintainenceCancelToken = new CancellationTokenSource();
         private Task maintainenceTask = null;
-        private CancellationTokenSource keyboardPttWatchdogCancelToken = null;
 
         [DllImport("user32.dll")]
         private static extern short GetAsyncKeyState(int vKey);
@@ -1090,6 +1088,7 @@ namespace dvmconsole
         /// <param name="filePath"></param>
         private void LoadCodeplug(string filePath)
         {
+            ReleaseAllOperatorPttInputs();
             StopOperatorPttTimers();
             StopDmrChannels();
             StopNxdnChannels();
@@ -1248,6 +1247,7 @@ namespace dvmconsole
         /// </summary>
         private void GenerateChannelWidgets()
         {
+            ReleaseAllOperatorPttInputs();
             StopOperatorPttTimers();
             StopDmrChannels();
             StopNxdnChannels();
@@ -1462,8 +1462,6 @@ namespace dvmconsole
                         }
 
                         channelBox.PTTButtonClicked += ChannelBox_PTTButtonClicked;
-                        channelBox.PTTButtonPressed += ChannelBox_PTTButtonPressed;
-                        channelBox.PTTButtonReleased += ChannelBox_PTTButtonReleased;
                         channelBox.PageButtonClicked += ChannelBox_PageButtonClicked;
                         channelBox.HoldChannelButtonClicked += ChannelBox_HoldChannelButtonClicked;
                         channelBox.SelectableEncryptionClicked += ChannelBox_SelectableEncryptionClicked;
@@ -1635,6 +1633,7 @@ namespace dvmconsole
             RefreshAllChannelConnectionVisuals();
 
             RestoreSelectedChannels();
+            InitializeKeyboardShortcuts();
             RestoreSelectedWebStreams();
             RestoreRuntimeSelectedResourceSnapshot(activeChannelKeys, activeWebStreamNames, hiddenZoneNames);
             Cursor = Cursors.Arrow;
@@ -2599,6 +2598,7 @@ namespace dvmconsole
         {
             if (channel == null)
                 return;
+            channel.ReleaseAllPttInputs();
 
             Codeplug.Channel cpgChannel = channel.ConfiguredChannel;
             Codeplug.System system = cpgChannel == null ? null : Codeplug?.GetSystemForChannel(channel.ConfiguredChannel);
@@ -3916,6 +3916,7 @@ namespace dvmconsole
                 PersistSelectedResourceState(saveSettings: false);
 
             isShuttingDown = true;
+            ReleaseAllOperatorPttInputs();
             StopOperatorPttTimers();
             channelHoldTimer.Stop();
             channelHoldTimer.Elapsed -= OnHoldTimerElapsed;
@@ -5953,7 +5954,7 @@ namespace dvmconsole
                 return;
             }
 
-            if (!e.IsSelected)
+            if (!e.IsSelected && e.PttState)
                 return;
 
             FneUtils.Memset(e.mi, 0x00, P25Defines.P25_MI_LENGTH);
@@ -6015,175 +6016,6 @@ namespace dvmconsole
                 }
 
                 // reset values
-                ResetChannel(e);
-            }
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        /// <exception cref="NotImplementedException"></exception>
-        private void ChannelBox_PTTButtonPressed(object sender, ChannelBox e)
-        {
-            if (e.IsLocalPlayback)
-                return;
-
-            if (!e.PttState)
-            {
-                Codeplug.System system = Codeplug.GetSystemForChannel(e.ConfiguredChannel);
-                if (system == null)
-                {
-                    MessageBox.Show($"{e.ChannelName} refers to an {INVALID_SYSTEM} {e.SystemName}. {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    e.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(e);
-                    return;
-                }
-
-                Codeplug.Channel cpgChannel = e.ConfiguredChannel;
-                if (cpgChannel == null)
-                {
-                    // bryanb: this should actually never happen...
-                    MessageBox.Show($"{e.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    e.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(e);
-                    return;
-                }
-
-                PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
-                if (fne == null)
-                {
-                    if (TryHandleDisconnectedFneEndpoint(e, system, $"PTT press {e.ChannelName}"))
-                    {
-                        e.PttState = false;
-                        e.VolumeMeterLevel = 0;
-                        ResetChannel(e);
-                        return;
-                    }
-
-                    MessageBox.Show($"{e.ChannelName} has a {ERR_INVALID_FNE_REF}. {PLEASE_RESTART_CONSOLE}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    e.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(e);
-                    return;
-                }
-
-                if (!e.IsSelected)
-                    return;
-
-                FneUtils.Memset(e.mi, 0x00, P25Defines.P25_MI_LENGTH);
-
-                if (!ValidateFneConnectionAvailable(system.Name, e, current =>
-                {
-                    current.PttState = false;
-                    ResetChannel(current);
-                    current.VolumeMeterLevel = 0;
-                }))
-                    return;
-
-                if (!ValidateTalkgroupAvailability(fne, cpgChannel, e, current =>
-                {
-                    current.PttState = false;
-                    ResetChannel(current);
-                    current.VolumeMeterLevel = 0;
-                }))
-                    return;
-
-                EnsureAudioInputCaptureHealthy("channel PTT start");
-                ApplyRxPlaybackMuteForTransmitStart();
-
-                uint srcId = uint.Parse(cpgChannel.GetSourceRid(system));
-                uint dstId = uint.Parse(cpgChannel.Tgid);
-
-                if (e.TxStreamId != 0)
-                    Log.WriteWarning($"{e.ChannelName} CHANNEL still had a TxStreamId? This shouldn't happen.");
-
-                e.TxStreamId = fne.NewStreamId();
-                StartOperatorPtt(e);
-                Log.WriteLine($"({system.Name}) {e.ChannelMode.ToUpperInvariant()} Traffic *CALL START     * SRC_ID {srcId} TGID {dstId} [STREAM ID {e.TxStreamId}]");
-                e.VolumeMeterLevel = 0;
-                BeginTarTxRecording(e, system, cpgChannel, e.TxStreamId);
-
-                if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                    fne.SendP25TDU(srcId, dstId, true);
-
-                PlayTalkPermitTone();
-            }
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        /// <exception cref="NotImplementedException"></exception>
-        private void ChannelBox_PTTButtonReleased(object sender, ChannelBox e)
-        {
-            if (e.IsLocalPlayback)
-                return;
-            if (e.TxStreamId == 0)
-                return;
-            StopOperatorPtt(e);
-
-            if (e.PttState)
-            {
-                Codeplug.System system = Codeplug.GetSystemForChannel(e.ConfiguredChannel);
-                if (system == null)
-                {
-                    MessageBox.Show($"{e.ChannelName} refers to an {INVALID_SYSTEM} {e.SystemName}. {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    e.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(e);
-                    return;
-                }
-
-                Codeplug.Channel cpgChannel = e.ConfiguredChannel;
-                if (cpgChannel == null)
-                {
-                    // bryanb: this should actually never happen...
-                    MessageBox.Show($"{e.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    e.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(e);
-                    return;
-                }
-
-                PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
-                if (fne == null)
-                {
-                    if (TryHandleDisconnectedFneEndpoint(e, system, $"PTT release {e.ChannelName}"))
-                    {
-                        e.PttState = false;
-                        e.VolumeMeterLevel = 0;
-                        ResetChannel(e);
-                        return;
-                    }
-
-                    MessageBox.Show($"{e.ChannelName} has a {ERR_INVALID_FNE_REF}. {PLEASE_RESTART_CONSOLE}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    e.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(e);
-                    return;
-                }
-
-                if (!e.IsSelected)
-                    return;
-
-                uint srcId = uint.Parse(cpgChannel.GetSourceRid(system));
-                uint dstId = uint.Parse(cpgChannel.Tgid);
-
-                Log.WriteLine($"({system.Name}) {e.ChannelMode.ToUpperInvariant()} Traffic *CALL END       * SRC_ID {srcId} TGID {dstId} [STREAM ID {e.TxStreamId}]");
-                e.VolumeMeterLevel = 0;
-                EndTarTxRecording(e, system, cpgChannel);
-                if (IsFneSystemConnected(system.Name))
-                {
-                    if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                        fne.SendP25TDU(srcId, dstId, false);
-                    else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                        EndDmrTransmission(e);
-                }
-                else
-                {
-                    Log.WriteWarning($"Call end network signal skipped for {e.ChannelName}; FNE system '{system.Name}' is disconnected.");
-                }
-
                 ResetChannel(e);
             }
         }
@@ -7607,139 +7439,28 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private async void GlobalPTTActivate(object sender, RoutedEventArgs e)
+        private void GlobalPTTActivate(object sender, RoutedEventArgs e)
         {
-            if (globalPttState)
-                await Task.Delay(500);
-
-            if (globalPttState && !CanStartPttOutsidePatchEditMode())
+            if (!globalPttState)
             {
-                globalPttState = false;
-                Dispatcher.Invoke(() => SetGlobalPttVisualState(false));
-                return;
+                foreach (ChannelBox target in globalMousePttTargets)
+                    target.SetPttInput(globalMousePttOwner, false);
+                globalMousePttTargets.Clear();
             }
-
-            if (globalPttState)
-                EnsureAudioInputCaptureHealthy("global PTT start");
-
-            if (globalPttState)
-                ApplyRxPlaybackMuteForTransmitStart();
-
-            ChannelBox primaryChannel = selectedChannelsManager.PrimaryChannel;
-
-            if (primaryChannel != null)
+            else if (globalMousePttTargets.Count == 0)
             {
-                if (globalPttState && primaryChannel.IsRxOnly)
-                {
+                foreach (ChannelBox target in ResolvePrimaryPttTargets())
+                    if (target.SetPttInput(globalMousePttOwner, true))
+                        globalMousePttTargets.Add(target);
+                if (globalMousePttTargets.Count == 0)
                     globalPttState = false;
-                    Dispatcher.Invoke(() => SetGlobalPttVisualState(false));
-                    return;
-                }
-
-                Dispatcher.Invoke(() =>
-                {
-                    if (globalPttState)
-                        SetGlobalPttVisualState(true);
-                    else
-                        SetGlobalPttVisualState(false);
-                });
-                
-                primaryChannel.TriggerPTTState(globalPttState);
-                if (globalPttState && !primaryChannel.PttState)
-                {
-                    globalPttState = false;
-                    Dispatcher.Invoke(() => SetGlobalPttVisualState(false));
-                }
-
-                return;
             }
-
-            
-            // Check for global PTT keys all preference, if not enabled, return early
-            if (!settingsManager.GlobalPTTKeysAllChannels)
-            {
-                return;
-            }
-
-            bool anyGlobalPttChannelStarted = false;
-            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
-            {
-                if (channel.IsLocalPlayback)
-                    continue;
-                if (globalPttState && channel.IsRxOnly)
-                    continue;
-                if (globalPttState && !CanStartChannelPtt(channel, showWarning: false))
-                    continue;
-
-                Codeplug.System system = Codeplug.GetSystemForChannel(channel.ConfiguredChannel);
-                if (system == null)
-                {
-                    Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}.");
-                    channel.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(channel);
-                    continue;
-                }
-
-                Codeplug.Channel cpgChannel = channel.ConfiguredChannel;
-                if (cpgChannel == null)
-                {
-                    Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.");
-                    channel.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(channel);
-                    continue;
-                }
-
-                PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
-                if (fne == null)
-                {
-                    if (TryHandleDisconnectedFneEndpoint(channel, system, $"Global PTT {channel.ChannelName}"))
-                    {
-                        channel.PttState = false;
-                        channel.VolumeMeterLevel = 0;
-                        ResetChannel(channel);
-                        continue;
-                    }
-
-                    Log.WriteLine($"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {ERR_INVALID_CODEPLUG}.");
-                    channel.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(channel);
-                    continue;
-                }
-
-                if (globalPttState)
-                {
-                    Dispatcher.Invoke(() =>
-                    {
-                        SetGlobalPttVisualState(true);
-                    });
-                }
-                else
-                {
-                    Dispatcher.Invoke(() =>
-                    {
-                        SetGlobalPttVisualState(false);
-                    });
-                }
-
-                channel.TriggerPTTState(globalPttState);
-                if (!globalPttState || channel.PttState)
-                    anyGlobalPttChannelStarted = true;
-            }
-
-            if (globalPttState && !anyGlobalPttChannelStarted)
-            {
-                globalPttState = false;
-                Dispatcher.Invoke(() => SetGlobalPttVisualState(false));
-                MessageBox.Show(FNE_DISCONNECTED_MESSAGE, "FNE Disconnected", MessageBoxButton.OK, MessageBoxImage.Warning);
-            }
+            RefreshGlobalPttIndicator();
         }
 
         /// <summary>
-        /// 
+        /// Toggles the global mouse PTT in momentary mode.
         /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        /// <exception cref="NotImplementedException"></exception>
         private void btnGlobalPtt_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
             if (settingsManager.TogglePTTMode)
@@ -8044,187 +7765,11 @@ namespace dvmconsole
         /** Keyboard Shortcuts */
 
         /// <summary>
-        /// Sets the global PTT keybind
-        /// Hooks a listener to listen for a keypress, then saves that as the global PTT keybind
-        /// Global PTT keybind is effectively the same as pressing the Global PTT button
+        /// Toggles the fallback used when no Ctrl-click primary resource is selected.
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
         /// <exception cref="NotImplementedException"></exception>
-        private async void SetGlobalPTTKeybind(object sender, RoutedEventArgs e)
-        {
-            
-            // Create and show a MessageBox with no buttons or standard close behavior
-            Window messageBox = new Window
-            {
-                Width = 500,
-                Height = 150,
-                WindowStyle = WindowStyle.None,
-                ShowInTaskbar = false,
-                ResizeMode = ResizeMode.NoResize,
-                Topmost = true,
-                Background = System.Windows.Media.Brushes.White,
-                Content = new System.Windows.Controls.TextBlock
-                {
-                    Text = "Press any key to set the Global PTT shortcut...",
-                    HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
-                    VerticalAlignment = System.Windows.VerticalAlignment.Center,
-                    FontSize = 16,
-                    FontWeight = System.Windows.FontWeights.Bold,
-                }
-            };
-
-            // Center messageBox on the main window
-            messageBox.Owner = this; // Set the current window as owner
-            messageBox.WindowStartupLocation = WindowStartupLocation.CenterOwner;
-
-            // Open and close the MessageBox after 500ms
-            messageBox.Show();
-            Keys keyPress = await keyboardManager.GetNextKeyPress();
-            messageBox.Close();
-            settingsManager.GlobalPTTShortcut = keyPress;
-            InitializeKeyboardShortcuts();
-            settingsManager.SaveSettings();
-            MessageBox.Show("Global PTT shortcut set to " + keyPress.ToString(), "Success", MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-
-        /// <summary>
-        /// Initializes global keyboard shortcut listener
-        /// </summary>
-        private void InitializeKeyboardShortcuts()
-        {
-            CancelKeyboardPttWatchdog();
-            keyboardPttShortcutDown = false;
-
-            var listeningKeys = new List<Keys> { settingsManager.GlobalPTTShortcut };
-            keyboardManager.SetListenKeys(listeningKeys);
-            // Clear event listener
-            keyboardManager.OnKeyEvent -= KeyboardManagerOnKeyEvent;
-            // Re-add listener
-            keyboardManager.OnKeyEvent += KeyboardManagerOnKeyEvent;
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="pressedKey"></param>
-        /// <param name="state"></param>
-        private void KeyboardManagerOnKeyEvent(Keys pressedKey, GlobalKeyboardHook.KeyboardState state)
-        {
-            if (settingsManager.GlobalPTTShortcut == Keys.None || pressedKey != settingsManager.GlobalPTTShortcut)
-                return;
-
-            bool keyDown = state is GlobalKeyboardHook.KeyboardState.KeyDown or GlobalKeyboardHook.KeyboardState.SysKeyDown;
-            bool keyUp = state is GlobalKeyboardHook.KeyboardState.KeyUp or GlobalKeyboardHook.KeyboardState.SysKeyUp;
-
-            if (settingsManager.TogglePTTMode)
-            {
-                if (keyDown)
-                {
-                    if (keyboardPttShortcutDown)
-                        return;
-
-                    keyboardPttShortcutDown = true;
-                    globalPttState = !globalPttState;
-                    GlobalPTTActivate(null, null);
-                    StartKeyboardPttWatchdog(pressedKey, releasePttWhenKeyReleased: false);
-                }
-                else if (keyUp)
-                {
-                    keyboardPttShortcutDown = false;
-                    CancelKeyboardPttWatchdog();
-                }
-
-                return;
-            }
-
-            if (keyDown)
-            {
-                if (keyboardPttShortcutDown)
-                    return;
-
-                keyboardPttShortcutDown = true;
-                globalPttState = true;
-                GlobalPTTActivate(null, null);
-                StartKeyboardPttWatchdog(pressedKey, releasePttWhenKeyReleased: true);
-            }
-            else if (keyUp)
-            {
-                ReleaseKeyboardPtt(force: false);
-            }
-        }
-
-        private void StartKeyboardPttWatchdog(Keys shortcutKey, bool releasePttWhenKeyReleased)
-        {
-            CancelKeyboardPttWatchdog();
-
-            CancellationTokenSource cancelToken = new CancellationTokenSource();
-            keyboardPttWatchdogCancelToken = cancelToken;
-
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    while (!cancelToken.IsCancellationRequested)
-                    {
-                        await Task.Delay(KeyboardPttWatchdogInterval, cancelToken.Token).ConfigureAwait(false);
-
-                        if (IsShortcutKeyPhysicallyDown(shortcutKey))
-                            continue;
-
-                        Dispatcher.BeginInvoke(new Action(() =>
-                        {
-                            if (releasePttWhenKeyReleased)
-                            {
-                                Log.WriteWarning("Global PTT shortcut key-up was missed; forcing PTT release.");
-                                ReleaseKeyboardPtt(force: true);
-                            }
-                            else
-                            {
-                                keyboardPttShortcutDown = false;
-                                CancelKeyboardPttWatchdog();
-                            }
-                        }));
-
-                        return;
-                    }
-                }
-                catch (TaskCanceledException)
-                {
-                    /* expected when key-up is observed normally */
-                }
-            });
-        }
-
-        private void ReleaseKeyboardPtt(bool force)
-        {
-            keyboardPttShortcutDown = false;
-            CancelKeyboardPttWatchdog();
-
-            if (!globalPttState && !force)
-                return;
-
-            globalPttState = false;
-            GlobalPTTActivate(null, null);
-        }
-
-        private void CancelKeyboardPttWatchdog()
-        {
-            CancellationTokenSource cancelToken = keyboardPttWatchdogCancelToken;
-            keyboardPttWatchdogCancelToken = null;
-            cancelToken?.Cancel();
-        }
-
-        private static bool IsShortcutKeyPhysicallyDown(Keys shortcutKey)
-        {
-            return (GetAsyncKeyState((int)shortcutKey) & 0x8000) != 0;
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
         private void ToggleGlobalPTTAllChannels_Click(object sender, RoutedEventArgs e)
         {
             settingsManager.GlobalPTTKeysAllChannels = !settingsManager.GlobalPTTKeysAllChannels;

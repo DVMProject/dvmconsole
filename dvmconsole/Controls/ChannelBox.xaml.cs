@@ -171,14 +171,6 @@ namespace dvmconsole.Controls
         /// </summary>
         public event EventHandler<ChannelBox> PTTButtonClicked;
         /// <summary>
-        /// Event action that handles the PTT button being pressed.
-        /// </summary>
-        public event EventHandler<ChannelBox> PTTButtonPressed;
-        /// <summary>
-        /// Event action that handles the PTT button being released.
-        /// </summary>
-        public event EventHandler<ChannelBox> PTTButtonReleased;
-        /// <summary>
         /// Event action that handles the page button being clicked.
         /// </summary>
         public event EventHandler<ChannelBox> PageButtonClicked;
@@ -376,6 +368,16 @@ namespace dvmconsole.Controls
         }
 
         private volatile bool pttTimedOut;
+        private Brush fixedPttBorder;
+
+        /// <summary>
+        /// Fixed shortcut border. The primary Ctrl-click selection takes precedence.
+        /// </summary>
+        internal Brush FixedPttBorder
+        {
+            get => fixedPttBorder;
+            set { fixedPttBorder = value; UpdateBackground(); }
+        }
 
         /// <summary>
         /// Holds off another operator transmission until the timed-out PTT is released.
@@ -406,7 +408,10 @@ namespace dvmconsole.Controls
             {
                 pttState = value;
                 if (!value)
+                {
+                    pttInputs.Clear();
                     PttTimedOut = false;
+                }
                 UpdatePTTColor();
                 Dispatcher.Invoke(() => UpdateBackground());
             }
@@ -1344,17 +1349,9 @@ namespace dvmconsole.Controls
                 SetCardBackground(IsSelected ? ConfiguredIdleBackground : DARK_GRAY_GRADIENT);
             }
 
-            if (IsSelected)
-            {
-                if (IsPrimary)
-                    ControlBorder.BorderBrush = BORDER_GREEN.BorderBrush;
-                else
-                    ControlBorder.BorderBrush = BORDER_DEFAULT.BorderBrush;
-            }
-            else
-            {
-                ControlBorder.BorderBrush = BORDER_DEFAULT.BorderBrush;
-            }
+            ControlBorder.BorderBrush = IsSelected && IsPrimary
+                ? BORDER_GREEN.BorderBrush
+                : FixedPttBorder ?? BORDER_DEFAULT.BorderBrush;
 
         }
 
@@ -1494,14 +1491,11 @@ namespace dvmconsole.Controls
         /// <param name="pttState"></param>
         public void TriggerPTTState(bool pttState)
         {
-            if (IsRxOnly)
-                return;
-            if (!IsSelected)
-                return;
+            SetPttInput(legacyPttInput, pttState);
+        }
 
-            if (pttState && CanStartPtt != null && !CanStartPtt(this))
-                return;
-
+        private void ApplyPttState(bool pttState)
+        {
             if (pttState)
             {
                 CancelPendingPttRelease();
@@ -1622,150 +1616,30 @@ namespace dvmconsole.Controls
         /// <param name="e"></param>
         public void PttButton_Click(object sender, RoutedEventArgs e)
         {
-            if (IsRxOnly)
-                return;
-            if (!IsSelected)
-                return;
-
-            if (HasPendingPttRelease)
-            {
-                CancelPendingPttRelease();
-                return;
-            }
-
-            bool nextState = !PttState;
-            if (nextState && CanStartPtt != null && !CanStartPtt(this))
-                return;
-
-            if (nextState && IsTxEncrypted && !HasLoadedTransmitKey())
-            {
-                MessageBox.Show($"{ChannelName} {ERR_NO_LOADED_ENC_KEY}.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                PttState = false;
-                return;
-            }
-
-            if (nextState)
-            {
-                CancelPendingPttRelease();
-                PttState = true;
-                PTTButtonClicked?.Invoke(sender, this);
-                return;
-            }
-
-            if (!PttState)
-                return;
-
-            BeginPttReleaseTail(() =>
-            {
-                PttState = false;
-                PTTButtonClicked?.Invoke(sender, this);
-            });
+            SetPttInput(mousePttInput, !pttInputs.Contains(mousePttInput));
         }
 
         /// <summary>
-        /// 
+        /// Right-click latches the resource's mouse PTT in momentary mode.
         /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        /// <exception cref="NotImplementedException"></exception>
-        private async void PttButton_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
+        private void PttButton_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (IsRxOnly)
-                return;
-            if (pttToggleMode)
-                return;
-
-            if (PttState)
-                await Task.Delay(500);
-
-            PttButton_Click(sender, e);
+            if (!pttToggleMode)
+                PttButton_Click(sender, e);
         }
 
         /// <summary>
-        /// 
+        /// Mouse and keyboard PTT requests remain independent.
         /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        /// <exception cref="NotImplementedException"></exception>
-        private async void PttButton_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        private void PttButton_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (IsRxOnly)
-                return;
-            if (!IsSelected)
-                return;
-
-            if (HasPendingPttRelease)
-            {
-                CancelPendingPttRelease();
-                return;
-            }
-
-            if (!PttState && IsTxEncrypted && !HasLoadedTransmitKey())
-            {
-                MessageBox.Show($"{ChannelName} {ERR_NO_LOADED_ENC_KEY}.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                PttState = false;
-                return;
-            }
-
-            if (PttState)
-                await Task.Delay(500);
-
-            if (pttToggleMode)
-            {
-                // Toggle mode: toggle PttState and invoke clicked event
-                bool nextState = !PttState;
-                if (nextState && CanStartPtt != null && !CanStartPtt(this))
-                    return;
-
-                if (nextState)
-                {
-                    CancelPendingPttRelease();
-                    PttState = true;
-                    PTTButtonClicked?.Invoke(sender, this);
-                }
-                else
-                {
-                    BeginPttReleaseTail(() =>
-                    {
-                        PttState = false;
-                        PTTButtonClicked?.Invoke(sender, this);
-                    });
-                }
-            }
-            else
-            {
-                // Normal mode: set PttState to true and invoke pressed event
-                if (CanStartPtt != null && !CanStartPtt(this))
-                    return;
-
-                CancelPendingPttRelease();
-                PTTButtonPressed?.Invoke(sender, this);
-                PttState = true;
-            }
+            SetPttInput(mousePttInput, pttToggleMode ? !pttInputs.Contains(mousePttInput) : true);
         }
 
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        /// <exception cref="NotImplementedException"></exception>
         private void PttButton_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            if (IsRxOnly)
-                return;
-            if (pttToggleMode)
-                return;
-            if (!IsSelected)
-                return;
-            if (!PttState)
-                return;
-
-            BeginPttReleaseTail(() =>
-            {
-                PTTButtonReleased?.Invoke(sender, this);
-                PttState = false;
-            });
+            if (!pttToggleMode)
+                SetPttInput(mousePttInput, false);
         }
 
         private bool HasPendingPttRelease => pendingPttReleaseCts != null;

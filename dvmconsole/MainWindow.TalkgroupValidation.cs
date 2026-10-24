@@ -59,6 +59,10 @@ namespace dvmconsole
                 return false;
             }
 
+            // Do not replace a generated tone or group-forwarding stream with keyboard/mouse PTT.
+            if (channel.TxStreamId != 0 && !channel.PttState)
+                return false;
+
             if (!CanStartPttOutsidePatchEditMode(showWarning))
                 return false;
 

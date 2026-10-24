@@ -55,7 +55,7 @@
                 <MenuItem Header="_Tab Manager" Click="TabManager_Click" x:Name="menuTabManager" />
                 <Separator />
                 <MenuItem Header="Keyboard Shortcuts">
-                    <MenuItem Header="Set Global PTT Keybind" Click="SetGlobalPTTKeybind"></MenuItem>
+                    <MenuItem Header="PTT Keybinds..." Click="SetGlobalPTTKeybind"></MenuItem>
                 </MenuItem>
             </MenuItem>
             <MenuItem Header="_View">

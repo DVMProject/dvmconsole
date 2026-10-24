@@ -60,6 +60,23 @@ Global PTT keys the current primary selected channel.
 
 If no primary channel is available, legacy all-channel global PTT behavior is not exposed in the menu. Use multi-select groups instead when an operator needs to transmit to multiple resources.
 
+## PTT Keybinds
+
+Open **Keyboard Shortcuts > PTT Keybinds** to configure five single-key shortcuts:
+
+- **1 / Green:** the existing Ctrl + left-click primary-resource selection.
+- **2 / Blue, 3 / Amber, 4 / Violet, 5 / Cyan:** one fixed codeplug resource per shortcut.
+
+Colors belong to the slots and cannot be changed. Fixed bindings appear as colored resource borders. Green takes precedence when the primary selection overlaps a fixed binding; moving the primary selection restores its fixed color. There are no extra labels on the cards.
+
+Each shortcut needs a unique key, and each resource can have only one fixed binding. Resources are identified by system, talkgroup, mode, and DMR timeslot, not their display name. Fixed assignments are saved in the user profile separately for each codeplug path. A missing resource does not fall back to another target.
+
+Bindings honor the existing hold/toggle PTT setting, resource selection, RX-only restrictions, and transmit timeout. Grey/off resources are not keyed automatically. Releasing one key or mouse input does not end a call still held by another input. Changing the primary selection while a key is held does not change the targets of that press.
+
+Use **Click to edit** beside a fixed slot, then click the desired resource card on the console. The editor returns with that resource assigned; tabs can be switched while picking. The pick does not enable the card, transmit, or change the green selection. **Esc** cancels the pick and keeps the previous assignment.
+
+Keyboard PTT is suspended throughout editing and resource picking. Use **Set Key** to capture a key, **Esc** to cancel capture, **Clear** to disable a slot, and **Save** to apply. Cancelling the editor discards unsaved changes. Existing global shortcuts remain in slot 1 without a settings migration.
+
 ---
 
 # Transmit Tail

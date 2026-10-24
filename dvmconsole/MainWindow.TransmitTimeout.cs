@@ -130,8 +130,7 @@ namespace dvmconsole
             if (expired)
             {
                 PlayTransmitTimeoutAlert(true);
-                if (operatorPttTimeouts.IsEmpty)
-                    SetGlobalPttVisualState(false);
+                RefreshGlobalPttIndicator();
             }
             else if (warn)
                 PlayTransmitTimeoutAlert(false);

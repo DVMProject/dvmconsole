@@ -405,6 +405,10 @@ namespace dvmconsole
         /// </summary>
         public Keys GlobalPTTShortcut { get; set; } = Keys.None;
         /// <summary>
+        /// Fixed PTT slots saved separately for each codeplug path.
+        /// </summary>
+        public Dictionary<string, List<PttKeyBinding>> FixedPttBindingsByCodeplug { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>
         /// 
         /// </summary>
         public bool GlobalPTTKeysAllChannels { get; set; }
@@ -655,10 +659,11 @@ namespace dvmconsole
             {
                 Id = "keys-security",
                 DisplayName = "Keybinds and Selectable Encryption",
-                Description = "Global PTT keybind and per-resource selectable encryption state.",
+                Description = "PTT keybinds and per-resource selectable encryption state.",
                 PropertyNames = new List<string>
                 {
                     nameof(GlobalPTTShortcut),
+                    nameof(FixedPttBindingsByCodeplug),
                     nameof(SelectableEncryptionStates)
                 }
             }
@@ -777,6 +782,7 @@ namespace dvmconsole
 
                     SaveTraceLog = loadedSettings.SaveTraceLog;
                     GlobalPTTShortcut = loadedSettings.GlobalPTTShortcut;
+                    FixedPttBindingsByCodeplug = NormalizeFixedPttBindings(loadedSettings.FixedPttBindingsByCodeplug);
                     RestoreSelectedChannelsOnStartup = loadedSettings.RestoreSelectedChannelsOnStartup;
                     SelectedChannels = loadedSettings.SelectedChannels ?? new List<string>();
                     SelectedWebStreams = loadedSettings.SelectedWebStreams ?? new List<string>();
@@ -1702,6 +1708,7 @@ namespace dvmconsole
 
         private void NormalizeImportedSettings()
         {
+            FixedPttBindingsByCodeplug = NormalizeFixedPttBindings(FixedPttBindingsByCodeplug);
             ChannelPositions ??= new Dictionary<string, ChannelPosition>();
             SystemStatusPositions ??= new Dictionary<string, ChannelPosition>();
             AlertToneFilePaths ??= new List<string>();
@@ -1751,6 +1758,15 @@ namespace dvmconsole
             if (AlertTones.Count == 0)
                 AlertTones = MigrateLegacyAlertTones();
             SyncLegacyAlertToneState();
+        }
+
+        private static Dictionary<string, List<PttKeyBinding>> NormalizeFixedPttBindings(Dictionary<string, List<PttKeyBinding>> bindings)
+        {
+            var result = new Dictionary<string, List<PttKeyBinding>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in bindings ?? new())
+                if (!string.IsNullOrWhiteSpace(entry.Key))
+                    result[entry.Key] = entry.Value ?? new();
+            return result;
         }
 
         public List<string> GetHiddenResourceZones()
