@@ -320,6 +320,8 @@ namespace dvmconsole
             PeerSystem peer = fneSystemManager.AddOrReplaceFneSystem(entry.SystemName, entry.SystemConfig, this);
             entry.Peer = peer;
 
+            RegisterPatchStatusPeer(entry.SystemName, peer);
+
             entry.PeerConnectedHandler = (sender, response) =>
             {
                 Dispatcher.BeginInvoke(new Action(() =>
@@ -353,6 +355,7 @@ namespace dvmconsole
                         return;
                     Log.WriteLine($"FNE Peer disconnected: {entry.SystemName}");
                     ApplyDisconnectedState(entry, recordEvent: true);
+                    OnPatchStatusPeerDisconnected(entry.SystemName);
                     PublishConnectionState(entry);
                     if (!IsCurrentFneConnectionEntry(entry) || !ReferenceEquals(entry.Peer, peer) || !entry.DesiredStarted)
                         return;
@@ -384,6 +387,8 @@ namespace dvmconsole
             }
 
             // Detach callbacks before stopping, but retain the peer for a retry if Stop fails.
+            if (!string.IsNullOrWhiteSpace(entry?.SystemName))
+                UnregisterPatchStatusPeer(entry.SystemName);
             entry.PeerConnectedHandler = null;
             entry.PeerDisconnectedHandler = null;
             if (peer != null)

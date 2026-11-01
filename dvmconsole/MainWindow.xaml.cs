@@ -193,6 +193,7 @@ namespace dvmconsole
         private Dictionary<string, SlotStatus> systemStatuses = new Dictionary<string, SlotStatus>();
         private FneSystemManager fneSystemManager = new FneSystemManager();
         private PatchManager patchManager;
+        private PatchStatusService patchStatusService;
         private readonly object patchPttSync = new object();
         private readonly Dictionary<string, PatchPttTargetSession> activePatchPttTargets = new Dictionary<string, PatchPttTargetSession>(StringComparer.OrdinalIgnoreCase);
         private Dictionary<string, bool> patchGroupModes = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
@@ -336,6 +337,7 @@ namespace dvmconsole
                 EndPatchForwardOnUiThread,
                 SendPatchForwardAudioOnUiThread,
                 GetPatchFallbackSourceIdOnUiThread);
+            patchStatusService = new PatchStatusService(() => Codeplug);
 
             selectedChannelsManager = new SelectedChannelsManager();
             AttachLayoutSelectionCanvasEvents(channelsCanvas);
@@ -1308,6 +1310,7 @@ namespace dvmconsole
                 Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships = patchGroupsWindow.GetCurrentMemberships();
                 currentPatchMemberships = ClonePatchMemberships(memberships);
                 patchManager.ApplyMemberships(FilterPatchMemberships(memberships, patchGroupEnabledStates), patchGroupModes);
+                PublishActiveGroups(publishImmediately: true, reason: "codeplug loaded");
 
                 // compile list of errors and throw up a messagebox of doom
                 if (errors.Count > 0)
@@ -1345,6 +1348,7 @@ namespace dvmconsole
                 patchGroupEnabledStates = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
                 currentPatchMemberships = new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>();
                 patchManager.ApplyMemberships(new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>(), patchGroupModes);
+                PublishActiveGroups(publishImmediately: true, reason: "codeplug unloaded");
                 UpdatePatchMemberIndicators(new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>(), new Dictionary<string, bool>());
                 UpdateMultiSelectIndicators(new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>());
                 UpdateTarIndicators();
@@ -4694,6 +4698,7 @@ namespace dvmconsole
 
         private void MainWindow_Closed(object sender, EventArgs e)
         {
+            patchStatusService?.Dispose();
             StopDmrChannels();
             StopNxdnChannels();
             StopAnalogChannels();
@@ -6787,6 +6792,7 @@ namespace dvmconsole
             Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> multiSelectMemberships = FilterMultiSelectMemberships(memberships);
 
             patchManager.ApplyMemberships(patchMemberships, patchGroupModes);
+            PublishActiveGroups(publishImmediately: true, reason: "memberships committed");
             SynchronizeActivePatchReceiveStreams();
             UpdatePatchMemberIndicators(FilterPatchMemberships(memberships), patchGroupEnabledStates);
             UpdateMultiSelectIndicators(multiSelectMemberships);
@@ -6826,6 +6832,7 @@ namespace dvmconsole
         {
             patchGroupModes = new Dictionary<string, bool>(modes ?? new Dictionary<string, bool>(), StringComparer.OrdinalIgnoreCase);
             patchManager.ApplyMemberships(FilterPatchMemberships(currentPatchMemberships, patchGroupEnabledStates), patchGroupModes);
+            PublishActiveGroups(publishImmediately: false, reason: "group modes changed");
             SynchronizeActivePatchReceiveStreams();
         }
 
@@ -6836,6 +6843,7 @@ namespace dvmconsole
         {
             patchGroupEnabledStates = new Dictionary<string, bool>(states ?? new Dictionary<string, bool>(), StringComparer.OrdinalIgnoreCase);
             patchManager.ApplyMemberships(FilterPatchMemberships(currentPatchMemberships, patchGroupEnabledStates), patchGroupModes);
+            PublishActiveGroups(publishImmediately: true, reason: "group enabled states changed");
             SynchronizeActivePatchReceiveStreams();
             UpdatePatchMemberIndicators(FilterPatchMemberships(currentPatchMemberships), patchGroupEnabledStates);
         }
