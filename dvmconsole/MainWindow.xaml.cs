@@ -338,6 +338,7 @@ namespace dvmconsole
                 SendPatchForwardAudioOnUiThread,
                 GetPatchFallbackSourceIdOnUiThread);
             patchStatusService = new PatchStatusService(() => Codeplug);
+            patchStatusService.RegistryUpdated += PatchStatusService_RegistryUpdated;
 
             selectedChannelsManager = new SelectedChannelsManager();
             AttachLayoutSelectionCanvasEvents(channelsCanvas);
@@ -6972,7 +6973,8 @@ namespace dvmconsole
         }
 
         /// <summary>
-        /// Updates channel resource badges indicating patch group membership.
+        /// Updates channel resource badges indicating patch group membership, both local and as reported by the
+        /// FNE patch status registry.
         /// </summary>
         /// <param name="memberships"></param>
         private void UpdatePatchMemberIndicators(
@@ -6981,6 +6983,7 @@ namespace dvmconsole
         {
             HashSet<string> patchMembers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             HashSet<string> activePatchMembers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            List<PatchStatusService.RegistryView> registries = patchStatusService?.GetRegistryViews() ?? new List<PatchStatusService.RegistryView>();
 
             enabledStates ??= new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
 
@@ -7008,7 +7011,12 @@ namespace dvmconsole
                     }
 
                     string channelKey = BuildPatchTargetKey(channel.ResourceSystemName, channel.DstId);
-                    channel.SetPatchMembershipIndicator(patchMembers.Contains(channelKey), activePatchMembers.Contains(channelKey));
+                    List<RegistryPatch> registryPatches = FindRegistryPatches(channel, registries);
+                    bool isMember = patchMembers.Contains(channelKey) || registryPatches.Count > 0;
+                    bool isActive = activePatchMembers.Contains(channelKey) || registryPatches.Count > 0;
+
+                    channel.SetPatchMembershipIndicator(isMember, isActive,
+                        isMember ? BuildPatchIndicatorToolTip(channel, memberships, enabledStates, registryPatches) : null);
                 }
 
             }

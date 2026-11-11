@@ -19,7 +19,8 @@ using fnecore;
 namespace dvmconsole
 {
     /// <summary>
-    /// Publishes the console's active patch and multiselect groups to the FNE console patch status registry.
+    /// Publishes the console's active patch and multiselect groups to the FNE console patch status registry, and
+    /// keeps the registry contents each FNE sends back.
     /// </summary>
     /// <remarks>
     /// Publishing is heartbeat driven: every tick re-sends the complete active set to every FNE that supports
@@ -29,6 +30,34 @@ namespace dvmconsole
     /// </remarks>
     public class PatchStatusService : IDisposable
     {
+        /// <summary>
+        /// Represents the registry contents most recently received from one FNE.
+        /// </summary>
+        public class RegistryView
+        {
+            /// <summary>
+            /// Codeplug system name of the FNE connection the registry was received on.
+            /// </summary>
+            public string SystemName { get; init; }
+            /// <summary>
+            /// This console's peer ID on that connection, used to tell its own records apart.
+            /// </summary>
+            public uint LocalPeerId { get; init; }
+            /// <summary>
+            /// Console peer records held by the registry.
+            /// </summary>
+            public List<PatchStatusPeer> Peers { get; init; }
+        } // public class RegistryView
+
+        /// <summary>
+        /// Received registry snapshot, with the local time it was received.
+        /// </summary>
+        private class ReceivedSnapshot
+        {
+            public PatchStatusRegistrySnapshot Snapshot;
+            public DateTime ReceivedAt;
+        } // private class ReceivedSnapshot
+
         /// <summary>
         /// TTL, in seconds, requested for published patch status records.
         /// </summary>
@@ -46,10 +75,21 @@ namespace dvmconsole
         private readonly Dictionary<string, EventHandler<PatchStatusReceivedEvent>> peerHandlers =
             new Dictionary<string, EventHandler<PatchStatusReceivedEvent>>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> supportedSystems = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, ReceivedSnapshot> snapshots =
+            new Dictionary<string, ReceivedSnapshot>(StringComparer.OrdinalIgnoreCase);
 
         private List<PatchStatusPatch> currentPatches = new List<PatchStatusPatch>();
         private Timer heartbeatTimer;
         private bool disposed;
+
+        /*
+        ** Events
+        */
+
+        /// <summary>
+        /// Occurs when the registry contents received from any FNE change. Raised off the UI thread.
+        /// </summary>
+        public event EventHandler RegistryUpdated;
 
         /*
         ** Methods
@@ -99,16 +139,21 @@ namespace dvmconsole
 
             PeerSystem peer;
             EventHandler<PatchStatusReceivedEvent> handler;
+            bool hadSnapshot;
 
             lock (sync)
             {
                 peers.Remove(systemName, out peer);
                 peerHandlers.Remove(systemName, out handler);
                 supportedSystems.Remove(systemName);
+                hadSnapshot = snapshots.Remove(systemName);
             }
 
             if (peer?.peer != null && handler != null)
                 peer.peer.PatchStatusReceived -= handler;
+
+            if (hadSnapshot)
+                RegistryUpdated?.Invoke(this, EventArgs.Empty);
         }
 
         /// <summary>
@@ -124,8 +169,35 @@ namespace dvmconsole
             if (string.IsNullOrWhiteSpace(systemName))
                 return;
 
+            bool hadSnapshot;
             lock (sync)
+            {
                 supportedSystems.Remove(systemName);
+                hadSnapshot = snapshots.Remove(systemName);
+            }
+
+            if (hadSnapshot)
+                RegistryUpdated?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>
+        /// Gets the registry contents most recently received from every FNE.
+        /// </summary>
+        /// <returns>One <see cref="RegistryView"/> per FNE that has sent a registry snapshot.</returns>
+        public List<RegistryView> GetRegistryViews()
+        {
+            lock (sync)
+            {
+                return snapshots
+                    .Where(kvp => peers.ContainsKey(kvp.Key))
+                    .Select(kvp => new RegistryView
+                    {
+                        SystemName = kvp.Key,
+                        LocalPeerId = peers[kvp.Key].peer?.PeerId ?? 0,
+                        Peers = kvp.Value.Snapshot.Peers.ToList()
+                    })
+                    .ToList();
+            }
         }
 
         /// <summary>
@@ -212,9 +284,23 @@ namespace dvmconsole
             if (e?.Snapshot == null)
                 return;
 
-            bool first;
+            bool first, changed;
             lock (sync)
-                first = peers.ContainsKey(systemName) && supportedSystems.Add(systemName);
+            {
+                if (!peers.ContainsKey(systemName))
+                    return;
+
+                first = supportedSystems.Add(systemName);
+                changed = !snapshots.TryGetValue(systemName, out ReceivedSnapshot previous) ||
+                    previous.Snapshot.Revision != e.Snapshot.Revision ||
+                    previous.Snapshot.Peers.Count != e.Snapshot.Peers.Count;
+                snapshots[systemName] = new ReceivedSnapshot { Snapshot = e.Snapshot, ReceivedAt = DateTime.UtcNow };
+            }
+
+            // snapshots also arrive in answer to our own heartbeat publishes, so only redraw when the contents moved
+            // (the peer count catches records pruned locally that the FNE still holds)
+            if (changed)
+                RegistryUpdated?.Invoke(this, EventArgs.Empty);
 
             // the first snapshot on a connection is what enables publishing, so publish right away
             if (first)
@@ -222,6 +308,32 @@ namespace dvmconsole
                 Log.WriteLine($"({systemName}) FNE supports the patch status registry, publishing enabled.");
                 PublishAll($"registry available ({systemName})");
             }
+        }
+
+        /// <summary>
+        /// Drops console peer records whose TTL has run out since their snapshot was received.
+        /// </summary>
+        /// <returns>True, if any record was dropped, otherwise false.</returns>
+        /// <remarks>
+        /// Each record's TTL is taken as the difference between its FNE supplied update and expiry times, so
+        /// this does not depend on the console and FNE clocks agreeing.
+        /// </remarks>
+        private bool PruneExpiredRecords()
+        {
+            DateTime now = DateTime.UtcNow;
+            bool pruned = false;
+
+            lock (sync)
+            {
+                foreach (ReceivedSnapshot received in snapshots.Values)
+                {
+                    pruned |= received.Snapshot.Peers.RemoveAll(peer =>
+                        peer.ExpiresAt > peer.UpdatedAt &&
+                        received.ReceivedAt.AddMilliseconds(peer.ExpiresAt - peer.UpdatedAt) <= now) > 0;
+                }
+            }
+
+            return pruned;
         }
 
         /// <summary>
@@ -234,6 +346,9 @@ namespace dvmconsole
         private void HeartbeatTick(object state)
         {
             PublishAll("heartbeat");
+
+            if (PruneExpiredRecords())
+                RegistryUpdated?.Invoke(this, EventArgs.Empty);
         }
 
         /// <summary>
@@ -313,7 +428,7 @@ namespace dvmconsole
         /// <summary>
         /// Finds the codeplug channel backing a system and talkgroup pair.
         /// </summary>
-        private static Codeplug.Channel FindChannel(Codeplug codeplug, string systemName, string tgid)
+        internal static Codeplug.Channel FindChannel(Codeplug codeplug, string systemName, string tgid)
         {
             string wantedTgid = (tgid ?? string.Empty).Trim();
 
@@ -341,6 +456,7 @@ namespace dvmconsole
 
             heartbeatTimer?.Dispose();
             heartbeatTimer = null;
+            RegistryUpdated = null;
 
             foreach (string systemName in systemNames)
                 UnregisterPeer(systemName);
