@@ -92,6 +92,7 @@ namespace dvmconsole.Controls
         private string indicatorIconSource = "/dvmconsole;component/Assets/patch_edit_off.png";
         private Visibility indicatorIconVisibility = Visibility.Collapsed;
         private string indicatorIconToolTip = "Member of one or more patch groups";
+        private string patchIndicatorToolTip;
         private Visibility tarIndicatorVisibility = Visibility.Collapsed;
         private string tarIndicatorToolTip = "TAR recording enabled for this channel";
         private Visibility selectableEncryptionVisibility = Visibility.Collapsed;
@@ -1546,9 +1547,12 @@ namespace dvmconsole.Controls
                     IndicatorIconSource = IsPatchGroupActive
                         ? "/dvmconsole;component/Assets/patch_edit_on.png"
                         : "/dvmconsole;component/Assets/patch_edit_off.png";
-                    IndicatorIconToolTip = IsPatchGroupActive
-                        ? "Member of one or more enabled patch groups"
-                        : "Member of one or more patch groups";
+                    if (!string.IsNullOrWhiteSpace(patchIndicatorToolTip))
+                        IndicatorIconToolTip = patchIndicatorToolTip;
+                    else
+                        IndicatorIconToolTip = IsPatchGroupActive
+                            ? "Member of one or more enabled patch groups"
+                            : "Member of one or more patch groups";
                     IndicatorIconVisibility = Visibility.Visible;
                 }
                 else
@@ -1562,10 +1566,13 @@ namespace dvmconsole.Controls
         /// Sets the patch membership indicator state for this resource.
         /// </summary>
         /// <param name="isMember"></param>
-        public void SetPatchMembershipIndicator(bool isMember, bool isActive = false)
+        /// <param name="isActive"></param>
+        /// <param name="toolTip">Patch details to show on hover, or null for the default text.</param>
+        public void SetPatchMembershipIndicator(bool isMember, bool isActive = false, string toolTip = null)
         {
             IsPatchGroupMember = isMember;
             IsPatchGroupActive = isMember && isActive;
+            patchIndicatorToolTip = toolTip;
             UpdateIndicatorIcon();
         }
 
