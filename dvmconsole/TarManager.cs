@@ -38,6 +38,8 @@ namespace dvmconsole
         private readonly object syncRoot = new object();
         private readonly object indexSyncRoot = new object();
         private readonly Dictionary<string, TarActiveSession> activeSessions = new Dictionary<string, TarActiveSession>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<TarActiveSession> finalizingSessions = new HashSet<TarActiveSession>();
+        private bool stopping;
 
         private sealed class TarActiveSession
         {
@@ -47,6 +49,7 @@ namespace dvmconsole
             public TaskCompletionSource<TarRecordingMetadata> Completion { get; } = new TaskCompletionSource<TarRecordingMetadata>(TaskCreationOptions.RunContinuationsAsynchronously);
             public MemoryStream PcmBuffer { get; } = new MemoryStream();
             public object SyncRoot { get; } = new object();
+            public bool AcceptingAudio { get; set; } = true;
         }
 
         private sealed class TarRecordingIndex
@@ -182,6 +185,9 @@ namespace dvmconsole
             string sessionKey = BuildTxSessionKey(system.Name, channel.Tgid, streamId);
             lock (syncRoot)
             {
+                if (stopping)
+                    return null;
+
                 if (activeSessions.TryGetValue(sessionKey, out TarActiveSession existingSession))
                     return existingSession.Completion.Task;
 
@@ -246,18 +252,33 @@ namespace dvmconsole
             FinalizeSessionAsync(session, endTimeUtc);
         }
 
+        /// <summary>
+        /// Stops accepting recordings and waits for active and already-finalizing sessions.
+        /// Finalizers do not use the UI dispatcher; do not hold a TAR lock while waiting.
+        /// </summary>
         public void StopAllSessions()
         {
             List<TarActiveSession> sessions;
+            Task[] completions;
             lock (syncRoot)
             {
+                stopping = true;
                 sessions = activeSessions.Values.ToList();
+                foreach (TarActiveSession session in sessions)
+                {
+                    lock (session.SyncRoot)
+                        session.AcceptingAudio = false;
+                    finalizingSessions.Add(session);
+                }
                 activeSessions.Clear();
+                completions = finalizingSessions.Select(session => session.Completion.Task).ToArray();
             }
 
             DateTime nowUtc = DateTime.UtcNow;
             foreach (TarActiveSession session in sessions)
-                FinalizeSession(session, nowUtc);
+                FinalizeSessionAsync(session, nowUtc);
+
+            Task.WhenAll(completions).GetAwaiter().GetResult();
         }
 
         public void RunRetentionMaintenanceAsync()
@@ -291,8 +312,11 @@ namespace dvmconsole
                     continue;
 
                 string sidecarPath = GetSidecarPath(metadata.FilePath);
-                DeleteRecording(sidecarPath, metadata.FilePath);
-                deletedMetadataPaths.Add(sidecarPath);
+                lock (indexSyncRoot)
+                {
+                    if (DeleteRecording(rootPath, sidecarPath, out _))
+                        deletedMetadataPaths.Add(sidecarPath);
+                }
             }
 
             RemoveRecordingIndexEntries(rootPath, deletedMetadataPaths);
@@ -322,7 +346,12 @@ namespace dvmconsole
             {
                 try
                 {
-                    metadataFiles = Directory.EnumerateFiles(rootPath, "*.json", SearchOption.AllDirectories).ToList();
+                    metadataFiles = Directory.EnumerateFiles(rootPath, "*.json", new EnumerationOptions
+                    {
+                        RecurseSubdirectories = true,
+                        AttributesToSkip = FileAttributes.ReparsePoint,
+                        IgnoreInaccessible = false
+                    }).ToList();
                 }
                 catch (Exception ex)
                 {
@@ -337,6 +366,12 @@ namespace dvmconsole
                 foreach (string metadataFile in metadataFiles)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
+                    if (!IsRecordingPathSafe(rootPath, metadataFile) ||
+                        !IsRecordingPathSafe(rootPath, Path.ChangeExtension(metadataFile, ".wav")))
+                    {
+                        indexChanged = true;
+                        continue;
+                    }
 
                     TarRecordingMetadata metadata = null;
                     FileInfo metadataInfo;
@@ -380,15 +415,32 @@ namespace dvmconsole
             return SortRecordings(recordings);
         }
 
-        public void DeleteRecording(TarRecordingMetadata metadata)
+        /// <summary>
+        /// Deletes a recording pair in the current library. On failure, retains its
+        /// metadata/index entry for retry and returns an operator-readable reason.
+        /// </summary>
+        public bool DeleteRecording(TarRecordingMetadata metadata, out string errorMessage)
         {
-            if (metadata == null)
-                return;
+            errorMessage = string.Empty;
+            if (metadata == null || string.IsNullOrWhiteSpace(metadata.FilePath) ||
+                !string.Equals(Path.GetExtension(metadata.FilePath), ".wav", StringComparison.OrdinalIgnoreCase))
+            {
+                errorMessage = "No valid TAR recording was selected.";
+                return false;
+            }
+
+            if (!TryEnsureRecordingRoot(GetConfiguredRecordingRoot(), out string rootPath, out errorMessage))
+                return false;
 
             string sidecarPath = GetSidecarPath(metadata.FilePath);
-            DeleteRecording(sidecarPath, metadata.FilePath);
-            if (TryEnsureRecordingRoot(GetConfiguredRecordingRoot(), out string rootPath, out _))
+            lock (indexSyncRoot)
+            {
+                if (!DeleteRecording(rootPath, sidecarPath, out errorMessage))
+                    return false;
+
                 RemoveRecordingIndexEntries(rootPath, new[] { sidecarPath });
+                return true;
+            }
         }
 
         public static bool TryEnsureRecordingRoot(string rootPath, out string normalizedPath, out string errorMessage)
@@ -400,6 +452,7 @@ namespace dvmconsole
 
             try
             {
+                normalizedPath = Path.GetFullPath(normalizedPath);
                 Directory.CreateDirectory(normalizedPath);
                 return true;
             }
@@ -443,6 +496,9 @@ namespace dvmconsole
             string sessionKey = BuildRxSessionKey(system.Name, channel.Tgid, streamId);
             lock (syncRoot)
             {
+                if (stopping)
+                    return null;
+
                 if (activeSessions.TryGetValue(sessionKey, out TarActiveSession existingSession))
                     return existingSession;
 
@@ -492,6 +548,9 @@ namespace dvmconsole
 
             lock (session.SyncRoot)
             {
+                if (!session.AcceptingAudio)
+                    return;
+
                 session.PcmBuffer.Write(pcmData, 0, pcmData.Length);
             }
         }
@@ -507,6 +566,10 @@ namespace dvmconsole
                     return null;
 
                 activeSessions.Remove(sessionKey);
+                // Register before releasing ownership, so shutdown cannot miss this finalizer.
+                lock (session.SyncRoot)
+                    session.AcceptingAudio = false;
+                finalizingSessions.Add(session);
                 return session;
             }
         }
@@ -521,6 +584,7 @@ namespace dvmconsole
             if (session?.Metadata == null)
                 return;
 
+            TarRecordingMetadata savedRecording = null;
             try
             {
                 if (!TryEnsureRecordingRoot(GetConfiguredRecordingRoot(), out string rootPath, out string error))
@@ -574,19 +638,31 @@ namespace dvmconsole
                 string json = JsonConvert.SerializeObject(session.Metadata, Formatting.Indented);
                 File.WriteAllText(metadataPath, json, Encoding.UTF8);
                 UpdateRecordingIndexEntry(rootPath, metadataPath, session.Metadata);
-                // History keeps this session's result so repeated calls cannot resolve to another recording.
-                session.Completion.TrySetResult(session.Metadata);
+                savedRecording = session.Metadata;
                 Log.WriteLine($"TAR recording saved: {session.Metadata.FileName}");
             }
             catch (Exception ex)
             {
-                Log.WriteWarning($"TAR finalize failed for {session.ChannelName}: {ex.Message}");
-                Log.StackTrace(ex, false);
+                try
+                {
+                    Log.WriteWarning($"TAR finalize failed for {session.ChannelName}: {ex.Message}");
+                    Log.StackTrace(ex, false);
+                }
+                catch
+                {
+                    // A failing log sink must not fault an otherwise unobserved finalizer task.
+                }
             }
             finally
             {
-                session.Completion.TrySetResult(null);
-                session.PcmBuffer.Dispose();
+                lock (session.SyncRoot)
+                    session.PcmBuffer.Dispose();
+                lock (syncRoot)
+                {
+                    // Complete only after all file work and buffer cleanup have finished.
+                    session.Completion.TrySetResult(savedRecording);
+                    finalizingSessions.Remove(session);
+                }
             }
         }
 
@@ -624,7 +700,9 @@ namespace dvmconsole
                 return false;
 
             NormalizeMetadataPaths(metadataFile, metadata);
-            if (string.IsNullOrWhiteSpace(metadata.FilePath) || !File.Exists(metadata.FilePath))
+            // A sidecar left after a partial deletion must remain visible for retry,
+            // even when its WAV has already been removed.
+            if (string.IsNullOrWhiteSpace(metadata.FilePath))
                 return false;
 
             FileInfo metadataInfo;
@@ -655,18 +733,12 @@ namespace dvmconsole
             if (metadata == null)
                 return;
 
-            string sidecarWavPath = string.IsNullOrWhiteSpace(metadataFile)
+            // Sidecars move with their WAVs. Never follow a serialized absolute path
+            // back into an old library after the recordings have been copied.
+            metadata.FilePath = string.IsNullOrWhiteSpace(metadataFile)
                 ? string.Empty
-                : Path.ChangeExtension(metadataFile, ".wav");
-
-            if (string.IsNullOrWhiteSpace(metadata.FilePath) ||
-                (!File.Exists(metadata.FilePath) && !string.IsNullOrWhiteSpace(sidecarWavPath) && File.Exists(sidecarWavPath)))
-            {
-                metadata.FilePath = sidecarWavPath;
-            }
-
-            if (string.IsNullOrWhiteSpace(metadata.FileName) && !string.IsNullOrWhiteSpace(metadata.FilePath))
-                metadata.FileName = Path.GetFileName(metadata.FilePath);
+                : Path.ChangeExtension(Path.GetFullPath(metadataFile), ".wav");
+            metadata.FileName = Path.GetFileName(metadata.FilePath);
         }
 
         private void UpdateRecordingIndexEntry(string rootPath, string metadataPath, TarRecordingMetadata metadata)
@@ -718,9 +790,18 @@ namespace dvmconsole
 
                 string json = File.ReadAllText(indexPath);
                 TarRecordingIndex index = JsonConvert.DeserializeObject<TarRecordingIndex>(json);
-                List<TarRecordingIndexEntry> entries = index?.Entries ?? new List<TarRecordingIndexEntry>();
+                List<TarRecordingIndexEntry> entries = (index?.Entries ?? new List<TarRecordingIndexEntry>())
+                    .Where(entry => entry?.Metadata != null &&
+                        IsRecordingPathSafe(rootPath, entry.MetadataPath) &&
+                        File.Exists(entry.MetadataPath) &&
+                        string.Equals(Path.GetExtension(entry.MetadataPath), ".json", StringComparison.OrdinalIgnoreCase) &&
+                        IsRecordingPathSafe(rootPath, Path.ChangeExtension(entry.MetadataPath, ".wav")))
+                    .ToList();
                 foreach (TarRecordingIndexEntry entry in entries)
-                    NormalizeMetadataPaths(entry?.MetadataPath, entry?.Metadata);
+                {
+                    entry.MetadataPath = Path.GetFullPath(entry.MetadataPath);
+                    NormalizeMetadataPaths(entry.MetadataPath, entry.Metadata);
+                }
 
                 return entries
                     .Where(entry => !string.IsNullOrWhiteSpace(entry?.MetadataPath) && entry.Metadata != null)
@@ -767,26 +848,68 @@ namespace dvmconsole
             }
         }
 
-        private static void DeleteRecording(string metadataPath, string wavPath)
+        /// <summary>
+        /// Rejects paths outside this library and links/junctions that could redirect
+        /// file operations, including linked ancestors of the configured root.
+        /// </summary>
+        private static bool IsRecordingPathSafe(string rootPath, string path)
         {
             try
             {
-                if (!string.IsNullOrWhiteSpace(metadataPath) && File.Exists(metadataPath))
-                    File.Delete(metadataPath);
-            }
-            catch (Exception ex)
-            {
-                Log.WriteWarning($"Unable to delete TAR metadata '{metadataPath}': {ex.Message}");
-            }
+                if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path))
+                    return false;
 
+                string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootPath));
+                string fullPath = Path.GetFullPath(path);
+                string prefix = Path.EndsInDirectorySeparator(root) ? root : root + Path.DirectorySeparatorChar;
+                if (!fullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    return false;
+
+                string current = fullPath;
+                while (current != null)
+                {
+                    if ((File.Exists(current) || Directory.Exists(current)) &&
+                        (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                        return false;
+                    current = Path.GetDirectoryName(current);
+                }
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool DeleteRecording(string rootPath, string metadataPath, out string errorMessage)
+        {
+            errorMessage = string.Empty;
             try
             {
-                if (!string.IsNullOrWhiteSpace(wavPath) && File.Exists(wavPath))
-                    File.Delete(wavPath);
+                string wavPath = Path.ChangeExtension(metadataPath, ".wav");
+                if (!IsRecordingPathSafe(rootPath, metadataPath) || !IsRecordingPathSafe(rootPath, wavPath))
+                {
+                    errorMessage = "The recording is outside the current TAR library or uses a linked path. Refresh the library before retrying.";
+                    return false;
+                }
+
+                if (!File.Exists(metadataPath))
+                {
+                    errorMessage = "The recording metadata is missing. Refresh the TAR library before retrying.";
+                    return false;
+                }
+
+                // Keep the sidecar discoverable if the WAV is locked. If only the
+                // sidecar deletion fails, the remaining entry can still be retried.
+                File.Delete(wavPath);
+                File.Delete(metadataPath);
+                return true;
             }
             catch (Exception ex)
             {
-                Log.WriteWarning($"Unable to delete TAR recording '{wavPath}': {ex.Message}");
+                errorMessage = $"Unable to finish deleting the recording: {ex.Message} The remaining TAR entry has been kept for retry.";
+                Log.WriteWarning(errorMessage);
+                return false;
             }
         }
 
@@ -973,7 +1096,7 @@ namespace dvmconsole
             for (int i = 0; i < sampleCount; i++)
             {
                 short sample = BitConverter.ToInt16(pcmBytes, byteIndex + (i * 2));
-                if (Math.Abs(sample) >= SilenceThreshold)
+                if (Math.Abs((int)sample) >= SilenceThreshold)
                     return true;
             }
 

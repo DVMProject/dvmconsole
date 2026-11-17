@@ -168,12 +168,12 @@ Use **Clear Filters** to reset the current filter set.
 
 TAR retention is real file cleanup.
 
-For each TAR-enabled talkgroup, **Keep Days** controls how long recordings are kept on disk.
+For each configured system/talkgroup resource, **Keep Days** controls how long recordings are kept on disk.
 
 Behavior:
 
 - TAR scans saved recording metadata
-- TAR checks the current configured retention for that TGID
+- TAR checks the current configured retention for that system and TGID
 - if a recording is older than the allowed age, TAR deletes:
   - the `.wav` audio file
   - the matching `.json` metadata file
@@ -182,13 +182,25 @@ Important notes:
 
 - `0` days means keep recordings indefinitely
 - retention is based on the recording end time in UTC
-- cleanup uses the **current** TAR config for that TGID at cleanup time
+- cleanup uses the **current** TAR config for that system and TGID at cleanup time
+- disabling **Record** stops new recordings; it does not change **Keep Days** or pause cleanup of existing recordings
+- to keep existing recordings indefinitely, set **Keep Days** to `0`
 - if you later shorten retention for a talkgroup, older existing recordings for that talkgroup can be deleted on the next cleanup pass
 
 Cleanup runs when:
 
 - TAR configuration is saved
 - the console loads a codeplug and TAR initializes
+
+Recordings are resolved from matching `.json` and `.wav` files in the current TAR folder,
+not from an old absolute path saved inside the metadata. When copying or moving a library,
+keep each pair together. A copied cache does not authorize access to the original library.
+Linked files and folders (including directory junctions) are excluded from library access.
+
+If a recording cannot be deleted, TAR reports the failure and keeps the remaining entry
+available for retry. If only the metadata remains after a partial deletion, audio playback
+is unavailable, but deletion can be retried after the file lock or access problem is resolved.
+Console shutdown waits for pending recordings to finish saving before TAR cleanup completes.
 
 ---
 

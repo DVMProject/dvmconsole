@@ -3010,17 +3010,11 @@ namespace dvmconsole
 
         private static TarChannelConfig NormalizeTarChannelConfig(TarChannelConfig config)
         {
-            bool looksLikeLegacyDefault = config != null &&
-                !config.Enabled &&
-                config.RetentionDays == 30 &&
-                (config.IgnoredSubscriberIds == null || config.IgnoredSubscriberIds.Count == 0);
-
             TarChannelConfig normalized = new TarChannelConfig
             {
                 Enabled = config?.Enabled ?? false,
-                RetentionDays = looksLikeLegacyDefault
-                    ? 7
-                    : (config?.RetentionDays ?? 7),
+                // An explicit retention value is valid even when recording is disabled.
+                RetentionDays = config?.RetentionDays ?? 7,
                 IgnoredSubscriberIds = (config?.IgnoredSubscriberIds ?? new List<uint>())
                     .Where(id => id > 0)
                     .Distinct()

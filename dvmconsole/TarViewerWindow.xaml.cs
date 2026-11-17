@@ -255,9 +255,14 @@ namespace dvmconsole
             if (string.Equals(currentPlaybackPath, item.Metadata.FilePath, StringComparison.OrdinalIgnoreCase))
                 StopPlayback();
 
-            tarManager.DeleteRecording(item.Metadata);
+            bool deleted = tarManager.DeleteRecording(item.Metadata, out string errorMessage);
             RefreshRecordings();
-            SetStatus("Recording deleted.");
+            SetStatus(deleted ? "Recording deleted." : errorMessage);
+            if (!deleted)
+            {
+                System.Windows.MessageBox.Show(errorMessage, "Delete TAR Recording",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
 
         private void ClearFilters_Click(object sender, RoutedEventArgs e)
