@@ -73,6 +73,8 @@ namespace dvmconsole
                 return false;
             if (!ValidateFneConnectionAvailable(system.Name, channel, null, showWarning))
                 return false;
+            if (!ValidateP25Transmit(cpgChannel, channel, showWarning))
+                return false;
             if (!ValidateNxdnTransmit(cpgChannel, channel, showWarning))
                 return false;
             if (!ValidateDmrTransmit(cpgChannel, channel, showWarning))

@@ -143,6 +143,10 @@ namespace dvmconsole.Controls
         public MBEToneDetector ToneDetector = new MBEToneDetector();
 
         public P25Crypto Crypter = new P25Crypto();
+        // Transmit MI belongs to one stream and must not share receive synchronization state.
+        internal readonly byte[] P25TxMi = new byte[P25Defines.P25_MI_LENGTH];
+        internal uint P25CryptoStreamId;
+        internal uint P25FailedStreamId;
         internal P25ReceiveCrypto ReceiveCrypto { get; } = new();
 
         /// <summary>

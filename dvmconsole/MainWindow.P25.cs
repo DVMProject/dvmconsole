@@ -14,6 +14,7 @@
 *
 */
 
+using System.Security.Cryptography;
 using System.Windows;
 
 using NWaves.Signals;
@@ -37,6 +38,108 @@ namespace dvmconsole
         */
 
         /// <summary>
+        /// Applies the individual resource's key requirement to every P25 transmit entry point.
+        /// </summary>
+        private bool ValidateP25Transmit(Codeplug.Channel config, ChannelBox channel, bool showWarning = false)
+        {
+            if (config.GetChannelMode() != Codeplug.ChannelMode.P25)
+                return true;
+
+            if (config.ValidateP25EncryptionConfig(out string error))
+            {
+                if (!channel.IsTxEncrypted || channel.HasLoadedTransmitKey())
+                    return true;
+                error = "P25 encryption key is unavailable. Load the key before transmitting.";
+            }
+
+            Log.WriteWarning($"({config.System}) P25 TX blocked on {config.Name}: {error}");
+            if (showWarning)
+                Dispatcher.Invoke(() => MessageBox.Show($"{config.Name}: {error}", "P25 Transmit Unavailable",
+                    MessageBoxButton.OK, MessageBoxImage.Warning));
+            return false;
+        }
+
+        /// <summary>
+        /// A failed crypto operation must never reach the LDU buffers or network sender.
+        /// </summary>
+        private static bool TryEncryptP25Frame(ChannelBox channel, Codeplug.Channel config, byte[] imbe)
+        {
+            try
+            {
+                if (channel.P25CryptoStreamId != channel.TxStreamId)
+                {
+                    RandomNumberGenerator.Fill(channel.P25TxMi);
+                    channel.P25CryptoStreamId = channel.TxStreamId;
+                }
+
+                if (channel.p25N == 0)
+                {
+                    if (!channel.Crypter.Prepare(config.GetAlgoId(), config.GetKeyId(), channel.P25TxMi))
+                        return false;
+                }
+
+                if (!channel.Crypter.Process(imbe, channel.p25N < 9U ? P25DUID.LDU1 : P25DUID.LDU2))
+                    return false;
+
+                if (channel.p25N == 17U)
+                {
+                    P25Crypto.CycleP25Lfsr(channel.P25TxMi);
+                    if (!channel.Crypter.Prepare(config.GetAlgoId(), config.GetKeyId(), channel.P25TxMi))
+                        return false;
+                }
+                return true;
+            }
+            catch (Exception ex) when (ex is CryptographicException || ex is ArgumentException || ex is InvalidOperationException)
+            {
+                // Do not log crypto exception details or any key material.
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Fence queued frames immediately, then release only the failed stream on the UI thread.
+        /// </summary>
+        private void FailP25Transmission(ChannelBox channel, Codeplug.Channel config, Codeplug.System system,
+            PeerSystem fne, uint stream, uint? sourceIdOverride)
+        {
+            channel.P25FailedStreamId = stream;
+            Array.Clear(channel.netLDU1);
+            Array.Clear(channel.netLDU2);
+            Log.WriteError($"({system.Name}) P25 TX stopped on {config.Name}: encryption failed; refusing clear fallback.");
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (channel.TxStreamId != stream)
+                    return;
+
+                channel.HoldState = false;
+                // The tone worker owns its terminator/session cleanup after cancellation.
+                if (StopTonePlaybackForChannel(channel, sendFallbackEndSignal: false))
+                    return;
+
+                try
+                {
+                    EndTarTxRecording(channel, system, config);
+                    StopGroupTransmissionsForChannel(channel);
+                    if (channel.TxStreamId == stream && IsFneSystemConnected(system.Name))
+                        fne.SendP25TDU(sourceIdOverride ?? uint.Parse(config.GetSourceRid(system)), uint.Parse(config.Tgid), false);
+                }
+                catch (Exception)
+                {
+                    Log.WriteWarning($"({system.Name}) P25 crypto failure call-end could not be sent on {config.Name}.");
+                }
+                finally
+                {
+                    channel.PttState = false;
+                    channel.ReleaseAllPttInputs();
+                    channel.PatchForwardingTxState = false;
+                    channel.PageState = false;
+                    ResetChannel(channel);
+                    channel.VolumeMeterLevel = 0;
+                }
+            }));
+        }
+
+        /// <summary>
         /// Helper to encode and transmit PCM audio as P25 IMBE frames.
         /// </summary>
         /// <param name="pcm"></param>
@@ -46,6 +149,16 @@ namespace dvmconsole
         /// <param name="system"></param>
         private void P25EncodeAudioFrame(byte[] pcm, PeerSystem fne, ChannelBox channel, Codeplug.Channel cpgChannel, Codeplug.System system, uint? sourceIdOverride = null, ushort? generatedToneFrequencyHz = null, bool suppressToneDetection = false)
         {
+            uint stream = channel.TxStreamId;
+            if (stream == 0 || channel.P25FailedStreamId == stream)
+                return;
+
+            if (!cpgChannel.ValidateP25EncryptionConfig(out _))
+            {
+                FailP25Transmission(channel, cpgChannel, system, fne, stream, sourceIdOverride);
+                return;
+            }
+
             bool encryptCall = channel.IsTxEncrypted && cpgChannel.HasEncryptionConfig();
 
             if (channel.p25N > 17)
@@ -128,31 +241,10 @@ namespace dvmconsole
             }
             // Log.Logger.Debug($"IMBE {FneUtils.HexDump(imbe)}");
 
-            if (encryptCall)
+            if (encryptCall && !TryEncryptP25Frame(channel, cpgChannel, imbe))
             {
-                // initial HDU MI
-                if (channel.p25N == 0)
-                {
-                    if (channel.mi.All(b => b == 0))
-                    {
-                        Random random = new Random();
-
-                        for (int i = 0; i < P25Defines.P25_MI_LENGTH; i++)
-                            channel.mi[i] = (byte)random.Next(0x00, 0x100);
-                    }
-
-                    channel.Crypter.Prepare(cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
-                }
-
-                // crypto time
-                channel.Crypter.Process(imbe, channel.p25N < 9U ? P25DUID.LDU1 : P25DUID.LDU2);
-
-                // last block of LDU2, prepare a new MI
-                if (channel.p25N == 17U)
-                {
-                    P25Crypto.CycleP25Lfsr(channel.mi);
-                    channel.Crypter.Prepare(cpgChannel.GetAlgoId(), cpgChannel.GetKeyId(), channel.mi);
-                }
+                FailP25Transmission(channel, cpgChannel, system, fne, stream, sourceIdOverride);
+                return;
             }
 
             // fill the LDU buffers appropriately
@@ -237,7 +329,7 @@ namespace dvmconsole
             {
                 cryptoParams.AlgoId = cpgChannel.GetAlgoId();
                 cryptoParams.KeyId = cpgChannel.GetKeyId();
-                Array.Copy(channel.mi, cryptoParams.MI, P25Defines.P25_MI_LENGTH);
+                Array.Copy(channel.P25TxMi, cryptoParams.MI, P25Defines.P25_MI_LENGTH);
             }
 
             // send P25 LDU1
@@ -487,7 +579,10 @@ namespace dvmconsole
                         continue;
                     }
 
-                    if (!channel.IsReceiving || e.StreamId != slot.RxStreamId)
+                    // A terminator may carry the peer's stream ID; retain the active call's
+                    // crypto metadata until TAR finalization and receive cleanup complete.
+                    if (e.DUID != P25DUID.TDU && e.DUID != P25DUID.TDULC &&
+                        (!channel.IsReceiving || e.StreamId != slot.RxStreamId))
                     {
                         channel.ReceiveCrypto.Reset();
                         channel.algId = 0;

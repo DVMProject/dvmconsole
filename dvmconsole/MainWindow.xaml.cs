@@ -1150,6 +1150,9 @@ namespace dvmconsole
                         if (Codeplug.Systems.Find((x) => x.Name == channel.System) == null)
                             errors.Add($"{channel.Name} refers to an {INVALID_SYSTEM} {channel.System}.");
 
+                        if (!channel.ValidateP25EncryptionConfig(out string encryptionError))
+                            errors.Add($"{channel.Name}: {encryptionError} TX is blocked until corrected.");
+
                         // because we possibly truncated system names above lets see if we
                         // have to replaced the related system name
                         if (replacedSystemNames.ContainsKey(channel.System))
@@ -2111,6 +2114,9 @@ namespace dvmconsole
                 e.NxdnFailedStreamId = 0;
             }
             // reset values
+            e.P25FailedStreamId = 0;
+            e.P25CryptoStreamId = 0;
+            Array.Clear(e.P25TxMi);
             e.p25SeqNo = 0;
             e.p25N = 0;
 
@@ -3116,6 +3122,12 @@ namespace dvmconsole
                 if (!ValidateTalkgroupAvailability(fne, cpgChannel, channel, rollback))
                     continue;
 
+                if (!ValidateP25Transmit(cpgChannel, channel))
+                {
+                    rollback(channel);
+                    continue;
+                }
+
                 if (channel.TxStreamId != 0)
                 {
                     Log.WriteWarning($"{channel.ChannelName} CHANNEL already has active stream {channel.TxStreamId}; skipping tone stack.");
@@ -3430,6 +3442,9 @@ namespace dvmconsole
                 return;
 
             if (!ValidateNxdnTransmit(cpgChannel, channel))
+                return;
+
+            if (!ValidateP25Transmit(cpgChannel, channel))
                 return;
 
             if (!ValidateFneConnectionAvailable(system.Name, channel, clearPageStateAfterSend ? current => current.PageState = false : null))
@@ -5957,8 +5972,6 @@ namespace dvmconsole
             if (!e.IsSelected && e.PttState)
                 return;
 
-            FneUtils.Memset(e.mi, 0x00, P25Defines.P25_MI_LENGTH);
-
             uint srcId = uint.Parse(cpgChannel.GetSourceRid(system));
             uint dstId = uint.Parse(cpgChannel.Tgid);
 
@@ -5979,6 +5992,14 @@ namespace dvmconsole
                     current.VolumeMeterLevel = 0;
                 }))
                     return;
+
+                if (!ValidateP25Transmit(cpgChannel, e))
+                {
+                    e.PttState = false;
+                    ResetChannel(e);
+                    e.VolumeMeterLevel = 0;
+                    return;
+                }
 
                 EnsureAudioInputCaptureHealthy("channel PTT start");
                 ApplyRxPlaybackMuteForTransmitStart();
@@ -6942,6 +6963,9 @@ namespace dvmconsole
                 if (!ValidateTalkgroupAvailability(fne, cpgChannel))
                     continue;
 
+                if (!ValidateP25Transmit(cpgChannel, channelBox))
+                    continue;
+
                 if (channelBox.TxStreamId != 0)
                 {
                     Log.WriteWarning($"({system.Name}) {cpgChannel.GetChannelMode().ToString().ToUpperInvariant()} Traffic *CALL START     * TGID {tgid} skipped for Patch PTT; channel already has active stream {channelBox.TxStreamId}.");
@@ -6954,7 +6978,6 @@ namespace dvmconsole
                     clearedRxPlaybackForTransmit = true;
                 }
 
-                FneUtils.Memset(channelBox.mi, 0x00, P25Defines.P25_MI_LENGTH);
                 channelBox.TxStreamId = fne.NewStreamId();
                 StartOperatorPtt(channelBox);
                 channelBox.PatchForwardingTxState = true;
@@ -7199,6 +7222,9 @@ namespace dvmconsole
             {
                 return 0;
             }
+
+            if (!ValidateP25Transmit(cpgChannel, channelBox))
+                return 0;
 
             if (!ValidateFneConnectionAvailable(system.Name, channelBox, null, showWarning: false))
             {

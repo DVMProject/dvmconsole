@@ -368,7 +368,7 @@ namespace dvmconsole
                 if (string.IsNullOrWhiteSpace(KeyId))
                     return 0;
 
-                if (GetChannelMode() == ChannelMode.NXDN)
+                if (GetChannelMode() is ChannelMode.NXDN or ChannelMode.P25)
                 {
                     string value = KeyId.Trim();
                     if (value.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
@@ -378,6 +378,37 @@ namespace dvmconsole
                 }
 
                 return Convert.ToUInt16(KeyId, 16);
+            }
+
+            /// <summary>
+            /// Rejects invalid P25 protection settings even when selectable TX is set to clear.
+            /// </summary>
+            /// <param name="error">The configuration error, or null when valid.</param>
+            /// <returns>True for valid P25 settings or a different channel mode.</returns>
+            public bool ValidateP25EncryptionConfig(out string error)
+            {
+                error = null;
+                if (GetChannelMode() != ChannelMode.P25)
+                    return true;
+
+                switch ((Algo ?? string.Empty).ToLowerInvariant())
+                {
+                    case "":
+                    case "none":
+                        return true;
+                    case "aes":
+                    case "aes256":
+                    case "des":
+                    case "arc4":
+                        if (GetKeyId() == 0)
+                            error = "P25 encryption requires a hexadecimal keyId between 1 and FFFF.";
+                        break;
+                    default:
+                        error = "P25 supports none, aes, aes256, des, or arc4 encryption.";
+                        break;
+                }
+
+                return error == null;
             }
 
             /// <summary>

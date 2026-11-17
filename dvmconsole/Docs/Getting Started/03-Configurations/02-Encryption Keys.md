@@ -59,11 +59,14 @@ algo: "aes"
 Supported P25 `algo` values include:
 
 - `aes`
+- `aes256` (alias for `aes`)
 - `des`
 - `arc4`
 - `none`
 
-For P25, if `keyId` is blank or zero, the channel transmits clear. This does not prevent secure receive when the incoming key is available. DMR and NXDN encrypted channels instead block TX when the key configuration is invalid; they never silently fall back to clear.
+For encrypted P25, `keyId` must be hexadecimal from `1` through `FFFF` (an optional `0x` prefix is accepted). Unknown algorithms and missing, zero, or malformed key IDs produce a codeplug warning and block TX, including group PTT, tones, and patch forwarding. The SELECT toggle cannot bypass invalid configuration.
+
+For intentionally clear P25 channels, use `algo: "none"` or omit `algo`. If an older codeplug used `keyId: 0` or a blank key ID with an encrypted algorithm to transmit clear, change its algorithm to `none`. Valid selectable-encryption channels can still deliberately transmit clear. Secure receive continues using the incoming algorithm and key ID, independently of these TX settings.
 
 NXDN supports `ehr` (15-bit scrambling), `des`, and `aes` (AES-256). EKC algorithm IDs match the FNE key service, not the NXDN wire cipher IDs. See **NXDN** for key sizes and FNE key-service behavior.
 

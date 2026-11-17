@@ -102,7 +102,9 @@ zones:
         # Talkgroup ID to send and receive traffic.
         # The console validates transmit/use attempts against active TG rules received from the FNE.
         tgid: "2001"
-        # Encryption Key ID in hexadecimal (0 or blank means clear).
+        # Encryption Key ID in hexadecimal (1-FFFF for encrypted P25).
+        # Missing, zero, or invalid IDs block encrypted configurations from TX.
+        # Use algo: "none" for an intentionally clear channel.
         # Use matching FNE keys or the optional local keyFile container above.
         keyId: "50"
         # Algorithm AES ("aes"), DES-OFB ("des"), ADP/ARC4 ("arc4"), None ("none")
