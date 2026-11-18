@@ -128,6 +128,9 @@ namespace dvmconsole
         private static readonly TimeSpan KeyboardPttWatchdogInterval = TimeSpan.FromMilliseconds(250);
 
         private bool isShuttingDown = false;
+        private bool shutdownComplete;
+        private bool isReloadingResources;
+        private Task resourceReloadTask = Task.CompletedTask;
         private bool suppressSelectedResourcePersistence = false;
         private bool globalPttState = false;
 
@@ -200,6 +203,7 @@ namespace dvmconsole
         private readonly Dictionary<string, ToneTransmitGroupSession> activeToneTransmitGroups = new Dictionary<string, ToneTransmitGroupSession>(StringComparer.OrdinalIgnoreCase);
         private readonly object toneTransmitSync = new object();
         private readonly Dictionary<string, CancellationTokenSource> activeToneTransmitCancels = new Dictionary<string, CancellationTokenSource>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<CancellationTokenSource, TaskCompletionSource> toneTransmitCompletions = new();
         private System.Windows.Threading.DispatcherTimer alertToneScheduleTimer;
         private bool alertToneScheduleCheckInProgress;
 
@@ -1086,28 +1090,123 @@ namespace dvmconsole
         /// Helper to load the codeplug.
         /// </summary>
         /// <param name="filePath"></param>
-        private void LoadCodeplug(string filePath)
+        private Task LoadCodeplug(string filePath)
         {
-            ReleaseAllOperatorPttInputs();
-            StopOperatorPttTimers();
-            StopDmrChannels();
-            StopNxdnChannels();
-            StopAnalogChannels();
+            return ReloadResourcesAsync((_, _) => LoadCodeplugCore(filePath));
+        }
+
+        /// <summary>Quiesces old resources before replacing their configuration or widgets.</summary>
+        private Task ReloadResourcesAsync(Action<List<string>, List<string>> rebuild)
+        {
+            if (isShuttingDown || isReloadingResources)
+                return resourceReloadTask;
+
+            isReloadingResources = true;
+            resourceReloadTask = ReloadResourcesCoreAsync(rebuild);
+            return resourceReloadTask;
+        }
+
+        private async Task ReloadResourcesCoreAsync(Action<List<string>, List<string>> rebuild)
+        {
+            // Publish the tracked reload before selection callbacks can reenter it.
+            await Task.Yield();
+            List<string> channels = CaptureActiveSelectedChannelKeys();
+            List<string> streams = CaptureActiveWebStreamNames();
+            IsEnabled = false;
+            try
+            {
+                await StopResourceActivityAsync();
+                await ResetFneConnectionsAsync();
+                ClearResourceWidgets();
+                if (!isShuttingDown)
+                    rebuild(channels, streams);
+            }
+            catch (Exception ex)
+            {
+                Log.StackTrace(ex, false);
+                ClearRuntimeSelectedResourcesForWidgetRebuild();
+                try { await ResetFneConnectionsAsync(); }
+                catch (Exception stopError) { Log.StackTrace(stopError, false); }
+                ClearResourceWidgets();
+                Codeplug = null;
+                DisableControls();
+                if (!isShuttingDown)
+                    MessageBox.Show($"Unable to reload resources: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                isReloadingResources = false;
+                IsEnabled = !isShuttingDown;
+                Cursor = Cursors.Arrow;
+            }
+        }
+
+        private void ClearResourceWidgets()
+        {
+            ClearLayoutSelection();
+            foreach (Canvas canvas in tabCanvases.Values)
+                canvas.Children.Clear();
+            channelsCanvas.Children.Clear();
+            elementToTabMap.Clear();
+            systemStatuses.Clear();
+        }
+
+        /// <summary>Joins tone and voice workers while their cards and peers still exist.</summary>
+        private async Task StopResourceActivityAsync()
+        {
+            TryResourceCleanup(ReleaseAllOperatorPttInputs);
+            TryResourceCleanup(StopOperatorPttTimers);
+            TryResourceCleanup(StopAllTonePlayback);
+            Task[] tones;
+            lock (toneTransmitSync)
+            {
+                foreach (CancellationTokenSource cancel in activeToneTransmitCancels.Values)
+                    TryResourceCleanup(cancel.Cancel);
+                tones = toneTransmitCompletions.Values.Select(completion => completion.Task).ToArray();
+            }
+            TryResourceCleanup(StopAllPatchPttTargets);
+            foreach (WebStreamChip stream in GetAllWebStreamChips().ToList())
+                TryResourceCleanup(stream.Stop);
+            List<ChannelBox> channels = GetAllCanvases().SelectMany(canvas => canvas.Children.OfType<ChannelBox>()).ToList();
+            TryResourceCleanup(ClearRuntimeSelectedResourcesForWidgetRebuild);
+            await Task.WhenAll(tones);
+            foreach (ChannelBox channel in channels)
+            {
+                Codeplug.Channel config = channel.ConfiguredChannel;
+                Codeplug.System system = Codeplug?.GetSystemForChannel(config);
+                TryResourceCleanup(() => EndReceiveCall(channel, system, config, FindActiveReceiveStatus(channel, config), DateTime.Now, discardAudio: true));
+                if (system != null && config != null)
+                    TryResourceCleanup(() => EndTarTxRecording(channel, system, config));
+                TryResourceCleanup(() => EndAnalogTransmission(channel, discardPending: true));
+                TryResourceCleanup(() => EndDmrTransmission(channel, discardPending: true));
+                TryResourceCleanup(() => EndNxdnTransmission(channel, discardPending: true));
+                channel.PttState = false;
+                channel.PageState = false;
+                channel.HoldState = false;
+                channel.PatchForwardingTxState = false;
+                TryResourceCleanup(() => ResetChannel(channel));
+            }
+            try
+            {
+                await Task.WhenAll(channels.SelectMany(channel => new[]
+                    { channel.AnalogEndTask, channel.DmrEndTask, channel.NxdnEndTask }).Where(task => task != null));
+            }
+            finally { TryResourceCleanup(tarManager.StopAllSessions); }
+        }
+
+        /// <summary>One failed cleanup step must not strand unrelated resources or workers.</summary>
+        private static void TryResourceCleanup(Action cleanup)
+        {
+            try { cleanup(); }
+            catch (Exception ex) { Log.StackTrace(ex, false); }
+        }
+
+        private void LoadCodeplugCore(string filePath)
+        {
             ClearNxdnKeys();
             ClearLocalKeys();
             DisableControls();
             StopAllPatchPttTargets();
-
-            // Clear all canvases
-            foreach (var canvas in tabCanvases.Values)
-            {
-                canvas.Children.Clear();
-            }
-            channelsCanvas.Children.Clear();
-            elementToTabMap.Clear();
-            systemStatuses.Clear();
-
-            ResetFneConnections();
 
             try
             {
@@ -1215,7 +1314,7 @@ namespace dvmconsole
                 LoadConfiguredEkcKeys();
 
                 // generate widgets and enable controls
-                GenerateChannelWidgets();
+                GenerateChannelWidgetsCore(new List<string>(), new List<string>());
                 UpdatePatchMemberIndicators(FilterPatchMemberships(memberships), patchGroupEnabledStates);
                 UpdateMultiSelectIndicators(FilterMultiSelectMemberships(memberships));
                 UpdateTarIndicators();
@@ -1224,8 +1323,10 @@ namespace dvmconsole
                 EnableControls();
                 MainWindow_SizeChanged(this, null);
             }
-            catch (Exception ex)
+            catch
             {
+                ClearRuntimeSelectedResourcesForWidgetRebuild();
+                ClearResourceWidgets();
                 Codeplug = null;
                 ClearLocalKeys();
                 ClearNxdnKeys();
@@ -1239,43 +1340,21 @@ namespace dvmconsole
                 UpdateTarIndicators();
                 if (patchGroupsWindow.Visibility == Visibility.Visible)
                     patchGroupsWindow.Hide();
-                MessageBox.Show($"Error loading codeplug: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                Log.StackTrace(ex, false);
                 DisableControls();
+                throw;
             }
         }
 
         /// <summary>
         /// Helper to initialize and generate channel widgets on the canvas.
         /// </summary>
-        private void GenerateChannelWidgets()
+        private Task GenerateChannelWidgets()
         {
-            ReleaseAllOperatorPttInputs();
-            StopOperatorPttTimers();
-            StopDmrChannels();
-            StopNxdnChannels();
-            StopAnalogChannels();
-            List<string> activeChannelKeys = CaptureActiveSelectedChannelKeys();
-            List<string> activeWebStreamNames = CaptureActiveWebStreamNames();
+            return ReloadResourcesAsync(GenerateChannelWidgetsCore);
+        }
 
-            StopAllWebStreams();
-            StopAllTonePlayback();
-            StopAllPatchPttTargets();
-            ClearRuntimeSelectedResourcesForWidgetRebuild();
-
-            // Clear all canvases
-            foreach (var canvas in tabCanvases.Values)
-            {
-                canvas.Children.Clear();
-            }
-            channelsCanvas.Children.Clear();
-            elementToTabMap.Clear();
-            systemStatuses.Clear();
-            
-            // Note: tabHeaders is not cleared here as tabs are recreated in CreateTabsFromCodeplug
-
-            ResetFneConnections();
-
+        private void GenerateChannelWidgetsCore(List<string> activeChannelKeys, List<string> activeWebStreamNames)
+        {
             Cursor = Cursors.Wait;
 
             // Create tabs from codeplug configuration (if codeplug exists)
@@ -2487,6 +2566,8 @@ namespace dvmconsole
 
         private CancellationTokenSource TryStartToneTransmitSession(ChannelBox channel)
         {
+            if (isReloadingResources || isShuttingDown)
+                return null;
             string key = GetToneTransmitKey(channel);
             if (string.IsNullOrWhiteSpace(key))
                 return null;
@@ -2498,6 +2579,7 @@ namespace dvmconsole
 
                 CancellationTokenSource cancelSource = new CancellationTokenSource();
                 activeToneTransmitCancels[key] = cancelSource;
+                toneTransmitCompletions[cancelSource] = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 return cancelSource;
             }
         }
@@ -2513,6 +2595,8 @@ namespace dvmconsole
                 {
                     activeToneTransmitCancels.Remove(key);
                 }
+                if (cancelSource != null && toneTransmitCompletions.Remove(cancelSource, out TaskCompletionSource completion))
+                    completion.TrySetResult();
             }
 
             cancelSource?.Dispose();
@@ -2718,7 +2802,7 @@ namespace dvmconsole
 
         private async void AlertToneScheduleTimer_Tick(object sender, EventArgs e)
         {
-            if (alertToneScheduleCheckInProgress || isShuttingDown)
+            if (alertToneScheduleCheckInProgress || isShuttingDown || isReloadingResources)
                 return;
 
             alertToneScheduleCheckInProgress = true;
@@ -3037,7 +3121,7 @@ namespace dvmconsole
 
         private static bool IsGroupTransmitAllowed(ChannelBox channel)
         {
-            return channel != null && channel.IsSelected && !channel.IsLocalPlayback &&
+            return channel != null && channel.IsSelected && channel.IsEnabled && !channel.IsLocalPlayback &&
                 !channel.IsRxOnly && channel.ConfiguredChannel?.RxOnly != true;
         }
 
@@ -3479,8 +3563,8 @@ namespace dvmconsole
             }
 
             CancellationToken cancellationToken = toneCancelSource.Token;
-            uint srcId = uint.Parse(cpgChannel.GetSourceRid(system));
-            uint dstId = uint.Parse(cpgChannel.Tgid);
+            uint srcId = 0;
+            uint dstId = 0;
             bool txStarted = false;
             uint toneStreamId = 0;
 
@@ -3489,6 +3573,8 @@ namespace dvmconsole
 
             try
             {
+                srcId = uint.Parse(cpgChannel.GetSourceRid(system));
+                dstId = uint.Parse(cpgChannel.Tgid);
                 if (sendStartSignal && cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                     fne.SendP25TDU(srcId, dstId, true);
 
@@ -3545,34 +3631,45 @@ namespace dvmconsole
             }
             finally
             {
-                if (cancellationToken.IsCancellationRequested)
+                try
                 {
-                    audioManager.StopOneShot(channel.AudioOutputKey);
-                    EndAnalogTransmission(channel, discardPending: true);
-                    EndNxdnTransmission(channel, discardPending: true);
+                    TryResourceCleanup(() => audioManager.StopOneShot(channel.AudioOutputKey));
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        EndAnalogTransmission(channel, discardPending: true);
+                        EndNxdnTransmission(channel, discardPending: true);
+                    }
+
+                    if (txStarted)
+                    {
+                        if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                            EndP25Transmission(channel, fne, cpgChannel, system, srcId, toneStreamId,
+                                discardPending: cancellationToken.IsCancellationRequested);
+                        else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                            EndDmrTransmission(channel, discardPending: cancellationToken.IsCancellationRequested);
+                    }
                 }
-
-                if (txStarted)
+                catch (Exception ex)
                 {
-                    if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                        EndP25Transmission(channel, fne, cpgChannel, system, srcId, toneStreamId,
-                            discardPending: cancellationToken.IsCancellationRequested);
-                    else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                        EndDmrTransmission(channel);
-
-                    ResetChannel(channel);
+                    Log.WriteWarning($"Tone release failed for {channel.ChannelName}: {ex.Message}");
                 }
-
-                Dispatcher.Invoke(() =>
+                finally
                 {
-                    channel.VolumeMeterLevel = 0;
-                    if (clearPageStateAfterSend || cancellationToken.IsCancellationRequested)
-                        channel.PageState = false;
-                });
-
-                foreach (ToneTransmitGroupSession group in groups)
-                    group.Cancels.Remove(toneCancelSource);
-                CompleteToneTransmitSession(channel, toneCancelSource);
+                    try
+                    {
+                        if (txStarted && channel.TxStreamId == toneStreamId)
+                            TryResourceCleanup(() => ResetChannel(channel));
+                        channel.VolumeMeterLevel = 0;
+                        if (clearPageStateAfterSend || cancellationToken.IsCancellationRequested)
+                            channel.PageState = false;
+                    }
+                    finally
+                    {
+                        foreach (ToneTransmitGroupSession group in groups)
+                            group.Cancels.Remove(toneCancelSource);
+                        CompleteToneTransmitSession(channel, toneCancelSource);
+                    }
+                }
             }
         }
 
@@ -3925,7 +4022,7 @@ namespace dvmconsole
 
         private async Task RunChannelHoldCycleAsync()
         {
-            if (isShuttingDown || channelHoldCycleRunning)
+            if (isShuttingDown || isReloadingResources || channelHoldCycleRunning)
                 return;
 
             // Snapshot UI-owned selections once, then send all held resources in the same cycle.
@@ -3947,58 +4044,66 @@ namespace dvmconsole
         /// 
         /// </summary>
         /// <param name="e"></param>
-        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        protected override async void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
+            if (shutdownComplete)
+            {
+                base.OnClosing(e);
+                return;
+            }
+            e.Cancel = true;
+            base.OnClosing(e);
+            if (isShuttingDown)
+                return;
+
             AddConsoleEventHistoryEntry("Console stopped");
 
             if (!noSaveSettingsOnClose)
                 PersistSelectedResourceState(saveSettings: false);
 
             isShuttingDown = true;
-            ReleaseAllOperatorPttInputs();
-            StopOperatorPttTimers();
+            IsEnabled = false;
             channelHoldTimer.Stop();
             channelHoldTimer.Elapsed -= OnHoldTimerElapsed;
             channelHoldTimer.Dispose();
             ShutdownAlertToneScheduler();
             CancelKeyboardPttWatchdog();
-            StopAllPatchPttTargets();
-            tarManager.StopAllSessions();
-
-            // stop maintainence task
-            if (maintainenceTask != null)
+            maintainenceCancelToken.Cancel();
+            try
             {
-                maintainenceCancelToken.Cancel();
-
+                // Keep the Dispatcher running while workers finish their UI cleanup.
+                if (maintainenceTask != null)
+                    await maintainenceTask;
+                await resourceReloadTask;
+                await StopResourceActivityAsync();
+            }
+            catch (Exception ex) { Log.StackTrace(ex, false); }
+            finally
+            {
                 try
                 {
-                    maintainenceTask.GetAwaiter().GetResult();
+                    TryResourceCleanup(StopAndDisposeAudioInput);
+                    await ResetFneConnectionsAsync();
+                    if (!noSaveSettingsOnClose)
+                    {
+                        if (WindowState == WindowState.Maximized)
+                        {
+                            settingsManager.Maximized = true;
+                            if (settingsManager.SnapCallHistoryToWindow)
+                                menuSnapCallHistory.IsChecked = false;
+                        }
+                        settingsManager.SaveSettings();
+                    }
                 }
-                catch (OperationCanceledException) { /* stub */ }
+                catch (Exception ex) { Log.StackTrace(ex, false); }
                 finally
                 {
                     maintainenceCancelToken.Dispose();
+                    shutdownComplete = true;
+                    Close();
+                    Application.Current.Shutdown();
                 }
             }
-
-            StopAndDisposeAudioInput();
-
-            ResetFneConnections();
-
-            if (!noSaveSettingsOnClose)
-            {
-                if (WindowState == WindowState.Maximized)
-                {
-                    settingsManager.Maximized = true;
-                    if (settingsManager.SnapCallHistoryToWindow)
-                        menuSnapCallHistory.IsChecked = false;
-                }
-
-                settingsManager.SaveSettings();
-            }
-
-            base.OnClosing(e);
-            Application.Current.Shutdown();
         }
 
         private void AddConsoleEventHistoryEntry(string message)
@@ -4030,56 +4135,44 @@ namespace dvmconsole
         /// <summary>
         /// Internal maintainence routine.
         /// </summary>
-        private async void Maintainence()
+        private async Task Maintainence()
         {
             CancellationToken ct = maintainenceCancelToken.Token;
-            while (!isShuttingDown)
+            while (!ct.IsCancellationRequested)
             {
-                EnsureAudioInputCaptureHealthy("maintenance watchdog");
-                CheckFneConnectionHealth();
-                patchManager.CleanupStaleSources();
-
-                foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
-                {
-                    if (channel.IsLocalPlayback)
-                        continue;
-
-                    Codeplug.System system = Codeplug.GetSystemForChannel(channel.ConfiguredChannel);
-                    if (system == null)
-                        continue;
-
-                    Codeplug.Channel cpgChannel = channel.ConfiguredChannel;
-                    if (cpgChannel == null)
-                        continue;
-
-                    PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
-                    if (fne == null)
-                        continue;
-
-                    // Check and close on the receive dispatcher so a queued packet cannot
-                    // replace the call between the timeout decision and its cleanup.
-                    Dispatcher.Invoke(() =>
-                    {
-                        DateTime now = DateTime.Now;
-                        if (!channel.IsReceiving || (now - channel.LastPktTime).TotalMilliseconds <= 2000)
-                            return;
-
-                        SlotStatus slotStatus = FindActiveReceiveStatus(channel, cpgChannel);
-                        Log.WriteLine($"({system.Name}) {channel.ChannelMode.ToUpperInvariant()}: Traffic *CALL TIMEOUT   * TGID {channel.DstId}");
-                        EndReceiveCall(channel, system, cpgChannel, slotStatus, now);
-                    });
-                }
-
                 try
                 {
                     await Task.Delay(1000, ct);
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        if (ct.IsCancellationRequested || isShuttingDown || isReloadingResources)
+                            return;
+                        EnsureAudioInputCaptureHealthy("maintenance watchdog");
+                        CheckFneConnectionHealth();
+                        patchManager.CleanupStaleSources();
+                        foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
+                        {
+                            if (channel.IsLocalPlayback)
+                                continue;
+                            Codeplug.Channel cpgChannel = channel.ConfiguredChannel;
+                            Codeplug.System system = Codeplug?.GetSystemForChannel(cpgChannel);
+                            if (system == null || cpgChannel == null || fneSystemManager.GetFneSystem(system.Name) == null)
+                                continue;
+                            DateTime now = DateTime.Now;
+                            if (!channel.IsReceiving || (now - channel.LastPktTime).TotalMilliseconds <= 2000)
+                                continue;
+                            SlotStatus slotStatus = FindActiveReceiveStatus(channel, cpgChannel);
+                            Log.WriteLine($"({system.Name}) {channel.ChannelMode.ToUpperInvariant()}: Traffic *CALL TIMEOUT   * TGID {channel.DstId}");
+                            EndReceiveCall(channel, system, cpgChannel, slotStatus, now);
+                        }
+                        patchGroupsWindow.RefreshMemberStatusIcons();
+                    });
                 }
-                catch (TaskCanceledException) { /* stub */ }
-
-                Dispatcher.Invoke(() =>
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
+                catch (Exception ex)
                 {
-                    patchGroupsWindow.RefreshMemberStatusIcons();
-                });
+                    Log.StackTrace(ex, false);
+                }
             }
         }
 
@@ -4257,7 +4350,7 @@ namespace dvmconsole
         {
             bool isAnyTgOn = false;
             HashSet<string> transmittedTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (isShuttingDown)
+            if (isShuttingDown || isReloadingResources)
                 return;
 
             lock (waveInSync)
@@ -4495,7 +4588,7 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
             const double widthOffset = 16;
             const double heightOffset = 115;
@@ -4511,9 +4604,12 @@ namespace dvmconsole
             menuKeepWindowOnTop.IsChecked = settingsManager.KeepWindowOnTop;
 
             if (!string.IsNullOrEmpty(settingsManager.LastCodeplugPath) && File.Exists(settingsManager.LastCodeplugPath))
-                LoadCodeplug(settingsManager.LastCodeplugPath);
+                await LoadCodeplug(settingsManager.LastCodeplugPath);
             else
-                GenerateChannelWidgets();
+                await GenerateChannelWidgets();
+
+            if (isShuttingDown)
+                return;
 
             AddConsoleEventHistoryEntry("Console started");
 
@@ -4522,7 +4618,7 @@ namespace dvmconsole
             UpdateBackground();
 
 
-            maintainenceTask = Task.Factory.StartNew(Maintainence, maintainenceCancelToken.Token);
+            maintainenceTask = Maintainence();
 
             // set window configuration
             if (settingsManager.Maximized)
@@ -4589,7 +4685,7 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void OpenCodeplug_Click(object sender, RoutedEventArgs e)
+        private async void OpenCodeplug_Click(object sender, RoutedEventArgs e)
         {
             OpenFileDialog openFileDialog = new OpenFileDialog
             {
@@ -4599,11 +4695,14 @@ namespace dvmconsole
 
             if (openFileDialog.ShowDialog() == true)
             {
-                LoadCodeplug(openFileDialog.FileName);
+                await LoadCodeplug(openFileDialog.FileName);
 
-                settingsManager.LastCodeplugPath = openFileDialog.FileName;
-                noSaveSettingsOnClose = false;
-                settingsManager.SaveSettings();
+                if (Codeplug != null && !isShuttingDown)
+                {
+                    settingsManager.LastCodeplugPath = openFileDialog.FileName;
+                    noSaveSettingsOnClose = false;
+                    settingsManager.SaveSettings();
+                }
             }
         }
 
@@ -4614,7 +4713,7 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void Exit_Click(object sender, RoutedEventArgs e)
         {
-            Application.Current.Shutdown();
+            Close();
         }
         private void About_Click(object sender, RoutedEventArgs e)
         {
@@ -4965,7 +5064,7 @@ namespace dvmconsole
             return scope;
         }
 
-        private void TabManager_Click(object sender, RoutedEventArgs e)
+        private async void TabManager_Click(object sender, RoutedEventArgs e)
         {
             if (Codeplug?.Zones?.Any(zone => !string.IsNullOrWhiteSpace(zone?.Name)) != true)
             {
@@ -4982,7 +5081,7 @@ namespace dvmconsole
                 return;
 
             settingsManager.SaveHiddenResourceZones(tabManagerWindow.HiddenZoneNames);
-            GenerateChannelWidgets();
+            await GenerateChannelWidgets();
         }
 
         private List<TabManagerWindow.ZoneVisibilityItem> BuildTabManagerZoneItems()
@@ -5002,7 +5101,7 @@ namespace dvmconsole
                 .ToList();
         }
 
-        private void ShowHiddenZone_Click(object sender, RoutedEventArgs e)
+        private async void ShowHiddenZone_Click(object sender, RoutedEventArgs e)
         {
             if ((sender as FrameworkElement)?.Tag is not string zoneName || string.IsNullOrWhiteSpace(zoneName))
                 return;
@@ -5015,7 +5114,7 @@ namespace dvmconsole
                 return;
 
             settingsManager.SaveHiddenResourceZones(hiddenZoneNames);
-            GenerateChannelWidgets();
+            await GenerateChannelWidgets();
             SelectResourceTabByName(zoneName);
         }
 
@@ -5036,28 +5135,31 @@ namespace dvmconsole
             }
         }
 
-        private void ApplyImportedSettingsToRuntime()
+        private Task ApplyImportedSettingsToRuntime()
         {
-            menuToggleLockWidgets.IsChecked = settingsManager.LockWidgets;
-            menuSnapCallHistory.IsChecked = settingsManager.SnapCallHistoryToWindow;
-            menuTogglePTTMode.IsChecked = settingsManager.TogglePTTMode;
-            menuTalkPermitTone.IsChecked = settingsManager.TalkPermitTone;
-            menuMuteRxAudioWhileTransmitting.IsChecked = settingsManager.MuteRxAudioWhileTransmitting;
-            menuRetainPatchStateOnStartup.IsChecked = settingsManager.RetainPatchStateOnStartup;
-            menuRestoreSelectedChannels.IsChecked = settingsManager.RestoreSelectedChannelsOnStartup;
-            menuKeepWindowOnTop.IsChecked = settingsManager.KeepWindowOnTop;
-            menuDarkMode.IsChecked = settingsManager.DarkMode;
+            return ReloadResourcesAsync((channels, streams) =>
+            {
+                menuToggleLockWidgets.IsChecked = settingsManager.LockWidgets;
+                menuSnapCallHistory.IsChecked = settingsManager.SnapCallHistoryToWindow;
+                menuTogglePTTMode.IsChecked = settingsManager.TogglePTTMode;
+                menuTalkPermitTone.IsChecked = settingsManager.TalkPermitTone;
+                menuMuteRxAudioWhileTransmitting.IsChecked = settingsManager.MuteRxAudioWhileTransmitting;
+                menuRetainPatchStateOnStartup.IsChecked = settingsManager.RetainPatchStateOnStartup;
+                menuRestoreSelectedChannels.IsChecked = settingsManager.RestoreSelectedChannelsOnStartup;
+                menuKeepWindowOnTop.IsChecked = settingsManager.KeepWindowOnTop;
+                menuDarkMode.IsChecked = settingsManager.DarkMode;
 
-            Topmost = settingsManager.KeepWindowOnTop;
-            UpdateBackground();
-            RefreshToolbarClocks();
-            audioManager.ReloadOutputDevices();
-            ApplyConfiguredInputDevice();
+                Topmost = settingsManager.KeepWindowOnTop;
+                UpdateBackground();
+                RefreshToolbarClocks();
+                audioManager.ReloadOutputDevices();
+                ApplyConfiguredInputDevice();
 
-            if (!string.IsNullOrWhiteSpace(settingsManager.LastCodeplugPath) && File.Exists(settingsManager.LastCodeplugPath))
-                LoadCodeplug(settingsManager.LastCodeplugPath);
-            else
-                GenerateChannelWidgets();
+                if (!string.IsNullOrWhiteSpace(settingsManager.LastCodeplugPath) && File.Exists(settingsManager.LastCodeplugPath))
+                    LoadCodeplugCore(settingsManager.LastCodeplugPath);
+                else
+                    GenerateChannelWidgetsCore(channels, streams);
+            });
         }
 
         /// <summary>
@@ -5081,7 +5183,7 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void SelectWidgets_Click(object sender, RoutedEventArgs e)
+        private async void SelectWidgets_Click(object sender, RoutedEventArgs e)
         {
             WidgetSelectionWindow widgetSelectionWindow = new WidgetSelectionWindow();
             widgetSelectionWindow.Owner = this;
@@ -5091,7 +5193,7 @@ namespace dvmconsole
                 settingsManager.ShowChannels = widgetSelectionWindow.ShowChannels;
                 settingsManager.ShowAlertTones = widgetSelectionWindow.ShowAlertTones;
 
-                GenerateChannelWidgets();
+                await GenerateChannelWidgets();
                 if (!noSaveSettingsOnClose)
                     settingsManager.SaveSettings();
             }
@@ -5931,7 +6033,10 @@ namespace dvmconsole
                     if (e.TxStreamId != 0)
                         EndP25Transmission(e, fne, cpgChannel, system, uint.Parse(cpgChannel.GetSourceRid(system)), e.TxStreamId);
                     else
-                        fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
+                    {
+                        try { fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false); }
+                        catch (Exception ex) { Log.WriteWarning($"Page release failed for {e.ChannelName}: {ex.Message}"); }
+                    }
                 }
                 else if (!IsFneSystemConnected(system.Name))
                     Log.WriteWarning($"Page TDU end skipped for {e.ChannelName}; FNE system '{system.Name}' is disconnected.");

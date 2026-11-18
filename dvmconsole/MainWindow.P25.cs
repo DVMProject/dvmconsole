@@ -427,13 +427,22 @@ namespace dvmconsole
                         }
                     }
                 }
+                catch (Exception ex)
+                {
+                    Log.WriteWarning($"P25 voice flush failed for {channel.ChannelName}: {ex.Message}");
+                }
                 finally
                 {
                     // Fence waiting encoders even when padding or the terminator send fails.
                     channel.P25EndedStreamId = streamId;
                     channel.p25N = 0;
                     channel.ToneDetector.Reset();
-                    fne.SendP25TDU(sourceId, uint.Parse(config.Tgid), false, streamId);
+                    try { fne.SendP25TDU(sourceId, uint.Parse(config.Tgid), false, streamId); }
+                    catch (Exception ex)
+                    {
+                        // A failed network release must not skip the caller's local cleanup.
+                        Log.WriteWarning($"P25 terminator failed for {channel.ChannelName}: {ex.Message}");
+                    }
                 }
             }
         }

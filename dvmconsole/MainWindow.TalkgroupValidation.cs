@@ -135,6 +135,12 @@ namespace dvmconsole
 
         private bool ValidateFneConnectionAvailable(string systemName, ChannelBox channel = null, Action<ChannelBox> rollback = null, bool showWarning = true)
         {
+            if (isShuttingDown || isReloadingResources)
+            {
+                if (channel != null && rollback != null)
+                    Dispatcher.Invoke(() => rollback(channel));
+                return false;
+            }
             string normalizedSystemName = NormalizeChannelSystemName(systemName);
             if (IsFneSystemConnected(normalizedSystemName))
                 return true;

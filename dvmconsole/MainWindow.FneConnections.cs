@@ -48,6 +48,8 @@ namespace dvmconsole
             public int LastHealthPingsAcked { get; set; }
             public DateTime LastHealthProgressUtc { get; set; } = DateTime.UtcNow;
             public SemaphoreSlim Sync { get; } = new SemaphoreSlim(1, 1);
+            public CancellationTokenSource Lifetime { get; } = new CancellationTokenSource();
+            public long OperationVersion { get; set; }
             public EventHandler<PeerConnectedEvent> PeerConnectedHandler { get; set; }
             public Action<uint> PeerDisconnectedHandler { get; set; }
         }
@@ -59,6 +61,14 @@ namespace dvmconsole
         private readonly Dictionary<string, FneConnectionEntry> fneConnectionEntries = new(StringComparer.OrdinalIgnoreCase);
         private FneConnectionManagerWindow fneConnectionManagerWindow;
         private DateTime nextFneHealthCheckUtc = DateTime.MinValue;
+        private Task fneConnectionResetTask;
+
+        private enum FneConnectionOperation
+        {
+            Start,
+            Stop,
+            Restart
+        }
 
         public event Action<FneConnectionSnapshot> FneConnectionStateChanged;
 
@@ -73,155 +83,104 @@ namespace dvmconsole
             }
         }
 
-        public async Task StartFneSystemAsync(string systemName)
+        public Task StartFneSystemAsync(string systemName)
         {
-            FneConnectionEntry entry = GetFneConnectionEntry(systemName);
-            if (entry == null)
+            return RunFneConnectionOperationAsync(GetFneConnectionEntry(systemName), FneConnectionOperation.Start);
+        }
+
+        public Task StopFneSystemAsync(string systemName)
+        {
+            return RunFneConnectionOperationAsync(GetFneConnectionEntry(systemName), FneConnectionOperation.Stop);
+        }
+
+        public Task RestartFneSystemAsync(string systemName)
+        {
+            return RunFneConnectionOperationAsync(GetFneConnectionEntry(systemName), FneConnectionOperation.Restart);
+        }
+
+        private async Task RunFneConnectionOperationAsync(FneConnectionEntry entry, FneConnectionOperation operation, bool showError = true)
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                await Dispatcher.InvokeAsync(() => RunFneConnectionOperationAsync(entry, operation, showError)).Task.Unwrap();
+                return;
+            }
+
+            if (!IsCurrentFneConnectionEntry(entry))
                 return;
 
-            entry.DesiredStarted = true;
-
-            await entry.Sync.WaitAsync();
+            long version = ++entry.OperationVersion;
+            entry.DesiredStarted = operation != FneConnectionOperation.Stop;
+            bool acquired = false;
             try
             {
-                if (entry.IsBusy)
+                await entry.Sync.WaitAsync(entry.Lifetime.Token);
+                acquired = true;
+                if (!IsCurrentFneConnectionOperation(entry, version))
                     return;
 
                 entry.IsBusy = true;
                 PublishConnectionState(entry);
+                if (!IsCurrentFneConnectionOperation(entry, version))
+                    return;
 
-                if (entry.Peer?.IsStarted == true && entry.IsConnected)
+                if (operation == FneConnectionOperation.Start && entry.Peer?.IsStarted == true && entry.IsConnected)
                 {
                     ResetHealthMonitorBaseline(entry);
                     return;
                 }
 
-                if (entry.Peer?.IsStarted == true)
+                bool shouldPlayManualDisconnectChime = operation == FneConnectionOperation.Stop &&
+                    (entry.IsConnected || entry.Peer?.IsStarted == true);
+                await RemovePeerForEntryAsync(entry);
+                if (!IsCurrentFneConnectionOperation(entry, version))
+                    return;
+                ApplyDisconnectedState(entry, recordEvent: true);
+
+                if (operation == FneConnectionOperation.Stop)
                 {
-                    await Task.Run(() => entry.Peer.Stop());
-                    RemovePeerForEntry(entry);
-                    ApplyDisconnectedState(entry, recordEvent: true);
+                    if (shouldPlayManualDisconnectChime)
+                        PlayFneConnectionChime(connected: false);
+                    return;
                 }
+
+                if (operation == FneConnectionOperation.Restart)
+                    await Task.Delay(250, entry.Lifetime.Token);
+
+                if (!IsCurrentFneConnectionOperation(entry, version))
+                    return;
 
                 CreatePeerForEntry(entry);
                 ResetHealthMonitorBaseline(entry);
-                await Task.Run(() => entry.Peer.Start());
+                PeerSystem peer = entry.Peer;
+                // Once Start is running it must finish before reset/stop can remove this peer.
+                await Task.Run(() => peer.Start(), entry.Lifetime.Token);
+            }
+            catch (OperationCanceledException) when (entry.Lifetime.IsCancellationRequested)
+            {
+                /* reset retired this entry */
             }
             catch (Exception ex)
             {
                 Log.StackTrace(ex, false);
-                Dispatcher.Invoke(() =>
+                if (showError && IsCurrentFneConnectionOperation(entry, version))
                 {
-                    MessageBox.Show($"Unable to start FNE system '{systemName}'. {ex.Message}", "FNE Connection Manager", MessageBoxButton.OK, MessageBoxImage.Error);
-                });
-            }
-            finally
-            {
-                entry.IsBusy = false;
-                PublishConnectionState(entry);
-                entry.Sync.Release();
-            }
-        }
-
-        public async Task StopFneSystemAsync(string systemName)
-        {
-            FneConnectionEntry entry = GetFneConnectionEntry(systemName);
-            if (entry == null)
-                return;
-
-            entry.DesiredStarted = false;
-
-            await entry.Sync.WaitAsync();
-            try
-            {
-                if (entry.IsBusy)
-                    return;
-
-                entry.IsBusy = true;
-                PublishConnectionState(entry);
-
-                bool shouldPlayManualDisconnectChime = entry.IsConnected || entry.Peer?.IsStarted == true;
-                entry.SuppressNextDisconnectChime = shouldPlayManualDisconnectChime;
-
-                if (entry.Peer?.IsStarted == true)
-                    await Task.Run(() => entry.Peer.Stop());
-
-                RemovePeerForEntry(entry);
-                ApplyDisconnectedState(entry, recordEvent: true);
-
-                if (shouldPlayManualDisconnectChime)
-                    PlayFneConnectionChime(connected: false);
-            }
-            catch (Exception ex)
-            {
-                Log.StackTrace(ex, false);
-                Dispatcher.Invoke(() =>
-                {
-                    MessageBox.Show($"Unable to stop FNE system '{systemName}'. {ex.Message}", "FNE Connection Manager", MessageBoxButton.OK, MessageBoxImage.Error);
-                });
-            }
-            finally
-            {
-                entry.IsBusy = false;
-                PublishConnectionState(entry);
-                entry.Sync.Release();
-            }
-        }
-
-        public async Task RestartFneSystemAsync(string systemName)
-        {
-            await RestartFneSystemAsync(systemName, showError: true);
-        }
-
-        private async Task RestartFneSystemAsync(string systemName, bool showError)
-        {
-            FneConnectionEntry entry = GetFneConnectionEntry(systemName);
-            if (entry == null)
-                return;
-
-            entry.DesiredStarted = true;
-
-            await entry.Sync.WaitAsync();
-            try
-            {
-                if (entry.IsBusy)
-                    return;
-
-                entry.IsBusy = true;
-                PublishConnectionState(entry);
-
-                if (entry.Peer?.IsStarted == true)
-                    await Task.Run(() => entry.Peer.Stop());
-
-                RemovePeerForEntry(entry);
-                ApplyDisconnectedState(entry, recordEvent: true);
-
-                await Task.Delay(250);
-
-                CreatePeerForEntry(entry);
-                ResetHealthMonitorBaseline(entry);
-                await Task.Run(() => entry.Peer.Start());
-            }
-            catch (Exception ex)
-            {
-                Log.StackTrace(ex, false);
-                if (showError)
-                {
-                    Dispatcher.Invoke(() =>
-                    {
-                        MessageBox.Show($"Unable to restart FNE system '{systemName}'. {ex.Message}", "FNE Connection Manager", MessageBoxButton.OK, MessageBoxImage.Error);
-                    });
+                    MessageBox.Show($"Unable to {operation.ToString().ToLowerInvariant()} FNE system '{entry.SystemName}'. {ex.Message}", "FNE Connection Manager", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
-                else
+                else if (!showError && IsCurrentFneConnectionOperation(entry, version))
                 {
-                    Log.WriteWarning($"FNE health restart failed for '{systemName}': {ex.Message}");
+                    Log.WriteWarning($"FNE health restart failed for '{entry.SystemName}': {ex.Message}");
                 }
             }
             finally
             {
-                entry.IsBusy = false;
-                PublishConnectionState(entry);
-                entry.Sync.Release();
+                if (acquired)
+                {
+                    entry.IsBusy = false;
+                    // Always release even if a state subscriber throws.
+                    entry.Sync.Release();
+                    PublishConnectionState(entry);
+                }
             }
         }
 
@@ -229,6 +188,9 @@ namespace dvmconsole
         {
             if (system == null || string.IsNullOrWhiteSpace(system.Name))
                 return;
+
+            if (fneConnectionResetTask != null || GetFneConnectionEntry(system.Name) != null)
+                throw new InvalidOperationException("Await ResetFneConnectionsAsync before replacing FNE connections.");
 
             FneConnectionEntry entry = new FneConnectionEntry
             {
@@ -254,32 +216,80 @@ namespace dvmconsole
                 _ = StartFneSystemAsync(system.Name);
         }
 
-        private void ResetFneConnections()
+        private async Task ResetFneConnectionsAsync()
         {
+            if (!Dispatcher.CheckAccess())
+            {
+                await Dispatcher.InvokeAsync(ResetFneConnectionsAsync).Task.Unwrap();
+                return;
+            }
+
+            if (fneConnectionResetTask != null)
+            {
+                await fneConnectionResetTask;
+                return;
+            }
+
+            fneConnectionResetTask = ResetFneConnectionsCoreAsync();
+            try
+            {
+                await fneConnectionResetTask;
+            }
+            finally
+            {
+                fneConnectionResetTask = null;
+            }
+        }
+
+        private async Task ResetFneConnectionsCoreAsync()
+        {
+            // Publish the reset task before cancellation or callbacks can reenter reset.
+            await Task.Yield();
             List<FneConnectionEntry> entries;
             lock (fneConnectionEntries)
             {
                 entries = fneConnectionEntries.Values.ToList();
-                fneConnectionEntries.Clear();
             }
 
             foreach (FneConnectionEntry entry in entries)
             {
+                entry.DesiredStarted = false;
+                entry.Lifetime.Cancel();
+                CancelDeferredStartupKeyRequests(entry.SystemName);
+                CancelFneAliasSync(entry);
+            }
+
+            List<Exception> errors = new List<Exception>();
+            foreach (FneConnectionEntry entry in entries)
+            {
+                // Cancellation fences queued waiters; acquiring the gate joins an active Start/Stop.
+                await entry.Sync.WaitAsync();
                 try
                 {
-                    CancelDeferredStartupKeyRequests(entry.SystemName);
-                    RemovePeerForEntry(entry);
-                    entry.Sync.Dispose();
+                    await RemovePeerForEntryAsync(entry);
+                    lock (fneConnectionEntries)
+                    {
+                        if (fneConnectionEntries.TryGetValue(entry.SystemName, out FneConnectionEntry current) && ReferenceEquals(current, entry))
+                            fneConnectionEntries.Remove(entry.SystemName);
+                    }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    /* best effort cleanup */
+                    Log.StackTrace(ex, false);
+                    errors.Add(ex);
+                }
+                finally
+                {
+                    // Retired entries can still have canceled continuations. Do not dispose their gates.
+                    entry.Sync.Release();
                 }
             }
 
-            fneSystemManager.ClearAll();
+            nextFneHealthCheckUtc = DateTime.MinValue;
             RefreshCommandControlsForConnectionState();
             NotifyConnectionWindowReset();
+            if (errors.Count != 0)
+                throw new AggregateException("Unable to stop all old FNE connections; replacement was not completed.", errors);
         }
 
         private FneConnectionEntry GetFneConnectionEntry(string systemName)
@@ -291,18 +301,32 @@ namespace dvmconsole
             }
         }
 
+        private bool IsCurrentFneConnectionEntry(FneConnectionEntry entry)
+        {
+            return entry != null && !isShuttingDown && fneConnectionResetTask == null && !entry.Lifetime.IsCancellationRequested &&
+                ReferenceEquals(GetFneConnectionEntry(entry.SystemName), entry);
+        }
+
+        private bool IsCurrentFneConnectionOperation(FneConnectionEntry entry, long version)
+        {
+            return IsCurrentFneConnectionEntry(entry) && entry.OperationVersion == version;
+        }
+
         private void CreatePeerForEntry(FneConnectionEntry entry)
         {
-            RemovePeerForEntry(entry);
+            if (!IsCurrentFneConnectionEntry(entry) || entry.Peer != null || fneSystemManager.GetFneSystem(entry.SystemName) != null)
+                throw new InvalidOperationException("The previous FNE peer must be stopped and removed before creating a replacement.");
 
             PeerSystem peer = fneSystemManager.AddOrReplaceFneSystem(entry.SystemName, entry.SystemConfig, this);
             entry.Peer = peer;
 
             entry.PeerConnectedHandler = (sender, response) =>
             {
-                Log.WriteLine($"FNE Peer connected: {entry.SystemName}");
-                Dispatcher.Invoke(() =>
+                Dispatcher.BeginInvoke(new Action(() =>
                 {
+                    if (!IsCurrentFneConnectionEntry(entry) || !ReferenceEquals(entry.Peer, peer) || entry.PeerConnectedHandler == null || !entry.DesiredStarted)
+                        return;
+                    Log.WriteLine($"FNE Peer connected: {entry.SystemName}");
                     bool wasConnected = entry.IsConnected;
                     entry.IsConnected = true;
                     if (!wasConnected)
@@ -312,54 +336,75 @@ namespace dvmconsole
                     UpdateChannelConnectionVisuals(entry.SystemName);
                     RefreshCommandControlsForConnectionState();
                     PublishConnectionState(entry);
+                    if (!IsCurrentFneConnectionEntry(entry) || !ReferenceEquals(entry.Peer, peer) || !entry.DesiredStarted)
+                        return;
                     QueueMissingChannelKeys(entry.SystemName);
                     ScheduleDeferredStartupKeyRequests(entry.SystemName);
                     PlayFneConnectedChime(entry);
                     _ = SyncFneAliasesAsync(entry.SystemName);
-                });
+                }));
             };
 
             entry.PeerDisconnectedHandler = _ =>
             {
-                Log.WriteLine($"FNE Peer disconnected: {entry.SystemName}");
-                Dispatcher.Invoke(() =>
+                Dispatcher.BeginInvoke(new Action(() =>
                 {
+                    if (!IsCurrentFneConnectionEntry(entry) || !ReferenceEquals(entry.Peer, peer) || entry.PeerDisconnectedHandler == null || !entry.DesiredStarted)
+                        return;
+                    Log.WriteLine($"FNE Peer disconnected: {entry.SystemName}");
                     ApplyDisconnectedState(entry, recordEvent: true);
                     PublishConnectionState(entry);
+                    if (!IsCurrentFneConnectionEntry(entry) || !ReferenceEquals(entry.Peer, peer) || !entry.DesiredStarted)
+                        return;
                     CancelDeferredStartupKeyRequests(entry.SystemName);
                     if (entry.SuppressNextDisconnectChime)
                         entry.SuppressNextDisconnectChime = false;
                     else
                         PlayFneConnectionChime(connected: false);
-                });
+                }));
             };
 
             peer.peer.PeerConnected += entry.PeerConnectedHandler;
             peer.peer.PeerDisconnected += entry.PeerDisconnectedHandler;
         }
 
-        private void RemovePeerForEntry(FneConnectionEntry entry)
+        private async Task RemovePeerForEntryAsync(FneConnectionEntry entry)
         {
+            if (ReferenceEquals(GetFneConnectionEntry(entry.SystemName), entry))
+                CancelDeferredStartupKeyRequests(entry.SystemName);
             CancelFneAliasSync(entry);
-            if (entry?.Peer?.peer != null)
+            PeerSystem peer = entry.Peer;
+            if (peer?.peer != null)
             {
                 if (entry.PeerConnectedHandler != null)
-                    entry.Peer.peer.PeerConnected -= entry.PeerConnectedHandler;
+                    peer.peer.PeerConnected -= entry.PeerConnectedHandler;
 
                 if (entry.PeerDisconnectedHandler != null)
-                    entry.Peer.peer.PeerDisconnected -= entry.PeerDisconnectedHandler;
+                    peer.peer.PeerDisconnected -= entry.PeerDisconnectedHandler;
             }
 
-            if (!string.IsNullOrWhiteSpace(entry?.SystemName))
-                fneSystemManager.RemoveFneSystem(entry.SystemName);
-
-            entry.Peer = null;
+            // Detach callbacks before stopping, but retain the peer for a retry if Stop fails.
             entry.PeerConnectedHandler = null;
             entry.PeerDisconnectedHandler = null;
+            if (peer != null)
+            {
+                await Task.Run(() => peer.Stop());
+                if (peer.IsStarted)
+                    throw new InvalidOperationException($"FNE peer '{entry.SystemName}' did not stop.");
+
+                // Manager mutation stays on the Dispatcher. Its Stop is now a verified no-op.
+                if (ReferenceEquals(fneSystemManager.GetFneSystem(entry.SystemName), peer))
+                    fneSystemManager.RemoveFneSystem(entry.SystemName);
+            }
+
+            entry.Peer = null;
+            entry.SuppressNextDisconnectChime = false;
         }
 
         private void ApplyDisconnectedState(FneConnectionEntry entry, bool recordEvent = false)
         {
+            if (!IsCurrentFneConnectionEntry(entry))
+                return;
             CancelFneAliasSync(entry);
             bool wasConnected = entry.IsConnected;
             entry.IsConnected = false;
@@ -548,6 +593,12 @@ namespace dvmconsole
 
         private void CheckFneConnectionHealth(bool force = false)
         {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke(new Action(() => CheckFneConnectionHealth(force)));
+                return;
+            }
+
             if (isShuttingDown)
                 return;
 
@@ -557,29 +608,35 @@ namespace dvmconsole
 
             nextFneHealthCheckUtc = now.Add(FNE_HEALTH_CHECK_INTERVAL);
 
-            List<(string SystemName, string Reason)> systemsToRestart = new List<(string, string)>();
+            List<(FneConnectionEntry Entry, long Version)> systemsToRestart = new List<(FneConnectionEntry, long)>();
             lock (fneConnectionEntries)
             {
                 foreach (FneConnectionEntry entry in fneConnectionEntries.Values)
                 {
-                    if (!ShouldRestartUnhealthyFneConnection(entry, now, out string reason))
+                    if (!ShouldRestartUnhealthyFneConnection(entry, now, out _))
                         continue;
 
-                    systemsToRestart.Add((entry.SystemName, reason));
+                    systemsToRestart.Add((entry, entry.OperationVersion));
                 }
             }
 
-            foreach ((string systemName, string reason) in systemsToRestart)
+            foreach ((FneConnectionEntry entry, long version) in systemsToRestart)
             {
-                Log.WriteWarning($"FNE health check restarting '{systemName}': {reason}");
-                Dispatcher.BeginInvoke(new Action(() => _ = RestartFneSystemAsync(systemName, showError: false)));
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (!IsCurrentFneConnectionOperation(entry, version) ||
+                        !ShouldRestartUnhealthyFneConnection(entry, DateTime.UtcNow, out string currentReason))
+                        return;
+                    Log.WriteWarning($"FNE health check restarting '{entry.SystemName}': {currentReason}");
+                    _ = RunFneConnectionOperationAsync(entry, FneConnectionOperation.Restart, showError: false);
+                }));
             }
         }
 
         private bool ShouldRestartUnhealthyFneConnection(FneConnectionEntry entry, DateTime now, out string reason)
         {
             reason = string.Empty;
-            if (entry == null || entry.IsBusy || !entry.DesiredStarted)
+            if (!IsCurrentFneConnectionEntry(entry) || entry.IsBusy || !entry.DesiredStarted)
                 return false;
 
             if (entry.Peer == null || entry.Peer.peer == null || !entry.Peer.IsStarted)
@@ -635,6 +692,8 @@ namespace dvmconsole
 
         private void PublishConnectionState(FneConnectionEntry entry)
         {
+            if (!IsCurrentFneConnectionEntry(entry))
+                return;
             FneConnectionSnapshot snapshot = CreateSnapshot(entry);
             FneConnectionStateChanged?.Invoke(snapshot);
         }

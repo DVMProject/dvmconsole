@@ -80,12 +80,12 @@ namespace dvmconsole
             : "Load a codeplug before opening this window to limit a transfer to specific zone tabs.";
 
         private readonly SettingsManager settingsManager;
-        private readonly Action importedCallback;
+        private readonly Func<Task> importedCallback;
         private readonly Func<IEnumerable<string>, SettingsManager.SettingsTransferScope> zoneScopeFactory;
 
         public SettingsTransferWindow(
             SettingsManager settingsManager,
-            Action importedCallback,
+            Func<Task> importedCallback,
             IEnumerable<string> zoneNames = null,
             Func<IEnumerable<string>, SettingsManager.SettingsTransferScope> zoneScopeFactory = null)
         {
@@ -176,7 +176,7 @@ namespace dvmconsole
             }
         }
 
-        private void ImportSelected_Click(object sender, RoutedEventArgs e)
+        private async void ImportSelected_Click(object sender, RoutedEventArgs e)
         {
             List<string> selectedCategories = GetSelectedCategoryIds();
             if (selectedCategories.Count == 0)
@@ -206,9 +206,11 @@ namespace dvmconsole
 
             try
             {
+                IsEnabled = false;
                 SettingsManager.SettingsTransferScope zoneScope = GetSelectedZoneScope();
                 List<string> importedCategories = settingsManager.ImportSettingsTransfer(dialog.FileName, selectedCategories, zoneScope);
-                importedCallback?.Invoke();
+                if (importedCallback != null)
+                    await importedCallback();
                 string scopeText = zoneScope?.HasScope == true
                     ? $" scoped to {zoneScope.ZoneNames.Count} zone tab(s)"
                     : string.Empty;
@@ -219,6 +221,7 @@ namespace dvmconsole
                 ShowError($"Unable to import settings. {ex.Message}");
                 Log.StackTrace(ex, false);
             }
+            finally { IsEnabled = true; }
         }
 
         private void Close_Click(object sender, RoutedEventArgs e)

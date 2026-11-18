@@ -22,6 +22,7 @@ namespace dvmconsole
         private sealed class FneConnectionRow : INotifyPropertyChanged
         {
             private bool isConnected;
+            private bool isStarted;
             private bool isBusy;
             private bool canSyncAliases;
             private string aliasStatus;
@@ -52,6 +53,19 @@ namespace dvmconsole
                     NotifyPropertyChanged();
                     NotifyPropertyChanged(nameof(StatusText));
                     NotifyPropertyChanged(nameof(StatusBrush));
+                }
+            }
+
+            public bool IsStarted
+            {
+                get => isStarted;
+                set
+                {
+                    if (isStarted == value)
+                        return;
+
+                    isStarted = value;
+                    NotifyPropertyChanged();
                     NotifyPropertyChanged(nameof(ToggleButtonText));
                 }
             }
@@ -72,7 +86,7 @@ namespace dvmconsole
 
             public string StatusText => IsConnected ? "Connected" : "Disconnected";
             public Brush StatusBrush => IsConnected ? Brushes.LightGreen : Brushes.IndianRed;
-            public string ToggleButtonText => IsConnected ? "Stop" : "Start";
+            public string ToggleButtonText => IsStarted ? "Stop" : "Start";
             public bool ButtonsEnabled => !IsBusy;
 
             public event PropertyChangedEventHandler PropertyChanged;
@@ -116,7 +130,7 @@ namespace dvmconsole
             if (Owner is not MainWindow mainWindow || sender is not FrameworkElement element || element.DataContext is not FneConnectionRow row)
                 return;
 
-            if (row.IsConnected)
+            if (row.IsStarted)
                 await mainWindow.StopFneSystemAsync(row.SystemName);
             else
                 await mainWindow.StartFneSystemAsync(row.SystemName);
@@ -155,6 +169,7 @@ namespace dvmconsole
                 }
 
                 row.IsConnected = snapshot.IsConnected;
+                row.IsStarted = snapshot.IsStarted;
                 row.IsBusy = snapshot.IsBusy;
                 row.CanSyncAliases = snapshot.CanSyncAliases;
                 row.AliasStatus = snapshot.AliasStatus;
@@ -170,6 +185,7 @@ namespace dvmconsole
                 {
                     SystemName = snapshot.SystemName,
                     IsConnected = snapshot.IsConnected,
+                    IsStarted = snapshot.IsStarted,
                     IsBusy = snapshot.IsBusy,
                     CanSyncAliases = snapshot.CanSyncAliases,
                     AliasStatus = snapshot.AliasStatus

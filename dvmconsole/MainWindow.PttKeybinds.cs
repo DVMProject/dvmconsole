@@ -79,7 +79,7 @@ namespace dvmconsole
 
         private void KeyboardManagerOnKeyEvent(Keys key, GlobalKeyboardHook.KeyboardState state)
         {
-            if (editingPttKeybinds || isShuttingDown)
+            if (editingPttKeybinds || isShuttingDown || isReloadingResources)
                 return;
             bool down = state is GlobalKeyboardHook.KeyboardState.KeyDown or GlobalKeyboardHook.KeyboardState.SysKeyDown;
             bool up = state is GlobalKeyboardHook.KeyboardState.KeyUp or GlobalKeyboardHook.KeyboardState.SysKeyUp;
