@@ -25,6 +25,10 @@ Use **Configuration** to choose the recording folder and decide which talkgroups
 
 TAR records per-call audio, not one long continuous file.
 
+For P25, DMR, and NXDN, a source RID change starts a separate call in TAR and call history, even if the upstream source reuses its stream ID. Analog calls retain late RID updates, such as a post-transmission MDC ID, in the same recording and history entry.
+
+Enabling TAR during a call records from that point onward and links the recording to the existing history entry.
+
 It can record:
 
 - received call audio on TAR-enabled talkgroups

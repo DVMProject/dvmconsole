@@ -65,14 +65,15 @@ namespace dvmconsole
         /// <param name="srcId"></param>
         /// <param name="dstId"></param>
         /// <param name="grantDemand"></param>
-        /// <param name="callTerm"></param>
-        public void SendP25TDU(uint srcId, uint dstId, bool grantDemand = false)
+        /// <param name="streamId">Voice stream being ended; zero retains FNECore's default stream behavior.</param>
+        public void SendP25TDU(uint srcId, uint dstId, bool grantDemand = false, uint streamId = 0)
         {
             RemoteCallData callData = new RemoteCallData()
             {
                 SrcId = srcId,
                 DstId = dstId,
-                LCO = P25Defines.LC_GROUP
+                LCO = P25Defines.LC_GROUP,
+                TxStreamID = streamId
             };
 
             if (grantDemand)

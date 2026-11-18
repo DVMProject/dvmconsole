@@ -797,6 +797,7 @@ namespace dvmconsole.Controls
         /// Exact history rows belonging to the current received call.
         /// </summary>
         internal ReceivedCallHistory RxHistory { get; set; }
+        internal ReceiveCallState RxCall { get; } = new ReceiveCallState();
 
         /*
         ** Methods

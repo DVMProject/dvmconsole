@@ -121,7 +121,7 @@ namespace dvmconsole
                     EndTarTxRecording(channel, system, config);
                     StopGroupTransmissionsForChannel(channel);
                     if (channel.TxStreamId == stream && IsFneSystemConnected(system.Name))
-                        fne.SendP25TDU(sourceIdOverride ?? uint.Parse(config.GetSourceRid(system)), uint.Parse(config.Tgid), false);
+                        fne.SendP25TDU(sourceIdOverride ?? uint.Parse(config.GetSourceRid(system)), uint.Parse(config.Tgid), false, stream);
                 }
                 catch (Exception)
                 {
@@ -487,6 +487,9 @@ namespace dvmconsole
         /// <param name="e"></param>
         public void P25DataReceived(string sourceSystemName, P25DataReceivedEvent e, DateTime pktTime)
         {
+            if (e.CallType != CallType.GROUP || e.Data == null || e.Data.Length < 24 ||
+                e.StreamId == 0 || e.Data[23] < 24 || e.Data[23] > e.Data.Length)
+                return;
             try
             {
             uint sysId = (uint)((e.Data[11U] << 8) | (e.Data[12U] << 0));
@@ -497,6 +500,17 @@ namespace dvmconsole
             byte[] data = new byte[len];
             for (int i = 24; i < len; i++)
                 data[i - 24] = e.Data[i];
+
+            bool terminator = e.DUID == P25DUID.TDU || e.DUID == P25DUID.TDULC;
+            if (!terminator)
+            {
+                if (e.DUID != P25DUID.LDU1 && e.DUID != P25DUID.LDU2)
+                    return;
+                int[] offsets = { 0, 22, 36, 53, 70, 87, 104, 121, 138 };
+                int firstTag = e.DUID == P25DUID.LDU1 ? 0x62 : 0x6B;
+                if (len < 178 || offsets.Where((offset, index) => data[offset] != firstTag + index).Any())
+                    return;
+            }
 
             Dispatcher.Invoke(() =>
             {
@@ -550,7 +564,6 @@ namespace dvmconsole
                         channel.Decoder = new MBEDecoder(MBE_MODE.IMBE_88BIT);
 
                     SlotStatus slot = systemStatuses[statusKey];
-                    channel.LastPktTime = pktTime;
 
                     // is the Rx stream ID being Rx'ed on another copy of this same resource?
                     bool duplicateRx = selectedChannelsManager.GetSelectedChannels().Any(other =>
@@ -579,10 +592,24 @@ namespace dvmconsole
                         continue;
                     }
 
-                    // A terminator may carry the peer's stream ID; retain the active call's
-                    // crypto metadata until TAR finalization and receive cleanup complete.
-                    if (e.DUID != P25DUID.TDU && e.DUID != P25DUID.TDULC &&
-                        (!channel.IsReceiving || e.StreamId != slot.RxStreamId))
+                    ReceiveCallState.Transition transition = channel.RxCall.Evaluate(e.PeerId, e.StreamId,
+                        e.SrcId, terminator, allowSourceUpdate: false);
+                    if (transition == ReceiveCallState.Transition.Ignore)
+                        continue;
+                    if (transition == ReceiveCallState.Transition.End)
+                    {
+                        TimeSpan duration = pktTime - slot.RxStart;
+                        EndReceiveCall(channel, system, cpgChannel, slot, pktTime);
+                        Log.WriteLine($"({system.Name}) P25D: Traffic *CALL END       * SRC_ID {e.SrcId} TGID {e.DstId} DUR {duration} [STREAM ID {e.StreamId}]");
+                        continue;
+                    }
+
+                    bool isNewCallStream = transition == ReceiveCallState.Transition.Start || !channel.IsReceiving;
+                    if (isNewCallStream && channel.RxStreamId != 0)
+                        EndReceiveCall(channel, system, cpgChannel, slot, pktTime);
+                    channel.RxCall.Accept(e.PeerId, e.StreamId, e.SrcId);
+                    channel.LastPktTime = pktTime;
+                    if (isNewCallStream)
                     {
                         channel.ReceiveCrypto.Reset();
                         channel.algId = 0;
@@ -604,7 +631,6 @@ namespace dvmconsole
                     bool isConsoleRid = IsConsoleSourceRid(system, e.SrcId);
 
                     // is this a new call stream?
-                    bool isNewCallStream = !channel.IsReceiving || e.StreamId != slot.RxStreamId;
                     if (isNewCallStream && ((e.DUID != P25DUID.TDU) && (e.DUID != P25DUID.TDULC)))
                     {
                         patchManager.HandleCallStart(system.Name, cpgChannel.Tgid, e.StreamId, e.SrcId);
@@ -642,7 +668,7 @@ namespace dvmconsole
                                 callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"), recording),
                                 channel.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"), recording));
                         }
-                        callHistoryWindow.ChannelKeyed(cpgChannel.Name, (int)e.SrcId, encrypted);
+                        channel.RxHistory?.SetActive(encrypted);
 
                         if (channel.algId != P25Defines.P25_ALGO_UNENCRYPT)
                             Log.WriteLine($"({system.Name}) P25D: Traffic *CALL ENC PARMS * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
@@ -656,35 +682,6 @@ namespace dvmconsole
                     if (!channel.IsReceiving)
                     {
                         channel.VolumeMeterLevel = 0;
-                        continue;
-                    }
-
-                    // is the call over?
-                    if (((e.DUID == P25DUID.TDU) || (e.DUID == P25DUID.TDULC)) && (slot.RxType != fnecore.FrameType.TERMINATOR))
-                    {
-                        patchManager.HandleCallEnd(system.Name, cpgChannel.Tgid, e.StreamId);
-                        EndTarRxRecording(
-                            system,
-                            cpgChannel,
-                            e.StreamId,
-                            e.SrcId,
-                            alias,
-                            channel.algId != P25Defines.P25_ALGO_UNENCRYPT,
-                            DescribeP25EncryptionAlgorithm(channel.algId),
-                            channel.kId > 0 ? channel.kId : null,
-                            pktTime);
-                        if (channel.RxStreamId > 0 && channel.RxStreamId != e.StreamId)
-                            EndTarRxRecordingFromChannelState(system, cpgChannel, channel, slot, pktTime);
-
-                        ClearReceiveState(channel, slot);
-                        audioManager.ReleaseTalkgroupStream(channel.AudioOutputKey);
-                        
-                        // Update tab audio indicator
-                        Dispatcher.Invoke(() => UpdateTabAudioIndicatorForChannel(channel));
-
-                        TimeSpan callDuration = pktTime - slot.RxStart;
-                        Log.WriteLine($"({system.Name}) P25D: Traffic *CALL END       * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} DUR {callDuration} [STREAM ID {e.StreamId}]");
-                        callHistoryWindow.ChannelUnkeyed(cpgChannel.Name, (int)e.SrcId);
                         continue;
                     }
 
@@ -843,6 +840,7 @@ namespace dvmconsole
 
                     channel.IsReceivingEncrypted = channel.algId != P25Defines.P25_ALGO_UNENCRYPT;
                     channel.RxHistory?.UpdateEncryption(e.StreamId, channel.IsReceivingEncrypted, channel.kId);
+                    channel.RxHistory?.SetActive(channel.IsReceivingEncrypted);
                     // LDU2 carries the MI for the next pair. Do not restart crypto after LDU1.
                     if (e.DUID == P25DUID.LDU2)
                         PrepareP25Receive(channel, system.Name);

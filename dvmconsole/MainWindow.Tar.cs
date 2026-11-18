@@ -142,7 +142,7 @@ namespace dvmconsole
                 return;
 
             Log.WriteLine($"TAR RX late-start requested for {system.Name} TG {channel.Tgid} RID {subscriberId} stream {streamId} ({reason}).");
-            BeginTarRxRecording(
+            Task<TarRecordingMetadata> recording = BeginTarRxRecording(
                 system,
                 channel,
                 streamId,
@@ -152,6 +152,7 @@ namespace dvmconsole
                 encryptionAlgorithm,
                 encryptionKeyId,
                 packetTime);
+            channelBox.RxHistory?.AttachRecording(streamId, recording);
         }
 
         private void EndTarRxRecording(
@@ -210,10 +211,9 @@ namespace dvmconsole
                     break;
 
                 case Codeplug.ChannelMode.DMR:
-                    PrivacyLC privacy = slotStatus?.DMR_RxPILC;
-                    isEncrypted = privacy != null && privacy.AlgId != 0;
-                    encryptionAlgorithm = DescribeDmrEncryptionAlgorithm(privacy?.AlgId ?? 0);
-                    encryptionKeyId = NormalizeEncryptionKeyId(privacy?.KId ?? 0);
+                    isEncrypted = channelBox.DmrRx?.IsEncrypted == true;
+                    encryptionAlgorithm = DescribeDmrEncryptionAlgorithm(channelBox.DmrRx?.AlgorithmId ?? 0);
+                    encryptionKeyId = NormalizeEncryptionKeyId(channelBox.DmrRx?.KeyId ?? 0);
                     break;
             }
 

@@ -11,6 +11,8 @@
 *
 */
 
+using System.Windows.Media;
+
 namespace dvmconsole
 {
     /// <summary>
@@ -21,12 +23,14 @@ namespace dvmconsole
         private readonly uint streamId;
         private readonly CallEntry globalEntry;
         private readonly CallEntry channelEntry;
+        private bool ended;
 
         public ReceivedCallHistory(uint streamId, CallEntry globalEntry, CallEntry channelEntry)
         {
             this.streamId = streamId;
             this.globalEntry = globalEntry;
             this.channelEntry = channelEntry;
+            globalEntry.StreamId = channelEntry.StreamId = streamId;
         }
 
         /// <summary>
@@ -35,7 +39,7 @@ namespace dvmconsole
         /// </summary>
         public void UpdateSource(uint receivedStreamId, int sourceId, string alias)
         {
-            if (receivedStreamId != streamId)
+            if (ended || receivedStreamId != streamId || sourceId <= 0)
                 return;
 
             UpdateEntry(globalEntry, sourceId, alias);
@@ -44,11 +48,35 @@ namespace dvmconsole
 
         public void UpdateEncryption(uint receivedStreamId, bool encrypted, ushort? keyId)
         {
-            if (receivedStreamId != streamId)
+            if (ended || receivedStreamId != streamId)
                 return;
 
             globalEntry.EncryptionKeyId = encrypted ? keyId : null;
             channelEntry.EncryptionKeyId = encrypted ? keyId : null;
+        }
+
+        /// <summary>Links a recording enabled after this call's initial history entry.</summary>
+        public void AttachRecording(uint receivedStreamId, Task<TarRecordingMetadata> recording)
+        {
+            if (ended || receivedStreamId != streamId || recording == null)
+                return;
+
+            globalEntry.Recording = channelEntry.Recording = recording;
+        }
+
+        public void SetActive(bool encrypted)
+        {
+            if (ended)
+                return;
+            globalEntry.ForegroundColor = channelEntry.ForegroundColor = Brushes.Black;
+            globalEntry.BackgroundColor = channelEntry.BackgroundColor = encrypted ? Brushes.Orange : Brushes.LightGreen;
+        }
+
+        public void End(bool darkMode)
+        {
+            ended = true;
+            globalEntry.ForegroundColor = channelEntry.ForegroundColor = darkMode ? Brushes.White : Brushes.Black;
+            globalEntry.BackgroundColor = channelEntry.BackgroundColor = Brushes.Transparent;
         }
 
         private static void UpdateEntry(CallEntry entry, int sourceId, string alias)

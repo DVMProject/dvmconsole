@@ -338,25 +338,33 @@ namespace dvmconsole
 
                     // is this a new call stream?
                     SlotStatus slotStatus = systemStatuses[statusKey];
-                    bool isNewCallStream = !channel.IsReceiving || e.StreamId != slotStatus.RxStreamId;
-                    // A late or duplicate terminator must not start a phantom call.
-                    if (isNewCallStream && e.FrameType == FrameType.DATA_SYNC && e.DataType == DMRDataType.TERMINATOR_WITH_LC)
+                    bool terminator = e.FrameType == FrameType.DATA_SYNC && e.DataType == DMRDataType.TERMINATOR_WITH_LC;
+                    ReceiveCallState.Transition transition = channel.RxCall.Evaluate(e.PeerId, e.StreamId,
+                        e.SrcId, terminator, allowSourceUpdate: false);
+                    if (transition == ReceiveCallState.Transition.Ignore)
                         continue;
-
-                    if (isNewCallStream)
-                    {
-                        channel.DmrRx?.Dispose();
-                        channel.DmrRx = new DMRCallData
+                    bool isNewCallStream = transition == ReceiveCallState.Transition.Start || !channel.IsReceiving;
+                    DMRCallData dmrCall = isNewCallStream
+                        ? new DMRCallData
                         {
                             SrcId = e.SrcId, DstId = e.DstId, TxStreamID = e.StreamId,
                             Slot = checked((byte)(e.Slot + 1))
-                        };
-                    }
-                    DMRCallData dmrCall = channel.DmrRx;
+                        } : channel.DmrRx;
                     byte[] clearAmbe = new byte[DMRFrame.VoiceBytes];
                     int voiceLength = DMRFrame.Decode(dmrCall, e.Data, clearAmbe);
                     if (!dmrCall.LastPacketAccepted)
+                    {
+                        if (isNewCallStream)
+                            dmrCall.Dispose();
                         continue;
+                    }
+                    if (isNewCallStream)
+                    {
+                        if (channel.RxStreamId != 0)
+                            EndReceiveCall(channel, system, cpgChannel, slotStatus, pktTime);
+                        channel.DmrRx = dmrCall;
+                    }
+                    channel.RxCall.Accept(e.PeerId, e.StreamId, e.SrcId);
                     channel.LastPktTime = pktTime;
                     channel.IsReceivingEncrypted = dmrCall.IsEncrypted;
 
@@ -401,7 +409,7 @@ namespace dvmconsole
                                 callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"), recording),
                                 channel.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"), recording));
                         }
-                        callHistoryWindow.ChannelKeyed(cpgChannel.Name, (int)e.SrcId, dmrCall.IsEncrypted);
+                        channel.RxHistory?.SetActive(dmrCall.IsEncrypted);
 
                     }
 
@@ -437,9 +445,6 @@ namespace dvmconsole
                             DescribeDmrEncryptionAlgorithm(dmrCall.AlgorithmId),
                             NormalizeEncryptionKeyId(dmrCall.KeyId),
                             pktTime);
-                        if (channel.RxStreamId > 0 && channel.RxStreamId != e.StreamId)
-                            EndTarRxRecordingFromChannelState(system, cpgChannel, channel, slotStatus, pktTime);
-
                         ClearReceiveState(channel, slotStatus);
                         audioManager.ReleaseTalkgroupStream(channel.AudioOutputKey);
                         
@@ -448,7 +453,6 @@ namespace dvmconsole
 
                         TimeSpan callDuration = pktTime - slotStatus.RxStart;
                         Log.WriteLine($"({system.Name}) DMRD: Traffic *CALL END       * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} TS {e.Slot} DUR {callDuration} [STREAM ID {e.StreamId}]");
-                        callHistoryWindow.ChannelUnkeyed(cpgChannel.Name, (int)e.SrcId);
                         continue;
                     }
 
@@ -475,7 +479,7 @@ namespace dvmconsole
                             NormalizeEncryptionKeyId(dmrCall.KeyId),
                             pktTime,
                             "DMR voice frame");
-                        callHistoryWindow.ChannelKeyed(cpgChannel.Name, (int)e.SrcId, isEncrypted);
+                        channel.RxHistory?.SetActive(isEncrypted);
                         if (voiceLength == DMRFrame.VoiceBytes)
                             DMRDecodeAudioFrame(clearAmbe, e, handler, channel, system.Name);
                     }

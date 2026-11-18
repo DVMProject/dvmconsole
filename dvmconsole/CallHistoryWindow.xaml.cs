@@ -112,7 +112,7 @@ namespace dvmconsole
         public bool IsConsoleTx { get; set; }
 
         /// <summary>
-        /// Stream ID for active console TX rows.
+        /// Transport stream ID associated with this RX or console TX row.
         /// </summary>
         public uint? StreamId { get; set; }
 

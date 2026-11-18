@@ -2561,7 +2561,7 @@ namespace dvmconsole
             uint srcId = uint.Parse(cpgChannel.GetSourceRid(system));
             uint dstId = uint.Parse(cpgChannel.Tgid);
             if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                fne.SendP25TDU(srcId, dstId, false);
+                fne.SendP25TDU(srcId, dstId, false, channel.TxStreamId);
             else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
                 EndDmrTransmission(channel);
 
@@ -2573,6 +2573,8 @@ namespace dvmconsole
         /// </summary>
         private void ClearReceiveState(ChannelBox channel, SlotStatus slotStatus = null)
         {
+            channel.RxHistory?.End(settingsManager.DarkMode);
+            channel.RxCall.End();
             channel.ReceiveCrypto.Reset();
             channel.DmrRx?.Dispose();
             channel.DmrRx = null;
@@ -2583,6 +2585,7 @@ namespace dvmconsole
             channel.PeerId = 0;
             channel.RxStreamId = 0;
             channel.RxHistory = null;
+            channel.AnalogRxInverter = null;
             channel.VolumeMeterLevel = 0;
 
             if (slotStatus != null)
@@ -2595,6 +2598,23 @@ namespace dvmconsole
                 slotStatus.DMR_RxPILC = null;
                 slotStatus.RxTime = DateTime.Now;
             }
+        }
+
+        /// <summary>Closes the old call before its source, decoder or stream is replaced.</summary>
+        private void EndReceiveCall(ChannelBox channel, Codeplug.System system, Codeplug.Channel config,
+            SlotStatus status, DateTime endTime, bool discardAudio = false)
+        {
+            if (channel.RxStreamId != 0 && system != null && config != null)
+            {
+                EndTarRxRecordingFromChannelState(system, config, channel, status, endTime);
+                patchManager.HandleCallEnd(system.Name, config.Tgid, channel.RxStreamId);
+            }
+            ClearReceiveState(channel, status);
+            if (discardAudio)
+                audioManager.StopTalkgroupStream(channel.AudioOutputKey);
+            else
+                audioManager.ReleaseTalkgroupStream(channel.AudioOutputKey);
+            UpdateTabAudioIndicatorForChannel(channel);
         }
 
         /// <summary>
@@ -2615,8 +2635,6 @@ namespace dvmconsole
             EndTarRxRecordingFromChannelState(system, cpgChannel, channel, slotStatus, DateTime.Now);
             ClearReceiveState(channel, slotStatus);
             audioManager.StopTalkgroupStream(channel.AudioOutputKey);
-            callHistoryWindow.ClearChannelActivity(channel.ChannelName);
-            channel.ClearCallHistoryActivity();
             UpdateTabAudioIndicatorForChannel(channel);
         }
 
@@ -3461,6 +3479,7 @@ namespace dvmconsole
             uint srcId = uint.Parse(cpgChannel.GetSourceRid(system));
             uint dstId = uint.Parse(cpgChannel.Tgid);
             bool txStarted = false;
+            uint toneStreamId = 0;
 
             foreach (ToneTransmitGroupSession group in groups.Where(group => group.Targets.Contains(channel)))
                 group.Cancels.Add(toneCancelSource);
@@ -3473,6 +3492,7 @@ namespace dvmconsole
                 audioManager.PlayOneShot(channel.AudioOutputKey, pcmData, cancellationToken);
 
                 channel.TxStreamId = fne.NewStreamId();
+                toneStreamId = channel.TxStreamId;
                 txStarted = true;
                 Log.WriteLine($"({system.Name}) {channel.ChannelMode.ToUpperInvariant()} Traffic *{logLabel,-14}* TGID {channel.DstId} [STREAM ID {channel.TxStreamId}]");
                 channel.VolumeMeterLevel = 0;
@@ -3532,7 +3552,7 @@ namespace dvmconsole
                 if (txStarted)
                 {
                     if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                        fne.SendP25TDU(srcId, dstId, false);
+                        fne.SendP25TDU(srcId, dstId, false, toneStreamId);
                     else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
                         EndDmrTransmission(channel);
 
@@ -4032,30 +4052,18 @@ namespace dvmconsole
                     if (fne == null)
                         continue;
 
-                    // check if the channel is stuck reporting Rx
-                      if (channel.IsReceiving)
-                      {
-                          DateTime now = DateTime.Now;
-                          TimeSpan dt = now - channel.LastPktTime;
-                          if (dt.TotalMilliseconds > 2000) // 2 seconds is more then enough time -- the interpacket time for P25 is ~180ms and DMR is ~60ms
-                          {
-                              SlotStatus slotStatus = FindActiveReceiveStatus(channel, cpgChannel);
-                              if (cpgChannel != null && channel.RxStreamId > 0)
-                                  patchManager.HandleCallEnd(system.Name, cpgChannel.Tgid, channel.RxStreamId);
+                    // Check and close on the receive dispatcher so a queued packet cannot
+                    // replace the call between the timeout decision and its cleanup.
+                    Dispatcher.Invoke(() =>
+                    {
+                        DateTime now = DateTime.Now;
+                        if (!channel.IsReceiving || (now - channel.LastPktTime).TotalMilliseconds <= 2000)
+                            return;
 
-                              EndTarRxRecordingFromChannelState(system, cpgChannel, channel, slotStatus, now);
-
-                              Log.WriteLine($"({system.Name}) P25D: Traffic *CALL TIMEOUT   * TGID {channel.DstId} ALGID {channel.algId} KID {channel.kId}");
-                              Dispatcher.Invoke(() =>
-                              {
-                                  ClearReceiveState(channel, slotStatus);
-                                  audioManager.ReleaseTalkgroupStream(channel.AudioOutputKey);
-                                  
-                                  // Update tab audio indicator
-                                  UpdateTabAudioIndicatorForChannel(channel);
-                              });
-                          }
-                    }
+                        SlotStatus slotStatus = FindActiveReceiveStatus(channel, cpgChannel);
+                        Log.WriteLine($"({system.Name}) {channel.ChannelMode.ToUpperInvariant()}: Traffic *CALL TIMEOUT   * TGID {channel.DstId}");
+                        EndReceiveCall(channel, system, cpgChannel, slotStatus, now);
+                    });
                 }
 
                 try
@@ -5915,7 +5923,7 @@ namespace dvmconsole
                     return;
 
                 if (IsFneSystemConnected(system.Name) && cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                    fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
+                    fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false, e.TxStreamId);
                 else if (!IsFneSystemConnected(system.Name))
                     Log.WriteWarning($"Page TDU end skipped for {e.ChannelName}; FNE system '{system.Name}' is disconnected.");
             }
@@ -6027,7 +6035,7 @@ namespace dvmconsole
                 if (IsFneSystemConnected(system.Name))
                 {
                     if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                        fne.SendP25TDU(srcId, dstId, false);
+                        fne.SendP25TDU(srcId, dstId, false, e.TxStreamId);
                     else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
                         EndDmrTransmission(e);
                 }
@@ -7092,7 +7100,7 @@ namespace dvmconsole
             if (IsFneSystemConnected(session.CodeplugSystem.Name))
             {
                 if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                    session.Fne.SendP25TDU(session.SourceId, dstId, false);
+                    session.Fne.SendP25TDU(session.SourceId, dstId, false, session.StreamId);
                 else if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
                     EndDmrTransmission(session.Channel);
             }
@@ -7286,7 +7294,7 @@ namespace dvmconsole
             if (IsFneSystemConnected(system.Name))
             {
                 if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                    fne.SendP25TDU(sourceId, dstId, false);
+                    fne.SendP25TDU(sourceId, dstId, false, streamId);
                 else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
                     EndDmrTransmission(channelBox);
             }

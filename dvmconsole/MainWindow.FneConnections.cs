@@ -423,32 +423,19 @@ namespace dvmconsole
 
                     Codeplug.Channel disconnectedChannel = channel.ConfiguredChannel;
                     Codeplug.System disconnectedSystem = Codeplug?.GetSystemForChannel(disconnectedChannel);
-                    bool hadReceiveState = channel.IsReceiving || channel.IsReceivingEncrypted;
                     bool hadTransmitState = channel.PttState || channel.PatchForwardingTxState || channel.TxStreamId != 0;
                     SlotStatus slotStatus = FindActiveReceiveStatus(channel, disconnectedChannel);
 
-                    if (disconnectedSystem != null && disconnectedChannel != null && hadReceiveState && channel.RxStreamId > 0)
-                    {
-                        patchManager.HandleCallEnd(disconnectedSystem.Name, disconnectedChannel.Tgid, channel.RxStreamId);
-                        EndTarRxRecordingFromChannelState(disconnectedSystem, disconnectedChannel, channel, slotStatus, DateTime.Now);
-                    }
+                    EndReceiveCall(channel, disconnectedSystem, disconnectedChannel, slotStatus, DateTime.Now, discardAudio: true);
 
                     if (disconnectedSystem != null && disconnectedChannel != null && hadTransmitState)
                         EndTarTxRecording(channel, disconnectedSystem, disconnectedChannel);
 
                     EndAnalogTransmission(channel, discardPending: true);
                     EndDmrTransmission(channel, discardPending: true);
-                    channel.DmrRx?.Dispose();
-                    channel.DmrRx = null;
                     EndNxdnTransmission(channel, discardPending: true);
-                    channel.NxdnRx?.Dispose();
-                    channel.NxdnRx = null;
-                    channel.IsReceiving = false;
-                    channel.IsReceivingEncrypted = false;
                     channel.PttState = false;
                     channel.PatchForwardingTxState = false;
-                    channel.PeerId = 0;
-                    channel.RxStreamId = 0;
                     channel.VolumeMeterLevel = 0;
                     ResetChannel(channel);
                     UpdateTabAudioIndicatorForChannel(channel);

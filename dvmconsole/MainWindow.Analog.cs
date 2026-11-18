@@ -162,7 +162,11 @@ namespace dvmconsole
                     string statusKey = ResourceIdentity.Build(system.Name, config.Tgid) + "|analog";
                     if (!systemStatuses.TryGetValue(statusKey, out SlotStatus status))
                         systemStatuses[statusKey] = status = new SlotStatus();
-                    bool newCall = channel.RxStreamId != e.StreamId;
+                    ReceiveCallState.Transition transition = channel.RxCall.Evaluate(e.PeerId, e.StreamId,
+                        e.SrcId, e.AudioFrameType == AudioFrameType.TERMINATOR, allowSourceUpdate: true);
+                    if (transition == ReceiveCallState.Transition.Ignore)
+                        continue;
+                    bool newCall = transition == ReceiveCallState.Transition.Start;
                     if (newCall && e.AudioFrameType != AudioFrameType.VOICE_START)
                         continue;
                     if (newCall && config.ScramblerCode != 0 &&
@@ -177,11 +181,7 @@ namespace dvmconsole
                         if (newCall)
                         {
                             if (channel.RxStreamId != 0)
-                            {
-                                EndTarRxRecordingFromChannelState(system, config, channel, status, packetTime);
-                                patchManager.HandleCallEnd(system.Name, config.Tgid, channel.RxStreamId);
-                                callHistoryWindow.ClearChannelActivity(channel.ChannelName);
-                            }
+                                EndReceiveCall(channel, system, config, status, packetTime);
                             channel.IsReceiving = true;
                             channel.IsReceivingEncrypted = false;
                             channel.PeerId = e.PeerId;
@@ -193,6 +193,7 @@ namespace dvmconsole
                             status.RxStart = packetTime;
                             patchManager.HandleCallStart(system.Name, config.Tgid, e.StreamId, e.SrcId);
                         }
+                        channel.RxCall.Accept(e.PeerId, e.StreamId, e.SrcId);
                         channel.LastPktTime = packetTime;
                         channel.LastSrcId = string.IsNullOrEmpty(alias) ? "Last ID: " + e.SrcId : "Last: " + alias;
                         status.RxRFS = e.SrcId;
@@ -217,13 +218,14 @@ namespace dvmconsole
                             ClearReceiveState(channel, status);
                             channel.AnalogRxInverter = null;
                             audioManager.ReleaseTalkgroupStream(channel.AudioOutputKey);
-                            callHistoryWindow.ChannelUnkeyed(config.Name, (int)e.SrcId);
                             Log.WriteLine($"({system.Name}) Analog Traffic *CALL END       * SRC_ID {e.SrcId} TGID {e.DstId} [STREAM ID {e.StreamId}]");
                         }
                         else if (AnalogVoicePacketCodec.TryDecode(e.Data, out short[] samples))
                         {
                             channel.AnalogRxInverter?.Process(samples);
-                            callHistoryWindow.ChannelKeyed(config.Name, (int)e.SrcId, false);
+                            channel.RxHistory?.SetActive(false);
+                            EnsureTarRxRecording(system, config, channel, e.PeerId, e.StreamId, e.SrcId, alias,
+                                false, string.Empty, null, packetTime, "Analog voice frame");
                             byte[] pcm = new byte[PCM_SAMPLES_LENGTH];
                             Buffer.BlockCopy(samples, 0, pcm, 0, pcm.Length);
                             UpdateVolumeMeterFromSamples(channel, samples, VolumeMeterSource.RadioRx);
