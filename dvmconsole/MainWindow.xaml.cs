@@ -2827,31 +2827,37 @@ namespace dvmconsole
             if (schedules.Count == 0)
                 return;
 
-            Dictionary<string, SettingsManager.AlertToneConfig> alertTones = settingsManager.GetAlertToneConfigs()
-                .Where(tone => !string.IsNullOrWhiteSpace(tone.Id))
-                .ToDictionary(tone => tone.Id, StringComparer.OrdinalIgnoreCase);
-
             DateTime nowLocal = DateTime.Now;
-            bool schedulesChanged = false;
-
-            foreach (SettingsManager.AlertToneScheduleConfig schedule in schedules
+            foreach (string scheduleId in schedules
                 .Where(schedule => schedule.Enabled && schedule.NextRunLocal <= nowLocal)
-                .OrderBy(schedule => schedule.NextRunLocal))
+                .OrderBy(schedule => schedule.NextRunLocal).Select(schedule => schedule.Id).ToList())
             {
+                if (isShuttingDown || isReloadingResources)
+                    break;
+
+                // A send yields to the editor. Re-read each entry rather than saving an old list.
+                schedules = settingsManager.GetAlertToneScheduleConfigs();
+                SettingsManager.AlertToneScheduleConfig schedule = schedules.FirstOrDefault(item => item.Id == scheduleId);
+                if (schedule == null || !schedule.Enabled || schedule.NextRunLocal > nowLocal)
+                    continue;
+
+                Dictionary<string, SettingsManager.AlertToneConfig> alertTones = settingsManager.GetAlertToneConfigs()
+                    .Where(tone => !string.IsNullOrWhiteSpace(tone.Id))
+                    .ToDictionary(tone => tone.Id, StringComparer.OrdinalIgnoreCase);
                 if (!alertTones.TryGetValue(schedule.AlertToneId, out SettingsManager.AlertToneConfig alertTone) ||
                     string.IsNullOrWhiteSpace(alertTone.FilePath) ||
                     !File.Exists(alertTone.FilePath))
                 {
                     schedule.Enabled = false;
-                    schedulesChanged = true;
+                    settingsManager.SaveAlertToneScheduleConfigs(schedules);
                     Log.WriteWarning($"Timed announcement '{schedule.DisplayName}' disabled because its alert tone file is missing.");
                     continue;
                 }
 
                 if (IsHiddenResourceTarget(schedule.TargetResourceKey))
                 {
-                    schedulesChanged = true;
                     AdvanceAlertToneSchedule(schedule, nowLocal);
+                    settingsManager.SaveAlertToneScheduleConfigs(schedules);
                     Log.WriteWarning($"Timed announcement '{schedule.DisplayName}' skipped because its target resource is in a hidden zone.");
                     continue;
                 }
@@ -2860,28 +2866,36 @@ namespace dvmconsole
                 if (targetChannel == null)
                 {
                     schedule.Enabled = false;
-                    schedulesChanged = true;
+                    settingsManager.SaveAlertToneScheduleConfigs(schedules);
                     Log.WriteWarning($"Timed announcement '{schedule.DisplayName}' disabled because its target resource was not found.");
                     continue;
                 }
 
-                schedulesChanged = true;
-                bool sent = await SendAlertToneAsync(alertTone.FilePath, forHold: false, targetChannel);
+                // Consume this occurrence before awaiting audio so editor saves cannot rearm it.
                 schedule.LastRunUtc = DateTime.UtcNow;
+                AdvanceAlertToneSchedule(schedule, nowLocal);
+                settingsManager.SaveAlertToneScheduleConfigs(schedules);
+                bool sent = await SendAlertToneAsync(alertTone.FilePath, forHold: false, targetChannel);
                 if (sent)
                 {
-                    AdvanceAlertToneSchedule(schedule, nowLocal);
                     Log.WriteLine($"Timed announcement '{schedule.DisplayName}' sent to {targetChannel.ChannelName}.");
                 }
                 else
                 {
-                    schedule.Enabled = false;
-                    Log.WriteWarning($"Timed announcement '{schedule.DisplayName}' disabled because the alert tone send failed.");
+                    // Preserve edits/deletions made while sending; only disable the claimed occurrence.
+                    schedules = settingsManager.GetAlertToneScheduleConfigs();
+                    SettingsManager.AlertToneScheduleConfig current = schedules.FirstOrDefault(item => item.Id == scheduleId);
+                    if (current != null && current.LastRunUtc == schedule.LastRunUtc &&
+                        current.NextRunLocal == schedule.NextRunLocal && current.Enabled == schedule.Enabled &&
+                        current.Mode == schedule.Mode && current.RepeatMinutes == schedule.RepeatMinutes &&
+                        current.AlertToneId == schedule.AlertToneId && current.TargetResourceKey == schedule.TargetResourceKey)
+                    {
+                        current.Enabled = false;
+                        settingsManager.SaveAlertToneScheduleConfigs(schedules);
+                    }
+                    Log.WriteWarning($"Timed announcement '{schedule.DisplayName}' was not sent: no eligible resource completed the transmission. Check the target and schedule before retrying.");
                 }
             }
-
-            if (schedulesChanged)
-                settingsManager.SaveAlertToneScheduleConfigs(schedules);
         }
 
         private bool IsHiddenResourceTarget(string targetResourceKey)
@@ -2994,7 +3008,7 @@ namespace dvmconsole
             try
             {
                 byte[] pcmData = LoadCustomAlertTonePcm(filePath);
-                await SendGeneratedTonePcmAsync(
+                return await SendGeneratedTonePcmAsync(
                     pcmData,
                     GetAlertToneRequestedChannels(forHold, targetChannel),
                     "ALRT TONE",
@@ -3002,7 +3016,6 @@ namespace dvmconsole
                     sendStartSignal: !forHold,
                     "Alert Tone",
                     includeArmedGroups: !forHold && targetChannel == null);
-                return true;
             }
             catch (Exception ex)
             {
@@ -3127,7 +3140,7 @@ namespace dvmconsole
                 !channel.IsRxOnly && channel.ConfiguredChannel?.RxOnly != true;
         }
 
-        private async Task SendToneStackAsync(
+        private async Task<bool> SendToneStackAsync(
             IEnumerable<SettingsManager.TonePresetStep> steps,
             IEnumerable<ChannelBox> requestedChannels,
             string logLabel,
@@ -3138,11 +3151,11 @@ namespace dvmconsole
             if (toneSteps.Count == 0)
             {
                 MessageBox.Show("Tone preset has no valid steps.", "Tone Presets", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
+                return false;
             }
 
             byte[] pcmData = BuildToneStackPcm(toneSteps);
-            await SendGeneratedTonePcmAsync(
+            return await SendGeneratedTonePcmAsync(
                 pcmData,
                 requestedChannels,
                 logLabel,
@@ -3152,7 +3165,7 @@ namespace dvmconsole
                 includeArmedGroups: clearPageStateAfterSend);
         }
 
-        private async Task SendGeneratedTonePcmAsync(
+        private async Task<bool> SendGeneratedTonePcmAsync(
             byte[] pcmData,
             IEnumerable<ChannelBox> requestedChannels,
             string logLabel,
@@ -3161,7 +3174,7 @@ namespace dvmconsole
             string messageTitle,
             bool includeArmedGroups = false)
         {
-            await SendGeneratedTonePayloadAsync(
+            return await SendGeneratedTonePayloadAsync(
                 new GeneratedTonePayload { PcmData = pcmData },
                 requestedChannels,
                 logLabel,
@@ -3171,7 +3184,7 @@ namespace dvmconsole
                 includeArmedGroups: includeArmedGroups);
         }
 
-        private async Task SendGeneratedTonePayloadAsync(
+        private async Task<bool> SendGeneratedTonePayloadAsync(
             GeneratedTonePayload payload,
             IEnumerable<ChannelBox> requestedChannels,
             string logLabel,
@@ -3182,7 +3195,7 @@ namespace dvmconsole
             bool includeArmedGroups = false)
         {
             if (payload?.PcmData == null || payload.PcmData.Length == 0)
-                return;
+                return false;
 
             List<ChannelBox> requested = (requestedChannels ?? Enumerable.Empty<ChannelBox>())
                 .Where(channel => channel != null)
@@ -3193,7 +3206,7 @@ namespace dvmconsole
             if (requested.Count == 0)
             {
                 MessageBox.Show("Select a resource before sending tones.", messageTitle, MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
+                return false;
             }
 
             List<ChannelBox> channelsToProcess = ResolveAlertToneTransmitTargets(requested);
@@ -3256,10 +3269,14 @@ namespace dvmconsole
             try
             {
                 if (targets.Count == 0)
-                    return;
+                {
+                    Log.WriteWarning($"{logLabel} skipped: no eligible transmit resources.");
+                    return false;
+                }
 
                 ApplyRxPlaybackMuteForTransmitStart();
-                await Task.WhenAll(targets.Select(target => TransmitTonePayloadToTargetAsync(payload, target, logLabel, clearPageStateAfterSend, sendStartSignal, groups)));
+                bool[] results = await Task.WhenAll(targets.Select(target => TransmitTonePayloadToTargetAsync(payload, target, logLabel, clearPageStateAfterSend, sendStartSignal, groups)));
+                return results.Any(sent => sent);
             }
             finally
             {
@@ -3385,7 +3402,7 @@ namespace dvmconsole
             return new byte[GetAlertToneFrameAlignedByteCount(durationMs)];
         }
 
-        private async Task SendDtmfStackAsync(
+        private async Task<bool> SendDtmfStackAsync(
             IEnumerable<SettingsManager.DtmfPresetStep> steps,
             IEnumerable<ChannelBox> requestedChannels,
             string logLabel,
@@ -3396,11 +3413,11 @@ namespace dvmconsole
             if (dtmfSteps.Count == 0)
             {
                 MessageBox.Show("DTMF preset has no valid steps.", "DTMF Presets", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
+                return false;
             }
 
             byte[] pcmData = BuildDtmfStackPcm(dtmfSteps);
-            await SendGeneratedTonePcmAsync(
+            return await SendGeneratedTonePcmAsync(
                 pcmData,
                 requestedChannels,
                 logLabel,
@@ -3529,7 +3546,7 @@ namespace dvmconsole
             }
         }
 
-        private async Task TransmitTonePayloadToTargetAsync(
+        private async Task<bool> TransmitTonePayloadToTargetAsync(
             GeneratedTonePayload payload,
             ToneTransmitTarget target,
             string logLabel,
@@ -3546,22 +3563,22 @@ namespace dvmconsole
             bool[] suppressP25ToneDetectionByFrame = payload?.SuppressP25ToneDetectionByFrame;
 
             if (!IsGroupTransmitAllowed(channel) || cpgChannel == null || system == null || fne == null || pcmData == null || pcmData.Length == 0)
-                return;
+                return false;
 
             if (!ValidateNxdnTransmit(cpgChannel, channel))
-                return;
+                return false;
 
             if (!ValidateP25Transmit(cpgChannel, channel))
-                return;
+                return false;
 
             if (!ValidateFneConnectionAvailable(system.Name, channel, clearPageStateAfterSend ? current => current.PageState = false : null))
-                return;
+                return false;
 
             CancellationTokenSource toneCancelSource = TryStartToneTransmitSession(channel);
             if (toneCancelSource == null)
             {
                 Log.WriteWarning($"{channel.ChannelName} already has an active tone transmit session; skipping duplicate tone start.");
-                return;
+                return false;
             }
 
             CancellationToken cancellationToken = toneCancelSource.Token;
@@ -3626,10 +3643,12 @@ namespace dvmconsole
                             await Task.Delay(waitTime, cancellationToken);
                     }
                 }, cancellationToken);
+                return totalChunks > 0;
             }
             catch (OperationCanceledException)
             {
                 Log.WriteLine($"({system.Name}) {channel.ChannelMode.ToUpperInvariant()} Traffic *{logLabel,-14}* TGID {channel.DstId} cancelled by operator.");
+                return false;
             }
             finally
             {
@@ -4742,35 +4761,61 @@ namespace dvmconsole
             documentationWindow.Show();
         }
         /// <summary>
-        /// 
+        /// Revalidates modal paging input against the current codeplug and connection.
         /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
+        private bool TryResolvePagingTarget(DigitalPageWindow window, out PeerSystem fne, out uint sourceId, out uint destinationId)
+        {
+            fne = null;
+            sourceId = destinationId = 0;
+            if (isShuttingDown || isReloadingResources)
+                return false;
+            if (Codeplug?.Systems?.Contains(window?.RadioSystem) != true)
+            {
+                MessageBox.Show("Select a system from the current codeplug.", "Paging", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return false;
+            }
+            if (!DigitalPageWindow.TryValidateRequest(window.RadioSystem, window.DstId, out sourceId, out destinationId, out string error))
+            {
+                MessageBox.Show(error, "Paging", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return false;
+            }
+            fne = fneSystemManager.GetFneSystem(window.RadioSystem.Name);
+            return ValidateFneConnectionAvailable(window.RadioSystem.Name) && fne != null;
+        }
+
+        /// <summary>
+        /// Contains a disconnect during a subscriber command without crashing the UI event handler.
+        /// </summary>
+        private void SendPagingCommand(PeerSystem fne, RemoteCallData callData, byte[] tsbk)
+        {
+            try
+            {
+                fne.SendP25TSBK(callData, tsbk);
+            }
+            catch (Exception ex)
+            {
+                Log.WriteWarning($"Subscriber command failed for RID {callData.DstId}: {ex.Message}");
+                MessageBox.Show("The subscriber command could not be sent. Check the system connection.", "Paging", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
         private void PageRID_Click(object sender, RoutedEventArgs e)
         {
-            DigitalPageWindow pageWindow = new DigitalPageWindow(Codeplug.Systems);
+            DigitalPageWindow pageWindow = new DigitalPageWindow(Codeplug?.Systems);
             pageWindow.Owner = this;
             pageWindow.Title = "Page Subscriber";
 
             if (pageWindow.ShowDialog() == true)
             {
-                // throw an error if the user does the dumb...
-                if (pageWindow.DstId == string.Empty)
-                {
-                    MessageBox.Show($"Must supply a destination ID.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
-                }
-
-                PeerSystem fne = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
-                if (!ValidateFneConnectionAvailable(pageWindow.RadioSystem.Name) || fne == null)
+                if (!TryResolvePagingTarget(pageWindow, out PeerSystem fne, out uint sourceId, out uint destinationId))
                     return;
 
-                IOSP_CALL_ALRT callAlert = new IOSP_CALL_ALRT(uint.Parse(pageWindow.DstId), uint.Parse(pageWindow.RadioSystem.Rid));
+                IOSP_CALL_ALRT callAlert = new IOSP_CALL_ALRT(destinationId, sourceId);
 
                 RemoteCallData callData = new RemoteCallData
                 {
-                    SrcId = uint.Parse(pageWindow.RadioSystem.Rid),
-                    DstId = uint.Parse(pageWindow.DstId),
+                    SrcId = sourceId,
+                    DstId = destinationId,
                     LCO = P25Defines.TSBK_IOSP_CALL_ALRT
                 };
 
@@ -4778,7 +4823,7 @@ namespace dvmconsole
 
                 callAlert.Encode(ref tsbk);
 
-                fne.SendP25TSBK(callData, tsbk);
+                SendPagingCommand(fne, callData, tsbk);
             }
         }
 
@@ -4789,29 +4834,21 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void RadioCheckRID_Click(object sender, RoutedEventArgs e)
         {
-            DigitalPageWindow pageWindow = new DigitalPageWindow(Codeplug.Systems);
+            DigitalPageWindow pageWindow = new DigitalPageWindow(Codeplug?.Systems);
             pageWindow.Owner = this;
             pageWindow.Title = "Radio Check Subscriber";
 
             if (pageWindow.ShowDialog() == true)
             {
-                // throw an error if the user does the dumb...
-                if (pageWindow.DstId == string.Empty)
-                {
-                    MessageBox.Show($"Must supply a destination ID.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
-                }
-
-                PeerSystem fne = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
-                if (!ValidateFneConnectionAvailable(pageWindow.RadioSystem.Name) || fne == null)
+                if (!TryResolvePagingTarget(pageWindow, out PeerSystem fne, out uint sourceId, out uint destinationId))
                     return;
 
-                IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.CHECK, uint.Parse(pageWindow.RadioSystem.Rid), uint.Parse(pageWindow.DstId));
+                IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.CHECK, sourceId, destinationId);
 
                 RemoteCallData callData = new RemoteCallData
                 {
-                    SrcId = uint.Parse(pageWindow.RadioSystem.Rid),
-                    DstId = uint.Parse(pageWindow.DstId),
+                    SrcId = sourceId,
+                    DstId = destinationId,
                     LCO = P25Defines.TSBK_IOSP_EXT_FNCT
                 };
 
@@ -4819,7 +4856,7 @@ namespace dvmconsole
 
                 extFunc.Encode(ref tsbk);
 
-                fne.SendP25TSBK(callData, tsbk);
+                SendPagingCommand(fne, callData, tsbk);
             }
         }
 
@@ -4830,29 +4867,21 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void InhibitRID_Click(object sender, RoutedEventArgs e)
         {
-            DigitalPageWindow pageWindow = new DigitalPageWindow(Codeplug.Systems);
+            DigitalPageWindow pageWindow = new DigitalPageWindow(Codeplug?.Systems);
             pageWindow.Owner = this;
             pageWindow.Title = "Inhibit Subscriber";
 
             if (pageWindow.ShowDialog() == true)
             {
-                // throw an error if the user does the dumb...
-                if (pageWindow.DstId == string.Empty)
-                {
-                    MessageBox.Show($"Must supply a destination ID.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
-                }
-
-                PeerSystem fne = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
-                if (!ValidateFneConnectionAvailable(pageWindow.RadioSystem.Name) || fne == null)
+                if (!TryResolvePagingTarget(pageWindow, out PeerSystem fne, out uint sourceId, out uint destinationId))
                     return;
 
-                IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.INHIBIT, P25Defines.WUID_FNE, uint.Parse(pageWindow.DstId));
+                IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.INHIBIT, P25Defines.WUID_FNE, destinationId);
 
                 RemoteCallData callData = new RemoteCallData
                 {
-                    SrcId = uint.Parse(pageWindow.RadioSystem.Rid),
-                    DstId = uint.Parse(pageWindow.DstId),
+                    SrcId = sourceId,
+                    DstId = destinationId,
                     LCO = P25Defines.TSBK_IOSP_EXT_FNCT
                 };
 
@@ -4860,7 +4889,7 @@ namespace dvmconsole
 
                 extFunc.Encode(ref tsbk);
 
-                fne.SendP25TSBK(callData, tsbk);
+                SendPagingCommand(fne, callData, tsbk);
             }
         }
 
@@ -4871,29 +4900,21 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void UninhibitRID_Click(object sender, RoutedEventArgs e)
         {
-            DigitalPageWindow pageWindow = new DigitalPageWindow(Codeplug.Systems);
+            DigitalPageWindow pageWindow = new DigitalPageWindow(Codeplug?.Systems);
             pageWindow.Owner = this;
             pageWindow.Title = "Uninhibit Subscriber";
 
             if (pageWindow.ShowDialog() == true)
             {
-                // throw an error if the user does the dumb...
-                if (pageWindow.DstId == string.Empty)
-                {
-                    MessageBox.Show($"Must supply a destination ID.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
-                }
-
-                PeerSystem fne = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
-                if (!ValidateFneConnectionAvailable(pageWindow.RadioSystem.Name) || fne == null)
+                if (!TryResolvePagingTarget(pageWindow, out PeerSystem fne, out uint sourceId, out uint destinationId))
                     return;
 
-                IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.UNINHIBIT, P25Defines.WUID_FNE, uint.Parse(pageWindow.DstId));
+                IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.UNINHIBIT, P25Defines.WUID_FNE, destinationId);
 
                 RemoteCallData callData = new RemoteCallData
                 {
-                    SrcId = uint.Parse(pageWindow.RadioSystem.Rid),
-                    DstId = uint.Parse(pageWindow.DstId),
+                    SrcId = sourceId,
+                    DstId = destinationId,
                     LCO = P25Defines.TSBK_IOSP_EXT_FNCT
                 };
 
@@ -4901,7 +4922,7 @@ namespace dvmconsole
 
                 extFunc.Encode(ref tsbk);
 
-                fne.SendP25TSBK(callData, tsbk);
+                SendPagingCommand(fne, callData, tsbk);
             }
         }
 
@@ -5219,10 +5240,12 @@ namespace dvmconsole
                 })
                 .ToList();
 
+            Dictionary<string, SettingsManager.AlertToneScheduleConfig> originalSchedules = settingsManager.GetAlertToneScheduleConfigs()
+                .ToDictionary(schedule => schedule.Id, StringComparer.OrdinalIgnoreCase);
             AlertToneManagerWindow managerWindow = new AlertToneManagerWindow(
                 alertTones,
                 GetAlertToneTabNames(),
-                settingsManager.GetAlertToneScheduleConfigs(),
+                originalSchedules.Values,
                 BuildAlertToneScheduleTargetOptions(),
                 (items, schedules) =>
             {
@@ -5250,9 +5273,23 @@ namespace dvmconsole
                     .ToList();
 
                 settingsManager.SaveAlertToneConfigs(updatedConfigs);
-                settingsManager.SaveAlertToneScheduleConfigs((schedules ?? Array.Empty<AlertToneManagerWindow.AlertToneScheduleManagerItem>())
+                Dictionary<string, SettingsManager.AlertToneScheduleConfig> currentSchedules = settingsManager.GetAlertToneScheduleConfigs()
+                    .ToDictionary(schedule => schedule.Id, StringComparer.OrdinalIgnoreCase);
+                List<SettingsManager.AlertToneScheduleConfig> mergedSchedules = (schedules ?? Array.Empty<AlertToneManagerWindow.AlertToneScheduleManagerItem>())
                     .Where(schedule => updatedConfigs.Any(tone => string.Equals(tone.Id, schedule.AlertToneId, StringComparison.OrdinalIgnoreCase)))
-                    .Select(ToAlertToneScheduleConfig));
+                    .Select(schedule =>
+                    {
+                        originalSchedules.TryGetValue(schedule.Id, out var original);
+                        currentSchedules.TryGetValue(schedule.Id, out var current);
+                        var merged = MergeAlertToneScheduleEdit(schedule, original, current);
+                        schedule.Enabled = merged.Enabled;
+                        schedule.NextRunLocal = merged.NextRunLocal;
+                        schedule.LastRunUtc = merged.LastRunUtc;
+                        return merged;
+                    }).ToList();
+                settingsManager.SaveAlertToneScheduleConfigs(mergedSchedules);
+                originalSchedules = settingsManager.GetAlertToneScheduleConfigs()
+                    .ToDictionary(schedule => schedule.Id, StringComparer.OrdinalIgnoreCase);
                 RefreshAlertToneWidgets();
             })
             {
@@ -5302,6 +5339,26 @@ namespace dvmconsole
                 RepeatMinutes = item?.RepeatMinutes ?? 60.0,
                 LastRunUtc = item?.LastRunUtc
             };
+        }
+
+        /// <summary>
+        /// Merges editor changes without replacing scheduler progress with the opening snapshot.
+        /// </summary>
+        private static SettingsManager.AlertToneScheduleConfig MergeAlertToneScheduleEdit(
+            AlertToneManagerWindow.AlertToneScheduleManagerItem item,
+            SettingsManager.AlertToneScheduleConfig original, SettingsManager.AlertToneScheduleConfig current)
+        {
+            SettingsManager.AlertToneScheduleConfig edited = ToAlertToneScheduleConfig(item);
+            edited.LastRunUtc = current?.LastRunUtc;
+            if (original != null && current != null)
+            {
+                bool rescheduled = edited.NextRunLocal != original.NextRunLocal;
+                if (edited.Enabled == original.Enabled && !rescheduled)
+                    edited.Enabled = current.Enabled;
+                if (!rescheduled)
+                    edited.NextRunLocal = current.NextRunLocal;
+            }
+            return edited;
         }
 
         private void TonePresets_Click(object sender, RoutedEventArgs e)
@@ -5369,12 +5426,12 @@ namespace dvmconsole
                 .Select(ToTonePresetConfig));
         }
 
-        private async Task SendTonePresetManagerItemAsync(
+        private async Task<bool> SendTonePresetManagerItemAsync(
             TonePresetManagerWindow.TonePresetManagerItem item,
             TonePresetManagerWindow.TonePresetTargetItem target)
         {
             SettingsManager.TonePresetConfig preset = ToTonePresetConfig(item);
-            await SendToneStackAsync(
+            return await SendToneStackAsync(
                 preset.Steps,
                 target?.Channels ?? Array.Empty<ChannelBox>(),
                 "TONE PRESET",
@@ -5463,12 +5520,12 @@ namespace dvmconsole
                 .Select(ToDtmfPresetConfig));
         }
 
-        private async Task SendDtmfPresetManagerItemAsync(
+        private async Task<bool> SendDtmfPresetManagerItemAsync(
             DtmfPresetManagerWindow.DtmfPresetManagerItem item,
             DtmfPresetManagerWindow.DtmfPresetTargetItem target)
         {
             SettingsManager.DtmfPresetConfig preset = ToDtmfPresetConfig(item);
-            await SendDtmfStackAsync(
+            return await SendDtmfStackAsync(
                 preset.Steps,
                 target?.Channels ?? Array.Empty<ChannelBox>(),
                 "DTMF TONE",

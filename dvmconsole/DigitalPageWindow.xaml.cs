@@ -11,7 +11,10 @@
 *
 */
 
+using System.Globalization;
 using System.Windows;
+
+using fnecore.P25;
 
 namespace dvmconsole
 {
@@ -55,9 +58,33 @@ namespace dvmconsole
         private void SendButton_Click(object sender, RoutedEventArgs e)
         {
             RadioSystem = SystemCombo.SelectedItem as Codeplug.System;
-            DstId = DstIdText.Text;
+            DstId = DstIdText.Text.Trim();
+            if (!TryValidateRequest(RadioSystem, DstId, out _, out _, out string error))
+            {
+                MessageBox.Show(error, Title, MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
             DialogResult = true;
             Close();
+        }
+
+        /// <summary>
+        /// Validates the selected system and decimal IDs before building a 24-bit P25 command.
+        /// </summary>
+        internal static bool TryValidateRequest(Codeplug.System system, string destination,
+            out uint sourceId, out uint destinationId, out string error)
+        {
+            sourceId = destinationId = 0;
+            error = null;
+            if (system == null || string.IsNullOrWhiteSpace(system.Name))
+                error = "Select a radio system first.";
+            else if (!uint.TryParse(destination?.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out destinationId) ||
+                     destinationId == 0 || destinationId > P25Defines.WUID_ALL)
+                error = "Enter a decimal destination radio ID from 1 to 16777215.";
+            else if (!uint.TryParse(system.Rid?.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out sourceId) ||
+                     sourceId == 0 || sourceId > P25Defines.WUID_ALL)
+                error = "The selected system needs a decimal source radio ID from 1 to 16777215.";
+            return error == null;
         }
     } // public partial class DigitalPageWindow : Window
 } // namespace dvmconsole

@@ -60,8 +60,10 @@ namespace dvmconsole
                     if (IsHold)
                         return;
 
-                    if (Double.TryParse(value, out double parsedFrequency))
-                        FrequencyHz = parsedFrequency;
+                    if (!Double.TryParse(value, out double parsedFrequency) ||
+                        !double.IsFinite(parsedFrequency) || parsedFrequency < 1 || parsedFrequency > 4000)
+                        throw new FormatException("Enter a frequency from 1 to 4000 Hz.");
+                    FrequencyHz = parsedFrequency;
                 }
             }
 
@@ -86,6 +88,8 @@ namespace dvmconsole
                 get => durationSeconds;
                 set
                 {
+                    if (!double.IsFinite(value))
+                        throw new FormatException("Enter a finite duration in seconds.");
                     if (Math.Abs(durationSeconds - value) < 0.0001)
                         return;
 
@@ -146,7 +150,7 @@ namespace dvmconsole
         private TonePresetTargetItem selectedTarget;
 
         private readonly Action<IReadOnlyList<TonePresetManagerItem>> saveCallback;
-        private readonly Func<TonePresetManagerItem, TonePresetTargetItem, Task> sendCallback;
+        private readonly Func<TonePresetManagerItem, TonePresetTargetItem, Task<bool>> sendCallback;
 
         public ObservableCollection<TonePresetManagerItem> Presets { get; }
         public List<TonePresetTargetItem> Targets { get; }
@@ -160,7 +164,9 @@ namespace dvmconsole
                     return;
 
                 selectedPreset = value;
-                SelectedTarget = ResolveTargetForPreset(selectedPreset);
+                // Loading a preset must not replace its saved destination with a fallback.
+                selectedTarget = ResolveTargetForPreset(selectedPreset);
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedTarget)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedPreset)));
             }
         }
@@ -174,7 +180,7 @@ namespace dvmconsole
                     return;
 
                 selectedTarget = value;
-                if (selectedPreset != null && selectedTarget != null && !string.IsNullOrWhiteSpace(selectedTarget.Key))
+                if (selectedPreset != null && selectedTarget != null)
                     selectedPreset.TargetResourceKey = selectedTarget.Key;
 
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedTarget)));
@@ -187,7 +193,7 @@ namespace dvmconsole
             IEnumerable<SettingsManager.TonePresetConfig> presets,
             IEnumerable<TonePresetTargetItem> targets,
             Action<IReadOnlyList<TonePresetManagerItem>> saveCallback,
-            Func<TonePresetManagerItem, TonePresetTargetItem, Task> sendCallback)
+            Func<TonePresetManagerItem, TonePresetTargetItem, Task<bool>> sendCallback)
         {
             InitializeComponent();
 
@@ -205,7 +211,7 @@ namespace dvmconsole
 
             if (Presets.Count > 0)
                 SelectedPreset = Presets[0];
-            if (SelectedTarget == null && Targets.Count > 0)
+            if (Presets.Count == 0 && SelectedTarget == null && Targets.Count > 0)
                 SelectedTarget = Targets[0];
 
             Presets.CollectionChanged += Presets_CollectionChanged;
@@ -330,7 +336,8 @@ namespace dvmconsole
 
         private void Save_Click(object sender, RoutedEventArgs e)
         {
-            CommitGridEdits();
+            if (!CommitGridEdits())
+                return;
             IReadOnlyList<TonePresetManagerItem> sanitized = SanitizePresets();
             saveCallback?.Invoke(sanitized);
 
@@ -340,7 +347,8 @@ namespace dvmconsole
 
         private async void Send_Click(object sender, RoutedEventArgs e)
         {
-            CommitGridEdits();
+            if (!CommitGridEdits())
+                return;
             HideStatus();
 
             if (SelectedPreset == null || SanitizePreset(SelectedPreset) == null)
@@ -357,8 +365,8 @@ namespace dvmconsole
 
             try
             {
-                await sendCallback(SelectedPreset, SelectedTarget);
-                StatusTextBlock.Text = "Tone preset sent.";
+                bool sent = await sendCallback(SelectedPreset, SelectedTarget);
+                StatusTextBlock.Text = sent ? "Tone preset sent." : "Not sent. No eligible resource completed the transmission.";
                 StatusTextBlock.Visibility = Visibility.Visible;
             }
             catch (Exception ex)
@@ -464,11 +472,8 @@ namespace dvmconsole
 
             if (!string.IsNullOrWhiteSpace(preset.TargetResourceKey))
             {
-                TonePresetTargetItem savedTarget = Targets.FirstOrDefault(target =>
+                return Targets.FirstOrDefault(target =>
                     string.Equals(target.Key, preset.TargetResourceKey, StringComparison.OrdinalIgnoreCase));
-
-                if (savedTarget != null)
-                    return savedTarget;
             }
 
             return selectedTarget ?? Targets.FirstOrDefault();
@@ -511,12 +516,17 @@ namespace dvmconsole
             return candidate;
         }
 
-        private void CommitGridEdits()
+        private bool CommitGridEdits()
         {
-            PresetGrid.CommitEdit(DataGridEditingUnit.Cell, true);
-            PresetGrid.CommitEdit(DataGridEditingUnit.Row, true);
-            ToneStepGrid.CommitEdit(DataGridEditingUnit.Cell, true);
-            ToneStepGrid.CommitEdit(DataGridEditingUnit.Row, true);
+            if (PresetGrid.CommitEdit(DataGridEditingUnit.Cell, true) &&
+                PresetGrid.CommitEdit(DataGridEditingUnit.Row, true) &&
+                ToneStepGrid.CommitEdit(DataGridEditingUnit.Cell, true) &&
+                ToneStepGrid.CommitEdit(DataGridEditingUnit.Row, true))
+                return true;
+
+            StatusTextBlock.Text = "Not saved or sent. Correct the highlighted field first.";
+            StatusTextBlock.Visibility = Visibility.Visible;
+            return false;
         }
 
         private void Presets_CollectionChanged(object sender, NotifyCollectionChangedEventArgs e)

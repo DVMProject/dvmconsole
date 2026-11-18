@@ -76,7 +76,10 @@ namespace dvmconsole
                     if (IsHold)
                         return;
 
-                    Digit = value;
+                    string enteredDigit = value?.Trim().ToUpperInvariant() ?? string.Empty;
+                    if (enteredDigit.Length != 1 || !"0123456789*#ABCD".Contains(enteredDigit))
+                        throw new FormatException("Enter one DTMF digit: 0-9, *, #, or A-D.");
+                    Digit = enteredDigit;
                 }
             }
 
@@ -85,6 +88,8 @@ namespace dvmconsole
                 get => durationSeconds;
                 set
                 {
+                    if (!double.IsFinite(value))
+                        throw new FormatException("Enter a finite duration in seconds.");
                     if (Math.Abs(durationSeconds - value) < 0.0001)
                         return;
 
@@ -147,7 +152,7 @@ namespace dvmconsole
         private DtmfPresetTargetItem selectedTarget;
 
         private readonly Action<IReadOnlyList<DtmfPresetManagerItem>> saveCallback;
-        private readonly Func<DtmfPresetManagerItem, DtmfPresetTargetItem, Task> sendCallback;
+        private readonly Func<DtmfPresetManagerItem, DtmfPresetTargetItem, Task<bool>> sendCallback;
 
         public ObservableCollection<DtmfPresetManagerItem> Presets { get; }
         public List<DtmfPresetTargetItem> Targets { get; }
@@ -161,7 +166,9 @@ namespace dvmconsole
                     return;
 
                 selectedPreset = value;
-                SelectedTarget = ResolveTargetForPreset(selectedPreset);
+                // Loading a preset must not replace its saved destination with a fallback.
+                selectedTarget = ResolveTargetForPreset(selectedPreset);
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedTarget)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedPreset)));
             }
         }
@@ -175,7 +182,7 @@ namespace dvmconsole
                     return;
 
                 selectedTarget = value;
-                if (selectedPreset != null && selectedTarget != null && !string.IsNullOrWhiteSpace(selectedTarget.Key))
+                if (selectedPreset != null && selectedTarget != null)
                     selectedPreset.TargetResourceKey = selectedTarget.Key;
 
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedTarget)));
@@ -188,7 +195,7 @@ namespace dvmconsole
             IEnumerable<SettingsManager.DtmfPresetConfig> presets,
             IEnumerable<DtmfPresetTargetItem> targets,
             Action<IReadOnlyList<DtmfPresetManagerItem>> saveCallback,
-            Func<DtmfPresetManagerItem, DtmfPresetTargetItem, Task> sendCallback)
+            Func<DtmfPresetManagerItem, DtmfPresetTargetItem, Task<bool>> sendCallback)
         {
             InitializeComponent();
 
@@ -206,7 +213,7 @@ namespace dvmconsole
 
             if (Presets.Count > 0)
                 SelectedPreset = Presets[0];
-            if (SelectedTarget == null && Targets.Count > 0)
+            if (Presets.Count == 0 && SelectedTarget == null && Targets.Count > 0)
                 SelectedTarget = Targets[0];
 
             Presets.CollectionChanged += Presets_CollectionChanged;
@@ -294,7 +301,8 @@ namespace dvmconsole
 
         private void Save_Click(object sender, RoutedEventArgs e)
         {
-            CommitGridEdits();
+            if (!CommitGridEdits())
+                return;
             IReadOnlyList<DtmfPresetManagerItem> sanitized = SanitizePresets();
             saveCallback?.Invoke(sanitized);
 
@@ -304,7 +312,8 @@ namespace dvmconsole
 
         private async void Send_Click(object sender, RoutedEventArgs e)
         {
-            CommitGridEdits();
+            if (!CommitGridEdits())
+                return;
             HideStatus();
 
             if (SelectedPreset == null || SanitizePreset(SelectedPreset) == null)
@@ -321,8 +330,8 @@ namespace dvmconsole
 
             try
             {
-                await sendCallback(SelectedPreset, SelectedTarget);
-                StatusTextBlock.Text = "DTMF preset sent.";
+                bool sent = await sendCallback(SelectedPreset, SelectedTarget);
+                StatusTextBlock.Text = sent ? "DTMF preset sent." : "Not sent. No eligible resource completed the transmission.";
                 StatusTextBlock.Visibility = Visibility.Visible;
             }
             catch (Exception ex)
@@ -427,22 +436,24 @@ namespace dvmconsole
 
             if (!string.IsNullOrWhiteSpace(preset.TargetResourceKey))
             {
-                DtmfPresetTargetItem savedTarget = Targets.FirstOrDefault(target =>
+                return Targets.FirstOrDefault(target =>
                     string.Equals(target.Key, preset.TargetResourceKey, StringComparison.OrdinalIgnoreCase));
-
-                if (savedTarget != null)
-                    return savedTarget;
             }
 
             return selectedTarget ?? Targets.FirstOrDefault();
         }
 
-        private void CommitGridEdits()
+        private bool CommitGridEdits()
         {
-            PresetGrid.CommitEdit(DataGridEditingUnit.Cell, true);
-            PresetGrid.CommitEdit(DataGridEditingUnit.Row, true);
-            DtmfStepGrid.CommitEdit(DataGridEditingUnit.Cell, true);
-            DtmfStepGrid.CommitEdit(DataGridEditingUnit.Row, true);
+            if (PresetGrid.CommitEdit(DataGridEditingUnit.Cell, true) &&
+                PresetGrid.CommitEdit(DataGridEditingUnit.Row, true) &&
+                DtmfStepGrid.CommitEdit(DataGridEditingUnit.Cell, true) &&
+                DtmfStepGrid.CommitEdit(DataGridEditingUnit.Row, true))
+                return true;
+
+            StatusTextBlock.Text = "Not saved or sent. Correct the highlighted field first.";
+            StatusTextBlock.Visibility = Visibility.Visible;
+            return false;
         }
 
         private void Presets_CollectionChanged(object sender, NotifyCollectionChangedEventArgs e)

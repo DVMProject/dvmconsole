@@ -113,10 +113,10 @@
                               SelectionUnit="FullRow">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Frequency / Hold"
-                                                Binding="{Binding FrequencyDisplay, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                Binding="{Binding FrequencyDisplay, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, ValidatesOnExceptions=True}"
                                                 Width="*" />
                             <DataGridTextColumn Header="Duration (sec)"
-                                                Binding="{Binding DurationSeconds, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"
+                                                Binding="{Binding DurationSeconds, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, ValidatesOnExceptions=True, StringFormat=F2}"
                                                 Width="*" />
                         </DataGrid.Columns>
                     </DataGrid>

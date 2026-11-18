@@ -479,6 +479,17 @@ namespace dvmconsole
 
             saveCallback?.Invoke(sanitizedItems, sanitizedSchedules);
 
+            // Reflect merged runtime progress so another save does not look like an explicit rearm.
+            foreach (AlertToneScheduleManagerItem saved in sanitizedSchedules)
+            {
+                AlertToneScheduleManagerItem item = Schedules.FirstOrDefault(schedule => schedule.Id == saved.Id);
+                if (item == null)
+                    continue;
+                item.Enabled = saved.Enabled;
+                item.NextRunLocal = saved.NextRunLocal;
+                item.LastRunUtc = saved.LastRunUtc;
+            }
+
             StatusTextBlock.Text = "Changes saved.";
             StatusTextBlock.Visibility = Visibility.Visible;
         }
