@@ -65,6 +65,8 @@ namespace dvmconsole
         private const string SETTINGS_TRANSFER_FORMAT = "dvmconsole-settings-transfer";
 
         private static SettingsManager _instance = null;
+        private readonly object persistenceSync = new object();
+        private bool resetPending;
 
         /*
         ** Properties
@@ -219,7 +221,7 @@ namespace dvmconsole
         /// <summary>
         /// Saved toolbar clock configuration keyed by clock slot.
         /// </summary>
-        public Dictionary<string, ToolbarClockConfig> ToolbarClockConfigSlots { get; set; } = CreateDefaultToolbarClockConfigSlots();
+        public Dictionary<string, ToolbarClockConfig> ToolbarClockConfigSlots { get; set; } = new Dictionary<string, ToolbarClockConfig>();
         /// <summary>
         /// Flag indicating toolbar clocks should use 24-hour time.
         /// </summary>
@@ -672,9 +674,14 @@ namespace dvmconsole
         /// <summary>
         /// Initializes a new instance of the <see cref="SettingsManager"/> class.
         /// </summary>
-        public SettingsManager()
+        public SettingsManager() : this(true)
         {
-            _instance = this;
+        }
+
+        private SettingsManager(bool registerInstance)
+        {
+            if (registerInstance)
+                _instance = this;
         }
 
         /// <summary>
@@ -700,7 +707,8 @@ namespace dvmconsole
             try
             {
                 string json = File.ReadAllText(SettingsFilePath);
-                SettingsManager loadedSettings = JsonConvert.DeserializeObject<SettingsManager>(json);
+                SettingsManager loadedSettings = JsonConvert.DeserializeObject<SettingsManager>(json,
+                    new JsonSerializerSettings { ObjectCreationHandling = ObjectCreationHandling.Replace });
                 _instance = this;
 
                 if (loadedSettings != null)
@@ -834,20 +842,38 @@ namespace dvmconsole
         /// </summary>
         public void SaveSettings()
         {
-            _instance = this;
+            lock (persistenceSync)
+            {
+                if (resetPending)
+                    return;
+                _instance = this;
+                try { WriteSettingsFile(JsonConvert.SerializeObject(this, Formatting.Indented)); }
+                catch (Exception ex)
+                {
+                    Log.WriteLine($"Error saving settings: {ex.Message}");
+                    Log.StackTrace(ex, false);
+                }
+            }
+        }
 
-            if (!Directory.Exists(UserAppDataPath))
-                Directory.CreateDirectory(UserAppDataPath);
-
+        /// <summary>Replace the profile only after a complete new snapshot has been written.</summary>
+        private static void WriteSettingsFile(string json)
+        {
+            string directory = Path.GetDirectoryName(Path.GetFullPath(SettingsFilePath));
+            Directory.CreateDirectory(directory);
+            string temporaryPath = Path.Combine(directory, $"UserSettings.{Guid.NewGuid():N}.tmp");
             try
             {
-                string json = JsonConvert.SerializeObject(this, Formatting.Indented);
-                File.WriteAllText(SettingsFilePath, json);
+                File.WriteAllText(temporaryPath, json);
+                if (File.Exists(SettingsFilePath))
+                    File.Replace(temporaryPath, SettingsFilePath, null);
+                else
+                    File.Move(temporaryPath, SettingsFilePath);
             }
-            catch (Exception ex)
+            finally
             {
-                Log.WriteLine($"Error saving settings: {ex.Message}");
-                Log.StackTrace(ex, false);
+                try { if (File.Exists(temporaryPath)) File.Delete(temporaryPath); }
+                catch (Exception ex) { Log.WriteWarning($"Settings temporary-file cleanup failed: {ex.Message}"); }
             }
         }
 
@@ -1028,24 +1054,62 @@ namespace dvmconsole
 
             SettingsTransferScope normalizedScope = BuildImportSettingsTransferScope(scope, transferFile.Scope);
             bool scopedTransfer = normalizedScope?.HasScope == true;
-            foreach (string propertyName in selectedCategories.SelectMany(c => c.PropertyNames).Distinct(StringComparer.OrdinalIgnoreCase))
+            lock (persistenceSync)
             {
-                if (!transferFile.Settings.TryGetValue(propertyName, StringComparison.OrdinalIgnoreCase, out JToken token))
-                    continue;
+                if (resetPending)
+                    throw new InvalidOperationException("Settings have been reset. Restart Console before importing settings.");
 
-                PropertyInfo property = typeof(SettingsManager).GetProperty(propertyName);
-                if (property == null || !property.CanWrite)
-                    continue;
+                // Conversion and normalization operate on a detached snapshot, never on live settings.
+                SettingsManager candidate = new SettingsManager(false);
+                JsonConvert.PopulateObject(JsonConvert.SerializeObject(this), candidate,
+                    new JsonSerializerSettings { ObjectCreationHandling = ObjectCreationHandling.Replace });
+                Dictionary<string, HashSet<string>> patchGroups = null;
+                if (scopedTransfer && selectedCategories.Any(category => category.Id == "groups"))
+                {
+                    var memberships = transferFile.Settings.TryGetValue(nameof(PatchGroupMemberships), StringComparison.OrdinalIgnoreCase, out JToken membershipToken)
+                        ? membershipToken.ToObject<Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>>()
+                        : candidate.PatchGroupMemberships;
+                    patchGroups = GetPatchGroupNames(FilterPatchGroupMembershipsByScope(memberships, BuildScopeSet(normalizedScope.ChannelResourceKeys)));
+                }
+                if (scopedTransfer && selectedCategories.Any(category => category.Id == "alerts") &&
+                    transferFile.Settings.TryGetValue(nameof(AlertToneSchedules), StringComparison.OrdinalIgnoreCase, out JToken schedulesToken))
+                {
+                    HashSet<string> allowedToneIds = BuildScopeSet(transferFile.Scope?.AlertToneIds);
+                    foreach (AlertToneScheduleConfig schedule in FilterAlertToneSchedulesByScope(
+                        schedulesToken.ToObject<List<AlertToneScheduleConfig>>(), BuildScopeSet(normalizedScope.ChannelResourceKeys)))
+                    {
+                        if (!string.IsNullOrWhiteSpace(schedule.AlertToneId) &&
+                            (transferFile.Scope == null || allowedToneIds.Contains(schedule.AlertToneId.Trim())))
+                            normalizedScope.AlertToneIds.Add(schedule.AlertToneId.Trim());
+                    }
+                }
+                foreach (string propertyName in selectedCategories.SelectMany(c => c.PropertyNames).Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    if (!transferFile.Settings.TryGetValue(propertyName, StringComparison.OrdinalIgnoreCase, out JToken token))
+                        continue;
 
-                object value = ConvertSettingsTransferToken(token, property.PropertyType);
-                if (scopedTransfer)
-                    ApplyScopedSettingsTransferValue(propertyName, value, normalizedScope);
-                else
-                    property.SetValue(this, value);
+                    PropertyInfo property = typeof(SettingsManager).GetProperty(propertyName);
+                    if (property == null || !property.CanWrite)
+                        continue;
+
+                    object value = ConvertSettingsTransferToken(token, property.PropertyType);
+                    if (scopedTransfer)
+                        candidate.ApplyScopedSettingsTransferValue(propertyName, value, normalizedScope, patchGroups);
+                    else
+                        property.SetValue(candidate, value);
+                }
+                if (!scopedTransfer && selectedCategories.Any(category => category.Id == "clocks") &&
+                    transferFile.Settings.TryGetValue(nameof(ToolbarClockConfigs), StringComparison.OrdinalIgnoreCase, out _) &&
+                    !transferFile.Settings.TryGetValue(nameof(ToolbarClockConfigSlots), StringComparison.OrdinalIgnoreCase, out _))
+                    candidate.ToolbarClockConfigSlots = null;
+
+                candidate.NormalizeImportedSettings();
+                WriteSettingsFile(JsonConvert.SerializeObject(candidate, Formatting.Indented));
+                foreach (PropertyInfo property in typeof(SettingsManager).GetProperties(BindingFlags.Instance | BindingFlags.Public)
+                    .Where(property => property.CanRead && property.CanWrite))
+                    property.SetValue(this, property.GetValue(candidate));
+                _instance = this;
             }
-
-            NormalizeImportedSettings();
-            SaveSettings();
             return selectedCategories.Select(c => c.DisplayName).ToList();
         }
 
@@ -1086,13 +1150,26 @@ namespace dvmconsole
             if (normalizedRequested == null)
                 return normalizedFile;
 
-            if (normalizedFile?.AlertToneIds?.Count > 0)
-                normalizedRequested.AlertToneIds = NormalizeScopeList(normalizedRequested.AlertToneIds.Concat(normalizedFile.AlertToneIds));
+            if (normalizedFile == null)
+                return normalizedRequested;
 
-            return normalizedRequested;
+            // Requested tabs may contain resources that were never exported; leave those untouched.
+            SettingsTransferScope intersection = new SettingsTransferScope
+            {
+                ZoneNames = normalizedRequested.ZoneNames.Intersect(normalizedFile.ZoneNames, StringComparer.OrdinalIgnoreCase).ToList(),
+                ChannelResourceKeys = normalizedRequested.ChannelResourceKeys.Intersect(normalizedFile.ChannelResourceKeys, StringComparer.OrdinalIgnoreCase).ToList(),
+                ChannelNames = normalizedRequested.ChannelNames.Intersect(normalizedFile.ChannelNames, StringComparer.OrdinalIgnoreCase).ToList(),
+                TalkgroupIds = normalizedRequested.TalkgroupIds.Intersect(normalizedFile.TalkgroupIds, StringComparer.OrdinalIgnoreCase).ToList(),
+                WebStreamNames = normalizedRequested.WebStreamNames.Intersect(normalizedFile.WebStreamNames, StringComparer.OrdinalIgnoreCase).ToList(),
+                AlertToneIds = normalizedRequested.AlertToneIds.Intersect(normalizedFile.AlertToneIds, StringComparer.OrdinalIgnoreCase).ToList()
+            };
+            if (!intersection.HasScope)
+                throw new InvalidOperationException("The selected zones contain no settings in this scoped transfer file.");
+            return intersection;
         }
 
-        private bool TryCreateScopedSettingsTransferValue(string propertyName, object sourceValue, SettingsTransferScope scope, out object scopedValue)
+        private bool TryCreateScopedSettingsTransferValue(string propertyName, object sourceValue, SettingsTransferScope scope, out object scopedValue,
+            Dictionary<string, HashSet<string>> patchGroups = null)
         {
             scopedValue = null;
             scope = NormalizeSettingsTransferScope(scope);
@@ -1162,21 +1239,22 @@ namespace dvmconsole
                 case nameof(PatchGroupModes):
                     scopedValue = FilterNestedBoolDictionaryByGroupNames(
                         sourceValue as Dictionary<string, Dictionary<string, bool>>,
-                        GetScopedPatchGroupNames(channelResourceKeys));
+                        patchGroups ?? GetScopedPatchGroupNames(channelResourceKeys));
                     return true;
                 case nameof(PatchGroupEnabledStates):
                     scopedValue = FilterNestedBoolDictionaryByGroupNames(
                         sourceValue as Dictionary<string, Dictionary<string, bool>>,
-                        GetScopedPatchGroupNames(channelResourceKeys));
+                        patchGroups ?? GetScopedPatchGroupNames(channelResourceKeys));
                     return true;
                 default:
                     return false;
             }
         }
 
-        private void ApplyScopedSettingsTransferValue(string propertyName, object importedValue, SettingsTransferScope scope)
+        private void ApplyScopedSettingsTransferValue(string propertyName, object importedValue, SettingsTransferScope scope,
+            Dictionary<string, HashSet<string>> patchGroups = null)
         {
-            if (!TryCreateScopedSettingsTransferValue(propertyName, importedValue, scope, out object scopedValue))
+            if (!TryCreateScopedSettingsTransferValue(propertyName, importedValue, scope, out object scopedValue, patchGroups))
                 return;
 
             scope = NormalizeSettingsTransferScope(scope);
@@ -1434,13 +1512,15 @@ namespace dvmconsole
             SettingsTransferScope scope)
         {
             HashSet<string> zoneNames = BuildScopeSet(scope.ZoneNames);
+            List<AlertToneConfig> scopedTones = FilterAlertTonesByScope(incoming, scope);
+            HashSet<string> incomingIds = BuildScopeSet(scopedTones.Select(tone => tone.Id));
             List<AlertToneConfig> merged = (current ?? Enumerable.Empty<AlertToneConfig>())
                 .Where(tone => tone == null ||
-                               string.IsNullOrWhiteSpace(tone.TabName) ||
-                               !zoneNames.Contains(tone.TabName.Trim()))
+                               (!incomingIds.Contains(tone.Id ?? string.Empty) &&
+                                (string.IsNullOrWhiteSpace(tone.TabName) || !zoneNames.Contains(tone.TabName.Trim()))))
                 .ToList();
 
-            merged.AddRange(FilterAlertTonesByScope(incoming, scope));
+            merged.AddRange(scopedTones);
             return merged;
         }
 
@@ -1489,29 +1569,21 @@ namespace dvmconsole
             return merged;
         }
 
-        private HashSet<string> GetScopedPatchGroupNames(HashSet<string> channelResourceKeys)
+        private Dictionary<string, HashSet<string>> GetScopedPatchGroupNames(HashSet<string> channelResourceKeys)
         {
             return GetPatchGroupNames(FilterPatchGroupMembershipsByScope(PatchGroupMemberships, channelResourceKeys));
         }
 
-        private static HashSet<string> GetPatchGroupNames(Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> memberships)
+        private static Dictionary<string, HashSet<string>> GetPatchGroupNames(Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> memberships)
         {
-            return new HashSet<string>(
-                (memberships ?? new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>())
-                    .SelectMany(context => context.Value?.Keys ?? Enumerable.Empty<string>())
-                    .Where(groupName => !string.IsNullOrWhiteSpace(groupName))
-                    .Select(groupName => groupName.Trim()),
-                StringComparer.OrdinalIgnoreCase);
+            return (memberships ?? new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>())
+                .ToDictionary(context => context.Key, context => BuildScopeSet(context.Value?.Keys), StringComparer.OrdinalIgnoreCase);
         }
 
-        private static HashSet<string> GetNestedBoolGroupNames(Dictionary<string, Dictionary<string, bool>> values)
+        private static Dictionary<string, HashSet<string>> GetNestedBoolGroupNames(Dictionary<string, Dictionary<string, bool>> values)
         {
-            return new HashSet<string>(
-                (values ?? new Dictionary<string, Dictionary<string, bool>>())
-                    .SelectMany(context => context.Value?.Keys ?? Enumerable.Empty<string>())
-                    .Where(groupName => !string.IsNullOrWhiteSpace(groupName))
-                    .Select(groupName => groupName.Trim()),
-                StringComparer.OrdinalIgnoreCase);
+            return (values ?? new Dictionary<string, Dictionary<string, bool>>())
+                .ToDictionary(context => context.Key, context => BuildScopeSet(context.Value?.Keys), StringComparer.OrdinalIgnoreCase);
         }
 
         private static Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> FilterPatchGroupMembershipsByScope(
@@ -1548,15 +1620,17 @@ namespace dvmconsole
 
         private static Dictionary<string, Dictionary<string, bool>> FilterNestedBoolDictionaryByGroupNames(
             Dictionary<string, Dictionary<string, bool>> source,
-            HashSet<string> groupNames)
+            Dictionary<string, HashSet<string>> groupNames)
         {
             Dictionary<string, Dictionary<string, bool>> filtered =
                 new Dictionary<string, Dictionary<string, bool>>(StringComparer.OrdinalIgnoreCase);
 
             foreach (KeyValuePair<string, Dictionary<string, bool>> context in source ?? new Dictionary<string, Dictionary<string, bool>>())
             {
+                if (!groupNames.TryGetValue(context.Key, out HashSet<string> contextGroups))
+                    continue;
                 Dictionary<string, bool> scopedGroups = (context.Value ?? new Dictionary<string, bool>())
-                    .Where(kvp => !string.IsNullOrWhiteSpace(kvp.Key) && groupNames.Contains(kvp.Key.Trim()))
+                    .Where(kvp => !string.IsNullOrWhiteSpace(kvp.Key) && contextGroups.Contains(kvp.Key.Trim()))
                     .ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase);
 
                 if (scopedGroups.Count > 0 && !string.IsNullOrWhiteSpace(context.Key))
@@ -1571,8 +1645,8 @@ namespace dvmconsole
             Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> incoming,
             HashSet<string> channelResourceKeys)
         {
-            Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> merged =
-                ClonePatchGroupMemberships(current);
+            Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> original = ClonePatchGroupMemberships(current);
+            Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> merged = ClonePatchGroupMemberships(original);
 
             foreach (Dictionary<string, List<PatchTalkgroupMember>> groups in merged.Values)
             {
@@ -1603,7 +1677,22 @@ namespace dvmconsole
                     if (scopedMembers.Count == 0)
                         continue;
 
-                    groups[group.Key] = NormalizePatchMembers(scopedMembers);
+                    List<PatchTalkgroupMember> previousMembers = null;
+                    if (original.TryGetValue(context.Key, out Dictionary<string, List<PatchTalkgroupMember>> previousGroups))
+                        previousGroups.TryGetValue(group.Key, out previousMembers);
+
+                    // Member order determines the one-way source; keep unselected members in place.
+                    Queue<PatchTalkgroupMember> replacements = new Queue<PatchTalkgroupMember>(NormalizePatchMembers(scopedMembers));
+                    List<PatchTalkgroupMember> combined = new List<PatchTalkgroupMember>();
+                    foreach (PatchTalkgroupMember member in previousMembers ?? new List<PatchTalkgroupMember>())
+                    {
+                        if (!IsPatchMemberInScope(member, channelResourceKeys))
+                            combined.Add(member);
+                        else if (replacements.Count > 0)
+                            combined.Add(replacements.Dequeue());
+                    }
+                    combined.AddRange(replacements);
+                    groups[group.Key] = NormalizePatchMembers(combined);
                 }
             }
 
@@ -1615,13 +1704,15 @@ namespace dvmconsole
         private static Dictionary<string, Dictionary<string, bool>> MergeNestedBoolDictionaryByGroupNames(
             Dictionary<string, Dictionary<string, bool>> current,
             Dictionary<string, Dictionary<string, bool>> incoming,
-            HashSet<string> groupNames)
+            Dictionary<string, HashSet<string>> groupNames)
         {
             Dictionary<string, Dictionary<string, bool>> merged =
                 CloneNestedBoolDictionary(current);
 
             foreach (KeyValuePair<string, Dictionary<string, bool>> context in incoming ?? new Dictionary<string, Dictionary<string, bool>>())
             {
+                if (!groupNames.TryGetValue(context.Key, out HashSet<string> contextGroups))
+                    continue;
                 if (!merged.TryGetValue(context.Key, out Dictionary<string, bool> groups))
                 {
                     groups = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
@@ -1630,7 +1721,7 @@ namespace dvmconsole
 
                 foreach (KeyValuePair<string, bool> group in context.Value ?? new Dictionary<string, bool>())
                 {
-                    if (!string.IsNullOrWhiteSpace(group.Key) && groupNames.Contains(group.Key.Trim()))
+                    if (!string.IsNullOrWhiteSpace(group.Key) && contextGroups.Contains(group.Key.Trim()))
                         groups[group.Key] = group.Value;
                 }
             }
@@ -1820,8 +1911,13 @@ namespace dvmconsole
         /// </summary>
         public void Reset()
         {
-            if (File.Exists(SettingsFilePath))
-                File.Delete(SettingsFilePath);
+            lock (persistenceSync)
+            {
+                if (File.Exists(SettingsFilePath))
+                    File.Delete(SettingsFilePath);
+                // Open editors and shutdown callbacks must not recreate the deleted profile.
+                resetPending = true;
+            }
         }
 
         /// <summary>

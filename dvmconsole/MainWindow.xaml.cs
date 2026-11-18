@@ -5218,9 +5218,17 @@ namespace dvmconsole
             var confirmResult = MessageBox.Show("Are you sure to wish to reset console settings?", "Reset Settings", MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (confirmResult == MessageBoxResult.Yes)
             {
-                MessageBox.Show("Settings will be reset after console restart.", "Reset Settings", MessageBoxButton.OK, MessageBoxImage.Information);
-                noSaveSettingsOnClose = true;
-                settingsManager.Reset();
+                try
+                {
+                    settingsManager.Reset();
+                    noSaveSettingsOnClose = true;
+                    MessageBox.Show("Settings will be reset after console restart.", "Reset Settings", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                catch (Exception ex)
+                {
+                    Log.StackTrace(ex, false);
+                    MessageBox.Show("Unable to reset settings. Your saved profile has not been cleared.", "Reset Settings", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
             }
         }
 
@@ -5231,7 +5239,8 @@ namespace dvmconsole
         /// <param name="e"></param>
         private async void SelectWidgets_Click(object sender, RoutedEventArgs e)
         {
-            WidgetSelectionWindow widgetSelectionWindow = new WidgetSelectionWindow();
+            WidgetSelectionWindow widgetSelectionWindow = new WidgetSelectionWindow(
+                settingsManager.ShowSystemStatus, settingsManager.ShowChannels, settingsManager.ShowAlertTones);
             widgetSelectionWindow.Owner = this;
             if (widgetSelectionWindow.ShowDialog() == true)
             {

@@ -44,9 +44,18 @@ namespace dvmconsole
         /// <summary>
         /// Initializes a new instance of the <see cref="WidgetSelectionWindow"/> class.
         /// </summary>
-        public WidgetSelectionWindow()
+        /// <param name="showSystemStatus">Current system-status widget visibility.</param>
+        /// <param name="showChannels">Current channel widget visibility.</param>
+        /// <param name="showAlertTones">Current alert-tone widget visibility.</param>
+        public WidgetSelectionWindow(bool showSystemStatus = true, bool showChannels = true, bool showAlertTones = true)
         {
             InitializeComponent();
+            ShowSystemStatus = showSystemStatus;
+            ShowChannels = showChannels;
+            ShowAlertTones = showAlertTones;
+            SystemStatusCheckBox.IsChecked = showSystemStatus;
+            ChannelCheckBox.IsChecked = showChannels;
+            AlertToneCheckBox.IsChecked = showAlertTones;
         }
 
         /** WPF Events */
