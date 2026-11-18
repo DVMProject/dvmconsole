@@ -7910,6 +7910,8 @@ namespace dvmconsole
                 keyStatusWindow.Closed += (_, _) => keyStatusWindow = null;
                 keyStatusWindow.Show();
             }
+            else
+                keyStatusWindow.RefreshKeyStatus();
 
             if (keyStatusWindow.WindowState == WindowState.Minimized)
                 keyStatusWindow.WindowState = WindowState.Normal;

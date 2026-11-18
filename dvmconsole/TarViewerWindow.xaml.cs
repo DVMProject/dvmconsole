@@ -69,7 +69,7 @@ namespace dvmconsole
         }
 
         public IReadOnlyList<string> DirectionFilters { get; } = new[] { "All", "RX", "TX" };
-        public IReadOnlyList<string> ProtocolFilters { get; } = new[] { "All", "P25", "DMR" };
+        public IReadOnlyList<string> ProtocolFilters { get; } = new[] { "All", "P25", "DMR", "NXDN", "Analog" };
         public IReadOnlyList<string> EncryptionFilters { get; } = new[] { "All", "Clear", "Encrypted" };
 
         private readonly TarManager tarManager;

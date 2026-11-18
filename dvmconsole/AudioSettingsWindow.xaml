@@ -313,9 +313,9 @@
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Grid.Row="3">
             <Button x:Name="SaveButton" Content="Save" Width="100" Margin="0,0,10,0" Click="SaveButton_Click"
-                    IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}" />
+                    Style="{StaticResource MaterialDesignPaperDarkButton}" />
             <Button x:Name="CancelButton" Content="Cancel" Width="100" Click="CancelButton_Click"
-                    IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}" />
+                    Style="{StaticResource MaterialDesignPaperDarkButton}" />
         </StackPanel>
     </Grid>
 </Window>

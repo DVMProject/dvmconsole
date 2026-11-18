@@ -208,6 +208,9 @@ public class GlobalKeyboardHook : IDisposable
     EventHandler<GlobalKeyboardHookEventArgs> handler;
     public IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam)
     {
+        if (nCode < 0)
+            return CallNextHookEx(IntPtr.Zero, nCode, wParam, lParam);
+
         bool fEatKeyStroke = false;
 
         var wparamTyped = wParam.ToInt32();

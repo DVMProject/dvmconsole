@@ -80,13 +80,13 @@ namespace dvmconsole
             this.mainWindow = mainWindow;
             DataContext = this;
 
-            LoadKeyStatus();
+            RefreshKeyStatus();
         }
 
         /// <summary>
-        /// 
+        /// Refreshes the displayed status from the current channel keys.
         /// </summary>
-        private void LoadKeyStatus()
+        public void RefreshKeyStatus()
         {
             Dispatcher.Invoke(() =>
             {
