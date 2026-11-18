@@ -234,12 +234,13 @@ namespace dvmconsole
             public string Type { get; set; } = "patch";
 
             /// <summary>
-            /// Returns true if this group is a patch group.
+            /// Returns true for patch groups, including an omitted or blank legacy type.
             /// </summary>
             /// <returns></returns>
             public bool IsPatchGroup()
             {
-                return !string.Equals(Type?.Trim(), "multiselect", StringComparison.OrdinalIgnoreCase);
+                return string.IsNullOrWhiteSpace(Type) ||
+                    string.Equals(Type.Trim(), "patch", StringComparison.OrdinalIgnoreCase);
             }
 
             /// <summary>

@@ -1042,7 +1042,8 @@ namespace dvmconsole
             btnSelectAll.IsEnabled = true;
             btnKeyStatus.IsEnabled = true;
             btnCallHistory.IsEnabled = true;
-            bool hasPatchGroups = Codeplug?.Groups?.Any(pg => !string.IsNullOrWhiteSpace(pg?.Name)) == true;
+            bool hasPatchGroups = Codeplug?.Groups?.Any(pg => !string.IsNullOrWhiteSpace(pg?.Name) &&
+                (pg.IsPatchGroup() || pg.IsMultiselectGroup())) == true;
             btnPatchGroups.IsEnabled = hasPatchGroups;
             menuPatchGroups.IsEnabled = hasPatchGroups;
             menuTabManager.IsEnabled = Codeplug?.Zones?.Any(zone => !string.IsNullOrWhiteSpace(zone?.Name)) == true;
@@ -2175,6 +2176,7 @@ namespace dvmconsole
         private void ResetChannel(ChannelBox e)
         {
             StopOperatorPtt(e);
+            e.PatchForwardStreamId = 0;
             lock (e.P25Sync)
             {
                 if (e.TxStreamId != 0)
@@ -7346,6 +7348,17 @@ namespace dvmconsole
                 return 0;
             }
 
+            // Forwarding can only acquire an idle card, never borrow another sender's stream.
+            if (channelBox.TxStreamId != 0 || channelBox.PttState || channelBox.PatchForwardingTxState ||
+                channelBox.PageState || channelBox.HoldState || channelBox.IsReceiving ||
+                !channelBox.AnalogEndTask.IsCompleted || !channelBox.DmrEndTask.IsCompleted || !channelBox.NxdnEndTask.IsCompleted)
+                return 0;
+            lock (toneTransmitSync)
+            {
+                if (activeToneTransmitCancels.ContainsKey(GetToneTransmitKey(channelBox)))
+                    return 0;
+            }
+
             if (!ValidateP25Transmit(cpgChannel, channelBox))
                 return 0;
 
@@ -7367,21 +7380,34 @@ namespace dvmconsole
                 return 0;
             }
 
-            // Patch forwarding takes channel out of receive presentation state.
-            channelBox.IsReceiving = false;
-            channelBox.IsReceivingEncrypted = false;
+            if (!uint.TryParse(cpgChannel.Tgid, out uint dstId))
+                return 0;
+            uint streamId = fne.NewStreamId();
+            if (streamId == 0)
+                return 0;
+
+            channelBox.TxStreamId = streamId;
+            channelBox.PatchForwardStreamId = streamId;
             channelBox.PatchForwardingTxState = true;
             channelBox.VolumeMeterLevel = 0;
+            try
+            {
+                if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                    fne.SendP25TDU(sourceId, dstId, true, streamId);
 
-            if (channelBox.TxStreamId == 0)
-                channelBox.TxStreamId = fne.NewStreamId();
-
-            uint dstId = uint.Parse(cpgChannel.Tgid);
-            if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                fne.SendP25TDU(sourceId, dstId, true);
-
-            Log.WriteLine($"Patch forward started: {channelBox.ChannelName} ({systemName} TG {tgid}) stream {channelBox.TxStreamId}, source {sourceId}.");
-            return channelBox.TxStreamId;
+                Log.WriteLine($"Patch forward started: {channelBox.ChannelName} ({systemName} TG {tgid}) stream {streamId}, source {sourceId}.");
+                return streamId;
+            }
+            catch (Exception ex)
+            {
+                Log.WriteWarning($"Patch forward start failed for {channelBox.ChannelName}: {ex.Message}");
+                if (channelBox.TxStreamId == streamId && channelBox.PatchForwardStreamId == streamId)
+                {
+                    channelBox.PatchForwardingTxState = false;
+                    ResetChannel(channelBox);
+                }
+                return 0;
+            }
         }
 
         /// <summary>
@@ -7400,27 +7426,30 @@ namespace dvmconsole
         /// </summary>
         private void EndPatchForward(string systemName, string tgid, uint streamId, uint sourceId)
         {
-            if (!TryResolvePatchEndpoint(systemName, tgid, out ChannelBox channelBox, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne))
-                return;
-            if (channelBox.TxStreamId == 0 || channelBox.TxStreamId != streamId)
+            bool hasEndpoint = TryResolvePatchEndpoint(systemName, tgid, out ChannelBox channelBox, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne);
+            if (channelBox == null || streamId == 0 || channelBox.TxStreamId != streamId || channelBox.PatchForwardStreamId != streamId)
                 return;
 
-            if (IsFneSystemConnected(system.Name))
+            try
             {
-                if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                    EndP25Transmission(channelBox, fne, cpgChannel, system, sourceId, streamId);
-                else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                    EndDmrTransmission(channelBox);
+                if (hasEndpoint && IsFneSystemConnected(system.Name))
+                {
+                    if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                        EndP25Transmission(channelBox, fne, cpgChannel, system, sourceId, streamId);
+                    else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                        EndDmrTransmission(channelBox);
+                }
+                else
+                {
+                    Log.WriteWarning($"Patch forward call end skipped for {channelBox.ChannelName}; FNE system '{systemName}' is disconnected.");
+                }
             }
-            else
+            finally
             {
-                Log.WriteWarning($"Patch forward call end skipped for {channelBox.ChannelName}; FNE system '{system.Name}' is disconnected.");
-            }
-
-            if (!IsPatchPttTargetActive(systemName, tgid))
                 channelBox.PatchForwardingTxState = false;
-            ResetChannel(channelBox);
-            channelBox.VolumeMeterLevel = 0;
+                ResetChannel(channelBox);
+                channelBox.VolumeMeterLevel = 0;
+            }
         }
 
         /// <summary>
@@ -7440,13 +7469,14 @@ namespace dvmconsole
         /// <summary>
         /// Sends forwarded PCM audio to destination member.
         /// </summary>
-        private void SendPatchForwardAudio(string systemName, string tgid, byte[] pcm, uint sourceId)
+        private void SendPatchForwardAudio(string systemName, string tgid, byte[] pcm, uint sourceId, uint streamId)
         {
             if (!TryResolvePatchEndpoint(systemName, tgid, out ChannelBox channelBox, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne))
                 return;
-            if (!IsGroupTransmitAllowed(channelBox) || channelBox.TxStreamId == 0)
+            if (!IsGroupTransmitAllowed(channelBox) || streamId == 0 ||
+                channelBox.TxStreamId != streamId || channelBox.PatchForwardStreamId != streamId)
                 return;
-            if (!IsFneSystemConnected(system.Name))
+            if (isReloadingResources || isShuttingDown || !IsFneSystemConnected(system.Name))
                 return;
 
             if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
@@ -7454,23 +7484,23 @@ namespace dvmconsole
             else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
                 DMREncodeAudioFrame(pcm, fne, channelBox, cpgChannel, system, sourceId);
             else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN)
-                NXDNEncodeAudioFrame(pcm, fne, channelBox, cpgChannel, system, sourceId);
+                NXDNEncodeAudioFrame(pcm, fne, channelBox, cpgChannel, system, sourceId, expectedStreamId: streamId);
             else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.Analog)
-                AnalogEncodeAudioFrame(pcm, fne, channelBox, cpgChannel, system, sourceId);
+                AnalogEncodeAudioFrame(pcm, fne, channelBox, cpgChannel, system, sourceId, expectedStreamId: streamId);
         }
 
         /// <summary>
         /// UI-thread wrapper for patch forward audio sends.
         /// </summary>
-        private void SendPatchForwardAudioOnUiThread(string systemName, string tgid, byte[] pcm, uint sourceId)
+        private void SendPatchForwardAudioOnUiThread(string systemName, string tgid, byte[] pcm, uint sourceId, uint streamId)
         {
             if (Dispatcher.CheckAccess())
             {
-                SendPatchForwardAudio(systemName, tgid, pcm, sourceId);
+                SendPatchForwardAudio(systemName, tgid, pcm, sourceId, streamId);
                 return;
             }
 
-            Dispatcher.Invoke(() => SendPatchForwardAudio(systemName, tgid, pcm, sourceId));
+            Dispatcher.Invoke(() => SendPatchForwardAudio(systemName, tgid, pcm, sourceId, streamId));
         }
 
         /// <summary>
@@ -7864,7 +7894,8 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void PatchGroups_Click(object sender, RoutedEventArgs e)
         {
-            if (Codeplug?.Groups?.Any(pg => !string.IsNullOrWhiteSpace(pg?.Name)) != true)
+            if (Codeplug?.Groups?.Any(pg => !string.IsNullOrWhiteSpace(pg?.Name) &&
+                (pg.IsPatchGroup() || pg.IsMultiselectGroup())) != true)
                 return;
 
             patchGroupsWindow.Owner = this;

@@ -787,6 +787,11 @@ namespace dvmconsole.Controls
         public uint TxStreamId { get; internal set; }
 
         /// <summary>
+        /// Stream owned by automatic patch forwarding, separate from operator/group PTT.
+        /// </summary>
+        internal uint PatchForwardStreamId { get; set; }
+
+        /// <summary>
         /// 
         /// </summary>
         public uint PeerId { get; set; }

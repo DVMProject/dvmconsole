@@ -61,12 +61,11 @@ namespace dvmconsole
 
         private readonly struct StartWorkItem
         {
-            public StartWorkItem(string groupName, int generation, string sourceKey, uint sourceStreamId, PatchMember member, uint sourceId, bool passthrough)
+            public StartWorkItem(string groupName, int generation, ActiveSource source, PatchMember member, uint sourceId, bool passthrough)
             {
                 GroupName = groupName;
                 Generation = generation;
-                SourceKey = sourceKey;
-                SourceStreamId = sourceStreamId;
+                Source = source;
                 Member = member;
                 SourceId = sourceId;
                 Passthrough = passthrough;
@@ -74,8 +73,7 @@ namespace dvmconsole
 
             public string GroupName { get; }
             public int Generation { get; }
-            public string SourceKey { get; }
-            public uint SourceStreamId { get; }
+            public ActiveSource Source { get; }
             public PatchMember Member { get; }
             public uint SourceId { get; }
             public bool Passthrough { get; }
@@ -99,21 +97,23 @@ namespace dvmconsole
 
         private readonly struct AudioWorkItem
         {
-            public AudioWorkItem(string systemName, string tgid, uint sourceId)
+            public AudioWorkItem(string systemName, string tgid, uint sourceId, uint streamId)
             {
                 SystemName = systemName;
                 Tgid = tgid;
                 SourceId = sourceId;
+                StreamId = streamId;
             }
 
             public string SystemName { get; }
             public string Tgid { get; }
             public uint SourceId { get; }
+            public uint StreamId { get; }
         }
 
         private readonly Func<string, string, uint, uint> beginForward;
         private readonly Action<string, string, uint, uint> endForward;
-        private readonly Action<string, string, byte[], uint> sendForwardAudio;
+        private readonly Action<string, string, byte[], uint, uint> sendForwardAudio;
         private readonly Func<string, string, uint> getFallbackSourceId;
 
         private readonly object sync = new object();
@@ -121,6 +121,8 @@ namespace dvmconsole
         private readonly HashSet<string> outboundStreams = new HashSet<string>();
         private readonly Dictionary<string, DateTime> recentlyEndedOutboundStreams = new Dictionary<string, DateTime>();
         private readonly HashSet<string> activeTargetKeys = new HashSet<string>();
+        // A destination stays reserved while a start or stop callback is in flight.
+        private readonly HashSet<string> reservedTargetKeys = new HashSet<string>();
 
         private bool sourceIdPassthrough = false;
         private int membershipGeneration = 0;
@@ -129,14 +131,17 @@ namespace dvmconsole
         /// <summary>
         /// Initializes a new instance of the <see cref="PatchManager"/> class.
         /// </summary>
-        /// <param name="beginForward"></param>
-        /// <param name="endForward"></param>
-        /// <param name="sendForwardAudio"></param>
+        /// <param name="beginForward">Acquires a fresh outbound stream, or returns zero on failure.
+        /// The callback must roll back any partial acquisition before throwing.</param>
+        /// <param name="endForward">Releases only the matching outbound stream, including local cleanup
+        /// when sending the terminator fails.</param>
+        /// <param name="sendForwardAudio">Receives system, talkgroup, PCM, source ID and expected outbound stream ID.
+        /// The callback must reject audio if the destination no longer owns that stream.</param>
         /// <param name="getFallbackSourceId"></param>
         public PatchManager(
             Func<string, string, uint, uint> beginForward,
             Action<string, string, uint, uint> endForward,
-            Action<string, string, byte[], uint> sendForwardAudio,
+            Action<string, string, byte[], uint, uint> sendForwardAudio,
             Func<string, string, uint> getFallbackSourceId)
         {
             this.beginForward = beginForward;
@@ -185,7 +190,7 @@ namespace dvmconsole
 
                 List<string> keysToRemove = groups.Keys
                     .Where(k => !incoming.ContainsKey(k) ||
-                        !MembersEqual(groups[k].Members, incoming[k].Members) ||
+                        !MembersEqual(groups[k].Members, incoming[k].Members, groups[k].OneWay) ||
                         groups[k].OneWay != incoming[k].OneWay)
                     .ToList();
 
@@ -258,7 +263,7 @@ namespace dvmconsole
                     };
 
                     foreach (PatchMember member in group.Members.Where(m => m.Key != sourceKey))
-                        starts.Add(new StartWorkItem(group.GroupName, generation, sourceKey, streamId, member, sourceId, passthrough));
+                        starts.Add(new StartWorkItem(group.GroupName, generation, group.Source, member, sourceId, passthrough));
                 }
             }
 
@@ -278,6 +283,7 @@ namespace dvmconsole
             List<StartWorkItem> starts = new List<StartWorkItem>();
             List<StopWorkItem> stops = new List<StopWorkItem>();
             List<AudioWorkItem> sends = new List<AudioWorkItem>();
+            List<(GroupRuntime Group, ActiveSource Source)> audioSources = new List<(GroupRuntime, ActiveSource)>();
             lock (sync)
             {
                 bool passthrough = sourceIdPassthrough;
@@ -286,6 +292,7 @@ namespace dvmconsole
 
                 foreach (GroupRuntime group in groups.Values.Where(g => IsEligibleSource(g, sourceKey)))
                 {
+                    bool sourceStarted = false;
                     if (group.Source == null || (group.Source.SourceKey != sourceKey || group.Source.StreamId != streamId) && IsSourceStale(group.Source, now))
                     {
                         if (group.Source != null)
@@ -299,9 +306,7 @@ namespace dvmconsole
                             SourceIdLatched = sourceId != 0,
                             LastActivityUtc = now
                         };
-
-                        foreach (PatchMember member in group.Members.Where(m => m.Key != sourceKey))
-                            starts.Add(new StartWorkItem(group.GroupName, generation, sourceKey, streamId, member, sourceId, passthrough));
+                        sourceStarted = true;
                     }
 
                     if (group.Source.SourceKey != sourceKey || group.Source.StreamId != streamId)
@@ -321,21 +326,42 @@ namespace dvmconsole
 
                     // If starts were deferred because passthrough source ID was unavailable at
                     // call start, begin any missing targets as soon as source ID is latched.
-                    if (!passthrough || group.Source.SourceIdLatched)
+                    if (sourceStarted || !passthrough || group.Source.SourceIdLatched)
                     {
                         foreach (PatchMember member in group.Members.Where(m => m.Key != sourceKey && !group.ActiveTargets.ContainsKey(m.Key)))
-                            starts.Add(new StartWorkItem(group.GroupName, generation, sourceKey, streamId, member, group.Source.SourceId, passthrough));
+                            starts.Add(new StartWorkItem(group.GroupName, generation, group.Source, member, group.Source.SourceId, passthrough));
                     }
 
-                    sends.AddRange(group.ActiveTargets.Values.Select(t => new AudioWorkItem(t.SystemName, t.Tgid, t.OutboundSourceId)));
+                    audioSources.Add((group, group.Source));
                 }
             }
 
             ExecuteStops(stops);
             ExecuteStarts(starts);
 
+            // Include newly accepted targets, but never attach this frame to a replacement source.
+            lock (sync)
+            {
+                foreach (var audioSource in audioSources)
+                {
+                    if (groups.TryGetValue(audioSource.Group.GroupName, out GroupRuntime group) &&
+                        ReferenceEquals(group, audioSource.Group) && ReferenceEquals(group.Source, audioSource.Source))
+                    {
+                        sends.AddRange(group.ActiveTargets.Values.Select(t =>
+                            new AudioWorkItem(t.SystemName, t.Tgid, t.OutboundSourceId, t.StreamId)));
+                    }
+                }
+            }
+
             foreach (AudioWorkItem send in sends)
-                sendForwardAudio(send.SystemName, send.Tgid, pcm, send.SourceId);
+            {
+                lock (sync)
+                {
+                    if (!outboundStreams.Contains(BuildStreamKey(send.SystemName, send.Tgid, send.StreamId)))
+                        continue;
+                }
+                sendForwardAudio(send.SystemName, send.Tgid, pcm, send.SourceId, send.StreamId);
+            }
         }
 
         /// <summary>
@@ -388,6 +414,7 @@ namespace dvmconsole
                         outboundStreams.Remove(streamKey);
                         recentlyEndedOutboundStreams[streamKey] = DateTime.UtcNow + LatePacketSuppressWindow;
                         activeTargetKeys.Remove(memberKey);
+                        reservedTargetKeys.Add(memberKey);
                     }
                 }
             }
@@ -451,47 +478,92 @@ namespace dvmconsole
         {
             foreach (StartWorkItem start in starts)
             {
-                uint outboundSourceId;
-                if (start.Passthrough && start.SourceId != 0)
-                    outboundSourceId = start.SourceId;
-                else
-                    outboundSourceId = getFallbackSourceId(start.Member.SystemName, start.Member.Tgid);
-
-                uint streamId = beginForward(start.Member.SystemName, start.Member.Tgid, outboundSourceId);
-                if (streamId == 0)
-                    continue;
-
-                bool accepted = false;
                 lock (sync)
                 {
-                    if (membershipGeneration == start.Generation &&
-                        groups.TryGetValue(start.GroupName, out GroupRuntime group) &&
-                        group.Source != null &&
-                        group.Source.SourceKey == start.SourceKey &&
-                        group.Source.StreamId == start.SourceStreamId &&
-                        group.Members.Any(m => m.Key == start.Member.Key) &&
-                        !group.ActiveTargets.ContainsKey(start.Member.Key))
-                    {
-                        group.ActiveTargets[start.Member.Key] = new ForwardTarget
-                        {
-                            SystemName = start.Member.SystemName,
-                            Tgid = start.Member.Tgid,
-                            MemberKey = start.Member.Key,
-                            StreamId = streamId,
-                            OutboundSourceId = outboundSourceId
-                        };
-
-                        string streamKey = BuildStreamKey(start.Member.SystemName, start.Member.Tgid, streamId);
-                        outboundStreams.Add(streamKey);
-                        recentlyEndedOutboundStreams.Remove(streamKey);
-                        activeTargetKeys.Add(start.Member.Key);
-                        accepted = true;
-                    }
+                    if (!IsStartCurrentUnsafe(start) || activeTargetKeys.Contains(start.Member.Key) ||
+                        !reservedTargetKeys.Add(start.Member.Key))
+                        continue;
                 }
 
-                if (!accepted)
+                bool ownsReservation = true;
+                try
+                {
+                    uint outboundSourceId = start.Passthrough && start.SourceId != 0
+                        ? start.SourceId : getFallbackSourceId(start.Member.SystemName, start.Member.Tgid);
+
+                    // Fallback resolution may dispatch to the UI and invalidate the queued source.
+                    lock (sync)
+                    {
+                        if (!IsStartCurrentUnsafe(start))
+                            continue;
+                    }
+
+                    uint streamId = beginForward(start.Member.SystemName, start.Member.Tgid, outboundSourceId);
+                    if (streamId == 0)
+                        continue;
+
+                    bool accepted = false;
+                    lock (sync)
+                    {
+                        if (IsStartCurrentUnsafe(start))
+                        {
+                            groups[start.GroupName].ActiveTargets[start.Member.Key] = new ForwardTarget
+                            {
+                                SystemName = start.Member.SystemName,
+                                Tgid = start.Member.Tgid,
+                                MemberKey = start.Member.Key,
+                                StreamId = streamId,
+                                OutboundSourceId = outboundSourceId
+                            };
+
+                            string streamKey = BuildStreamKey(start.Member.SystemName, start.Member.Tgid, streamId);
+                            outboundStreams.Add(streamKey);
+                            recentlyEndedOutboundStreams.Remove(streamKey);
+                            activeTargetKeys.Add(start.Member.Key);
+                            // Transfer the reservation to active ownership atomically. A concurrent
+                            // stop can now reserve the destination until its callback completes.
+                            reservedTargetKeys.Remove(start.Member.Key);
+                            ownsReservation = false;
+                            accepted = true;
+                        }
+                        else
+                        {
+                            recentlyEndedOutboundStreams[BuildStreamKey(start.Member.SystemName, start.Member.Tgid, streamId)] =
+                                DateTime.UtcNow + LatePacketSuppressWindow;
+                        }
+                    }
+
+                    if (accepted)
+                        continue;
+
+                    // Keep the destination reserved until compensation finishes; otherwise a
+                    // replacement could acquire the same resource while this end is still pending.
                     endForward(start.Member.SystemName, start.Member.Tgid, streamId, outboundSourceId);
+                }
+                catch (Exception ex)
+                {
+                    Log.WriteWarning($"Patch forward start failed for {start.Member.SystemName} TG {start.Member.Tgid}: {ex.Message}");
+                }
+                finally
+                {
+                    if (ownsReservation)
+                    {
+                        lock (sync)
+                            reservedTargetKeys.Remove(start.Member.Key);
+                    }
+                }
             }
+        }
+
+        /// <summary>
+        /// Validates queued work against the exact source lifetime while holding the manager lock.
+        /// </summary>
+        private bool IsStartCurrentUnsafe(StartWorkItem start)
+        {
+            return membershipGeneration == start.Generation &&
+                groups.TryGetValue(start.GroupName, out GroupRuntime group) &&
+                ReferenceEquals(group.Source, start.Source) &&
+                group.Members.Any(m => m.Key == start.Member.Key);
         }
 
         /// <summary>
@@ -501,7 +573,21 @@ namespace dvmconsole
         private void ExecuteStops(List<StopWorkItem> stops)
         {
             foreach (StopWorkItem stop in stops)
-                endForward(stop.SystemName, stop.Tgid, stop.StreamId, stop.SourceId);
+            {
+                try
+                {
+                    endForward(stop.SystemName, stop.Tgid, stop.StreamId, stop.SourceId);
+                }
+                catch (Exception ex)
+                {
+                    Log.WriteWarning($"Patch forward stop failed for {stop.SystemName} TG {stop.Tgid}, stream {stop.StreamId}: {ex.Message}");
+                }
+                finally
+                {
+                    lock (sync)
+                        reservedTargetKeys.Remove(BuildKey(stop.SystemName, stop.Tgid));
+                }
+            }
         }
 
         /// <summary>
@@ -518,6 +604,7 @@ namespace dvmconsole
                 outboundStreams.Remove(streamKey);
                 recentlyEndedOutboundStreams[streamKey] = DateTime.UtcNow + LatePacketSuppressWindow;
                 activeTargetKeys.Remove(target.MemberKey);
+                reservedTargetKeys.Add(target.MemberKey);
             }
 
             group.ActiveTargets.Clear();
@@ -576,7 +663,7 @@ namespace dvmconsole
             {
                 if (!groups.TryGetValue(kvp.Key, out GroupRuntime group))
                     return false;
-                if (!MembersEqual(group.Members, kvp.Value.Members))
+                if (!MembersEqual(group.Members, kvp.Value.Members, group.OneWay))
                     return false;
                 if (group.OneWay != kvp.Value.OneWay)
                     return false;
@@ -590,9 +677,13 @@ namespace dvmconsole
         /// </summary>
         /// <param name="left"></param>
         /// <param name="right"></param>
+        /// <param name="oneWay">Whether the first member identifies the source.</param>
         /// <returns></returns>
-        private static bool MembersEqual(List<PatchMember> left, List<PatchMember> right)
+        private static bool MembersEqual(List<PatchMember> left, List<PatchMember> right, bool oneWay)
         {
+            if (oneWay && left?.FirstOrDefault()?.Key != right?.FirstOrDefault()?.Key)
+                return false;
+
             HashSet<string> leftKeys = new HashSet<string>((left ?? new List<PatchMember>()).Select(m => m.Key));
             HashSet<string> rightKeys = new HashSet<string>((right ?? new List<PatchMember>()).Select(m => m.Key));
             return leftKeys.SetEquals(rightKeys);

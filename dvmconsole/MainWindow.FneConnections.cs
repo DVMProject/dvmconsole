@@ -468,6 +468,8 @@ namespace dvmconsole
 
                     Codeplug.Channel disconnectedChannel = channel.ConfiguredChannel;
                     Codeplug.System disconnectedSystem = Codeplug?.GetSystemForChannel(disconnectedChannel);
+                    if (disconnectedChannel != null)
+                        patchManager.StopMember(systemName, disconnectedChannel.Tgid);
                     bool hadTransmitState = channel.PttState || channel.PatchForwardingTxState || channel.TxStreamId != 0;
                     SlotStatus slotStatus = FindActiveReceiveStatus(channel, disconnectedChannel);
 

@@ -233,7 +233,8 @@ namespace dvmconsole
             lastPersistedModes = new Dictionary<string, bool>(persistedModes ?? new Dictionary<string, bool>(), StringComparer.OrdinalIgnoreCase);
             lastPersistedEnabledStates = new Dictionary<string, bool>(persistedEnabledStates ?? new Dictionary<string, bool>(), StringComparer.OrdinalIgnoreCase);
 
-            foreach (Codeplug.Group patchGroup in patchGroups.Where(pg => !string.IsNullOrWhiteSpace(pg?.Name)))
+            foreach (Codeplug.Group patchGroup in patchGroups.Where(pg => !string.IsNullOrWhiteSpace(pg?.Name) &&
+                (pg.IsPatchGroup() || pg.IsMultiselectGroup())))
             {
                 bool isMultiSelect = patchGroup.IsMultiselectGroup();
                 bool isOneWay = !isMultiSelect &&
