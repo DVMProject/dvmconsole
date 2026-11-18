@@ -150,6 +150,18 @@ namespace dvmconsole
         private void P25EncodeAudioFrame(byte[] pcm, PeerSystem fne, ChannelBox channel, Codeplug.Channel cpgChannel, Codeplug.System system, uint? sourceIdOverride = null, ushort? generatedToneFrequencyHz = null, bool suppressToneDetection = false)
         {
             uint stream = channel.TxStreamId;
+            lock (channel.P25Sync)
+            {
+                if (stream == 0 || channel.TxStreamId != stream || channel.P25EndedStreamId == stream)
+                    return;
+                P25EncodeAudioFrameCore(pcm, fne, channel, cpgChannel, system, sourceIdOverride, generatedToneFrequencyHz, suppressToneDetection);
+            }
+        }
+
+        /// <summary>Encodes one frame while the caller owns the channel's P25 transmit lock.</summary>
+        private void P25EncodeAudioFrameCore(byte[] pcm, PeerSystem fne, ChannelBox channel, Codeplug.Channel cpgChannel, Codeplug.System system, uint? sourceIdOverride = null, ushort? generatedToneFrequencyHz = null, bool suppressToneDetection = false)
+        {
+            uint stream = channel.TxStreamId;
             if (stream == 0 || channel.P25FailedStreamId == stream)
                 return;
 
@@ -203,6 +215,7 @@ namespace dvmconsole
 
             if (generatedToneFrequencyHz.HasValue)
             {
+                channel.ToneDetector.Reset();
                 MBEToneGenerator.IMBEEncodeSingleTone(generatedToneFrequencyHz.Value, imbe);
             }
             else
@@ -213,6 +226,8 @@ namespace dvmconsole
                 {
                     tone = channel.ToneDetector.Detect(signal);
                 }
+                else
+                    channel.ToneDetector.Reset();
 
                 if (tone > 0)
                 {
@@ -309,7 +324,7 @@ namespace dvmconsole
                     break;
             }
 
-            uint srcId = sourceIdOverride ?? uint.Parse(system.Rid);
+            uint srcId = sourceIdOverride ?? uint.Parse(cpgChannel.GetSourceRid(system));
             uint dstId = uint.Parse(cpgChannel.Tgid);
 
             FnePeer peer = fne.peer;
@@ -384,6 +399,43 @@ namespace dvmconsole
 
             channel.p25SeqNo++;
             channel.p25N++;
+        }
+
+        /// <summary>
+        /// Completes at most one partial LDU before ending the stream. Padding uses
+        /// the normal vocoder/cipher path, but never enters local playback or TAR.
+        /// Forced stops discard the partial block instead of extending transmission.
+        /// </summary>
+        private void EndP25Transmission(ChannelBox channel, PeerSystem fne, Codeplug.Channel config,
+            Codeplug.System system, uint sourceId, uint streamId, bool discardPending = false)
+        {
+            lock (channel.P25Sync)
+            {
+                if (streamId == 0 || channel.TxStreamId != streamId || channel.P25EndedStreamId == streamId)
+                    return;
+                try
+                {
+                    if (!discardPending && channel.P25FailedStreamId != streamId)
+                    {
+                        int pending = channel.p25N % 9;
+                        if (pending != 0)
+                        {
+                            byte[] silence = new byte[FneSystemBase.MBE_SAMPLES_LENGTH * 2];
+                            for (int i = pending; i < 9 && channel.P25FailedStreamId != streamId; i++)
+                                P25EncodeAudioFrameCore(silence, fne, channel, config, system, sourceId,
+                                    suppressToneDetection: true);
+                        }
+                    }
+                }
+                finally
+                {
+                    // Fence waiting encoders even when padding or the terminator send fails.
+                    channel.P25EndedStreamId = streamId;
+                    channel.p25N = 0;
+                    channel.ToneDetector.Reset();
+                    fne.SendP25TDU(sourceId, uint.Parse(config.Tgid), false, streamId);
+                }
+            }
         }
 
         /// <summary>
@@ -618,7 +670,8 @@ namespace dvmconsole
                     }
 
                     // HDU crypto applies to this LDU1; preserve its MI through call startup.
-                    if (e.DUID == P25DUID.LDU1 && e.Data.Length >= 193 && e.Data[180] == P25Defines.P25_FT_HDU_VALID)
+                    bool hasHdu = e.DUID == P25DUID.LDU1 && e.Data.Length >= 193 && e.Data[180] == P25Defines.P25_FT_HDU_VALID;
+                    if (hasHdu)
                     {
                         channel.algId = e.Data[181];
                         channel.kId = (ushort)((e.Data[182] << 8) | e.Data[183]);
@@ -648,7 +701,7 @@ namespace dvmconsole
                         Log.WriteLine($"({system.Name}) P25D: Traffic *CALL START     * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
 
                         // make channel enc parameters sane
-                        if (channel.algId == 0 && channel.kId == 0)
+                        if (!hasHdu && channel.algId == 0 && channel.kId == 0)
                             channel.algId = P25Defines.P25_ALGO_UNENCRYPT;
 
                         Task<TarRecordingMetadata> recording = BeginTarRxRecording(
@@ -713,6 +766,7 @@ namespace dvmconsole
                                     // The '64' record - IMBE Voice 3 + Link Control
                                     Buffer.BlockCopy(data, count, channel.netLDU1, 50, 17);
                                     byte serviceOptions = data[count + 3];
+                                    PrepareP25Ldu1Receive(channel, serviceOptions);
                                     count += 17;
 
                                     // The '65' record - IMBE Voice 4 + Link Control
@@ -759,6 +813,8 @@ namespace dvmconsole
                             break;
                         case P25DUID.LDU2:
                             {
+                                byte previousAlgorithm = channel.algId;
+                                ushort previousKeyId = channel.kId;
                                 // The '6B', '6C', '6D', '6E', '6F', '70', '71', '72', '73' records are LDU2
                                 if ((data[0U] == 0x6BU) && (data[22U] == 0x6CU) &&
                                     (data[36U] == 0x6DU) && (data[53U] == 0x6EU) &&
@@ -818,6 +874,13 @@ namespace dvmconsole
                                     else
                                         Array.Copy(newMI, channel.mi, P25Defines.P25_MI_LENGTH);
 
+                                    // Clear late entry needs no MI. Encrypted LDU2 carries
+                                    // the next pair's MI, so retain its existing preparation order.
+                                    if (channel.algId != previousAlgorithm || channel.kId != previousKeyId)
+                                        channel.ReceiveCrypto.Reset();
+                                    if (channel.algId == P25Defines.P25_ALGO_UNENCRYPT)
+                                        channel.ReceiveCrypto.Prepare(channel.algId, 0, channel.mi, null);
+
                                     // decode 9 IMBE codewords into PCM samples
                                     EnsureTarRxRecording(
                                         system,
@@ -864,6 +927,25 @@ namespace dvmconsole
             {
                 Log.WriteError($"P25 RX handler exception: {ex.Message}");
                 Log.StackTrace(ex, false);
+            }
+        }
+
+        /// <summary>Only explicit clear signaling may open audio before crypto synchronization.</summary>
+        private static void PrepareP25Ldu1Receive(ChannelBox channel, byte serviceOptions)
+        {
+            if ((serviceOptions & 0x40) != 0)
+            {
+                if (channel.algId == P25Defines.P25_ALGO_UNENCRYPT)
+                {
+                    channel.algId = 0;
+                    channel.kId = 0;
+                    channel.ReceiveCrypto.Reset();
+                }
+            }
+            else if (channel.algId == P25Defines.P25_ALGO_UNENCRYPT)
+            {
+                channel.kId = 0;
+                channel.ReceiveCrypto.Prepare(channel.algId, 0, channel.mi, null);
             }
         }
 

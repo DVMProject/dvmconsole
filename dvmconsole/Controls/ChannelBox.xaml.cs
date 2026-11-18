@@ -147,6 +147,8 @@ namespace dvmconsole.Controls
         internal readonly byte[] P25TxMi = new byte[P25Defines.P25_MI_LENGTH];
         internal uint P25CryptoStreamId;
         internal uint P25FailedStreamId;
+        internal readonly object P25Sync = new();
+        internal uint P25EndedStreamId;
         internal P25ReceiveCrypto ReceiveCrypto { get; } = new();
 
         /// <summary>

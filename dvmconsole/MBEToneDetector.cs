@@ -120,21 +120,26 @@ namespace dvmconsole
                 // Determine hits
                 if (hits_freq == tone_freq)
                 {
-                    num_hits++;
-                    if (num_hits >= hits_reqd)
-                    {
-                        // Debug
-                        //Log.Logger.Debug($"Detected {tone_freq} Hz tone! (ratio {ratio})");
-                        return tone_freq;
-                    }
+                    num_hits = Math.Min(num_hits + 1, hits_reqd);
                 }
                 else
                 {
                     num_hits = 1;
                     hits_freq = tone_freq;
                 }
+                if (num_hits >= hits_reqd)
+                    return tone_freq;
             }
+            else
+                Reset();
             return 0;
+        }
+
+        /// <summary>Clears consecutive-tone history at a gap or call boundary.</summary>
+        public void Reset()
+        {
+            hits_freq = 0;
+            num_hits = 0;
         }
     } // public class MBEToneDetector
 } // namespace dvmconsole

@@ -105,7 +105,8 @@ namespace dvmconsole
                     {
                         EndTarTxRecording(channel, system, config);
                         if (IsFneSystemConnected(system.Name) && config.GetChannelMode() == Codeplug.ChannelMode.P25)
-                            fne.SendP25TDU(uint.Parse(config.GetSourceRid(system)), uint.Parse(config.Tgid), false, session.StreamId);
+                            EndP25Transmission(channel, fne, config, system, uint.Parse(config.GetSourceRid(system)),
+                                session.StreamId, discardPending: true);
                     }
                 }
                 catch (Exception ex)

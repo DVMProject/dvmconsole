@@ -2096,6 +2096,18 @@ namespace dvmconsole
         private void ResetChannel(ChannelBox e)
         {
             StopOperatorPtt(e);
+            lock (e.P25Sync)
+            {
+                if (e.TxStreamId != 0)
+                    e.P25EndedStreamId = e.TxStreamId;
+                e.P25FailedStreamId = 0;
+                e.P25CryptoStreamId = 0;
+                Array.Clear(e.P25TxMi);
+                e.p25SeqNo = 0;
+                e.p25N = 0;
+                e.pktSeq = 0;
+                e.ToneDetector.Reset();
+            }
             lock (e.AnalogSync)
             {
                 EndAnalogTransmission(e);
@@ -2113,14 +2125,6 @@ namespace dvmconsole
                 e.TxStreamId = 0;
                 e.NxdnFailedStreamId = 0;
             }
-            // reset values
-            e.P25FailedStreamId = 0;
-            e.P25CryptoStreamId = 0;
-            Array.Clear(e.P25TxMi);
-            e.p25SeqNo = 0;
-            e.p25N = 0;
-
-            e.pktSeq = 0;
         }
 
         private static GeneratedTonePayload BuildLegacyAlertTonePayload(int alertNumber)
@@ -2559,9 +2563,8 @@ namespace dvmconsole
             }
 
             uint srcId = uint.Parse(cpgChannel.GetSourceRid(system));
-            uint dstId = uint.Parse(cpgChannel.Tgid);
             if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                fne.SendP25TDU(srcId, dstId, false, channel.TxStreamId);
+                EndP25Transmission(channel, fne, cpgChannel, system, srcId, channel.TxStreamId, discardPending: true);
             else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
                 EndDmrTransmission(channel);
 
@@ -3552,7 +3555,8 @@ namespace dvmconsole
                 if (txStarted)
                 {
                     if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                        fne.SendP25TDU(srcId, dstId, false, toneStreamId);
+                        EndP25Transmission(channel, fne, cpgChannel, system, srcId, toneStreamId,
+                            discardPending: cancellationToken.IsCancellationRequested);
                     else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
                         EndDmrTransmission(channel);
 
@@ -5923,7 +5927,12 @@ namespace dvmconsole
                     return;
 
                 if (IsFneSystemConnected(system.Name) && cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                    fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false, e.TxStreamId);
+                {
+                    if (e.TxStreamId != 0)
+                        EndP25Transmission(e, fne, cpgChannel, system, uint.Parse(cpgChannel.GetSourceRid(system)), e.TxStreamId);
+                    else
+                        fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
+                }
                 else if (!IsFneSystemConnected(system.Name))
                     Log.WriteWarning($"Page TDU end skipped for {e.ChannelName}; FNE system '{system.Name}' is disconnected.");
             }
@@ -6035,7 +6044,7 @@ namespace dvmconsole
                 if (IsFneSystemConnected(system.Name))
                 {
                     if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                        fne.SendP25TDU(srcId, dstId, false, e.TxStreamId);
+                        EndP25Transmission(e, fne, cpgChannel, system, srcId, e.TxStreamId);
                     else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
                         EndDmrTransmission(e);
                 }
@@ -7100,7 +7109,8 @@ namespace dvmconsole
             if (IsFneSystemConnected(session.CodeplugSystem.Name))
             {
                 if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                    session.Fne.SendP25TDU(session.SourceId, dstId, false, session.StreamId);
+                    EndP25Transmission(session.Channel, session.Fne, session.CodeplugChannel,
+                        session.CodeplugSystem, session.SourceId, session.StreamId, discardPending: session.Channel.PttTimedOut);
                 else if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
                     EndDmrTransmission(session.Channel);
             }
@@ -7290,11 +7300,10 @@ namespace dvmconsole
             if (channelBox.TxStreamId == 0 || channelBox.TxStreamId != streamId)
                 return;
 
-            uint dstId = uint.Parse(cpgChannel.Tgid);
             if (IsFneSystemConnected(system.Name))
             {
                 if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                    fne.SendP25TDU(sourceId, dstId, false, streamId);
+                    EndP25Transmission(channelBox, fne, cpgChannel, system, sourceId, streamId);
                 else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
                     EndDmrTransmission(channelBox);
             }
