@@ -1144,12 +1144,31 @@ namespace dvmconsole
 
         private void ClearResourceWidgets()
         {
+            DisposeResourceWidgets();
             ClearLayoutSelection();
             foreach (Canvas canvas in tabCanvases.Values)
                 canvas.Children.Clear();
             channelsCanvas.Children.Clear();
             elementToTabMap.Clear();
             systemStatuses.Clear();
+        }
+
+        /// <summary>Releases codec and timer ownership after resource activity has stopped.</summary>
+        private void DisposeResourceWidgets()
+        {
+            foreach (WebStreamChip stream in GetAllWebStreamChips().ToList())
+                TryResourceCleanup(stream.Dispose);
+            foreach (ChannelBox channel in GetAllCanvases().SelectMany(canvas => canvas.Children.OfType<ChannelBox>()).Distinct())
+            {
+                TryResourceCleanup(() => channel.Encoder?.Dispose());
+                TryResourceCleanup(() => channel.Decoder?.Dispose());
+                TryResourceCleanup(() => channel.ExtFullRateVocoder?.Dispose());
+                TryResourceCleanup(() => channel.ExtHalfRateVocoder?.Dispose());
+                channel.Encoder = null;
+                channel.Decoder = null;
+                channel.ExtFullRateVocoder = null;
+                channel.ExtHalfRateVocoder = null;
+            }
         }
 
         /// <summary>Joins tone and voice workers while their cards and peers still exist.</summary>
@@ -1166,11 +1185,10 @@ namespace dvmconsole
                 tones = toneTransmitCompletions.Values.Select(completion => completion.Task).ToArray();
             }
             TryResourceCleanup(StopAllPatchPttTargets);
-            foreach (WebStreamChip stream in GetAllWebStreamChips().ToList())
-                TryResourceCleanup(stream.Stop);
+            Task[] webStreams = GetAllWebStreamChips().Select(stream => stream.StopAsync()).ToArray();
             List<ChannelBox> channels = GetAllCanvases().SelectMany(canvas => canvas.Children.OfType<ChannelBox>()).ToList();
             TryResourceCleanup(ClearRuntimeSelectedResourcesForWidgetRebuild);
-            await Task.WhenAll(tones);
+            await Task.WhenAll(tones.Concat(webStreams));
             foreach (ChannelBox channel in channels)
             {
                 Codeplug.Channel config = channel.ConfiguredChannel;
@@ -4119,6 +4137,7 @@ namespace dvmconsole
                 catch (Exception ex) { Log.StackTrace(ex, false); }
                 finally
                 {
+                    TryResourceCleanup(DisposeResourceWidgets);
                     maintainenceCancelToken.Dispose();
                     shutdownComplete = true;
                     Close();
@@ -4394,16 +4413,20 @@ namespace dvmconsole
                 channel.PttState && CanSendOperatorPttAudio(channel, channel.TxStreamId) &&
                 !channel.IsLocalPlayback);
 
-            // Avoid letting local speaker playback or generated tones train mic processing while the console is idle.
-            if (micTransmitActive)
+            // Keep a frame's EQ and AGC on the same settings/history snapshot.
+            lock (micProcessingSettingsSync)
             {
-                ApplyMicrophoneProcessing(micBuffer);
-                ApplyInputAgc(micBuffer);
-            }
-            else
-            {
-                ResetMicrophoneProcessingState();
-                ResetInputAgcGain();
+                // Idle speaker playback must not train the microphone filters.
+                if (micTransmitActive)
+                {
+                    ApplyMicrophoneProcessing(micBuffer);
+                    ApplyInputAgc(micBuffer);
+                }
+                else
+                {
+                    ResetMicrophoneProcessingState();
+                    ResetInputAgcGain();
+                }
             }
 
               foreach (ChannelBox channel in selectedChannels)
@@ -4509,7 +4532,7 @@ namespace dvmconsole
               }
   
               if (playbackChannelBox != null && isAnyTgOn && playbackChannelBox.IsSelected)
-                  audioManager.AddLiveMonitorStream(PLAYBACKTG, micBuffer, TimeSpan.FromMilliseconds(250));
+                  audioManager.AddLiveMonitorStream(playbackChannelBox.AudioOutputKey, micBuffer, TimeSpan.FromMilliseconds(250));
           }
 
         /** WPF Window Events */

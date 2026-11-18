@@ -222,9 +222,6 @@ namespace dvmconsole
         {
             if (player != null)
             {
-                player.Stop();
-                player.Dispose();
-
                 lock (talkgroupProvidersSync)
                 {
                     oneShotPlayers.Remove(player);
@@ -237,6 +234,8 @@ namespace dvmconsole
                             oneShotPlayersByTalkgroup.Remove(key);
                     }
                 }
+                CleanupAudioResource(player.Stop);
+                CleanupAudioResource(player.Dispose);
             }
 
             DisposeDeviceSelection(deviceSelection);
@@ -260,7 +259,7 @@ namespace dvmconsole
             }
 
             foreach (IWavePlayer player in players)
-                player.Stop();
+                CleanupAudioResource(player.Stop);
         }
 
         /// <summary>
@@ -280,27 +279,34 @@ namespace dvmconsole
 
             try
             {
-                player = CreateOutputPlayer(deviceSelection);
-                player.Init(CreateOutputProvider(gainProvider, deviceSelection));
-                player.Play();
-            }
-            catch (Exception ex) when (deviceSelection.Backend == AudioBackendKind.Wasapi)
-            {
-                Log.WriteWarning($"WASAPI playback failed for {talkgroupId}; falling back to legacy MME. {ex.Message}");
-                player?.Dispose();
-                DisposeDeviceSelection(deviceSelection);
-                deviceSelection = AudioDeviceResolver.ResolveMmeOutputFallback(deviceSelection.DeviceNumber);
-                player = CreateOutputPlayer(deviceSelection);
-                player.Init(CreateOutputProvider(gainProvider, deviceSelection));
-                player.Play();
+                try
+                {
+                    player = CreateOutputPlayer(deviceSelection);
+                    player.Init(CreateOutputProvider(gainProvider, deviceSelection));
+                    player.Play();
+                }
+                catch (Exception ex) when (deviceSelection.Backend == AudioBackendKind.Wasapi)
+                {
+                    Log.WriteWarning($"WASAPI playback failed for {talkgroupId}; falling back to legacy MME. {ex.Message}");
+                    if (player != null)
+                        CleanupAudioResource(player.Dispose);
+                    player = null;
+                    DisposeDeviceSelection(deviceSelection);
+                    deviceSelection = AudioDeviceResolver.ResolveMmeOutputFallback(deviceSelection.DeviceNumber);
+                    player = CreateOutputPlayer(deviceSelection);
+                    player.Init(CreateOutputProvider(gainProvider, deviceSelection));
+                    player.Play();
+                }
+
+                talkgroupProviders[talkgroupId] = (player, bufferProvider, gainProvider, deviceSelection);
             }
             catch
             {
-                player?.Dispose();
+                if (player != null)
+                    CleanupAudioResource(player.Dispose);
+                DisposeDeviceSelection(deviceSelection);
                 throw;
             }
-
-            talkgroupProviders[talkgroupId] = (player, bufferProvider, gainProvider, deviceSelection);
         }
 
         private (IWavePlayer player, BufferedWaveProvider buffer, GainSampleProvider gainProvider, AudioDeviceResolver.AudioDeviceSelection deviceSelection) GetOrCreateTalkgroupProvider(string talkgroupId)
@@ -537,31 +543,43 @@ namespace dvmconsole
             if (!talkgroupProviders.TryGetValue(talkgroupId, out var provider))
                 return;
 
-            provider.buffer.ClearBuffer();
-            provider.player.Stop();
-            provider.player.Dispose();
-            DisposeDeviceSelection(provider.deviceSelection);
+            // Remove ownership before device callbacks; one failing device must not strand the route.
             talkgroupProviders.Remove(talkgroupId);
             talkgroupLastAudioTimes.Remove(talkgroupId);
+            CleanupAudioResource(provider.buffer.ClearBuffer);
+            CleanupAudioResource(provider.player.Stop);
+            CleanupAudioResource(provider.player.Dispose);
+            DisposeDeviceSelection(provider.deviceSelection);
         }
 
         private static void DisposeDeviceSelection(AudioDeviceResolver.AudioDeviceSelection deviceSelection)
         {
-            deviceSelection?.WasapiDevice?.Dispose();
+            MMDevice device = deviceSelection?.WasapiDevice;
+            if (device == null)
+                return;
+            deviceSelection.WasapiDevice = null;
+            CleanupAudioResource(device.Dispose);
+        }
+
+        /// <summary>Continue releasing owned audio resources even if a driver fails during cleanup.</summary>
+        private static void CleanupAudioResource(Action cleanup)
+        {
+            try { cleanup(); }
+            catch (Exception ex) { Log.WriteWarning($"Audio cleanup failed: {ex.Message}"); }
         }
 
         /// <summary>
-        /// Lop off the wave out
+        /// Releases streaming players and requests stop for worker-owned one-shot players.
         /// </summary>
         public void Stop()
         {
             lock (talkgroupProvidersSync)
             {
-                foreach (var provider in talkgroupProviders.Values)
-                    provider.player.Stop();
+                foreach (string talkgroup in talkgroupProviders.Keys.ToList())
+                    RemoveTalkgroupProvider(talkgroup);
 
                 foreach (IWavePlayer player in oneShotPlayers.ToList())
-                    player.Stop();
+                    CleanupAudioResource(player.Stop);
             }
         }
     } // public class AudioManager

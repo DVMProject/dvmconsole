@@ -34,7 +34,8 @@ namespace dvmconsole
         private readonly Action inputDeviceChanged;
         private readonly Action<bool, double, double, double, double> microphoneProcessingPreviewChanged;
         private readonly Action microphoneProcessingPreviewCanceled;
-        private readonly Dictionary<string, ComboBox> outputSelectorsByTalkgroup = new Dictionary<string, ComboBox>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, List<ComboBox>> outputSelectorsByTalkgroup = new Dictionary<string, List<ComboBox>>(StringComparer.OrdinalIgnoreCase);
+        private bool synchronizingOutputSelectors;
         private List<AudioDeviceOption> cachedInputDeviceOptions;
         private List<AudioDeviceOption> cachedOutputDeviceOptions;
         private AudioBackendKind? cachedDeviceOptionsBackend;
@@ -577,7 +578,7 @@ namespace dvmconsole
             row.Children.Add(selector);
             panel.Children.Add(row);
 
-            outputSelectorsByTalkgroup[resourceKey] = selector;
+            RegisterOutputSelector(resourceKey, selector);
         }
 
         private void AddWebStreamOutputRow(StackPanel panel, Codeplug.WebStream stream, List<AudioDeviceOption> outputDevices, IReadOnlyDictionary<string, SelectedOutputDevice> visibleOutputSelections = null)
@@ -622,7 +623,33 @@ namespace dvmconsole
             row.Children.Add(selector);
             panel.Children.Add(row);
 
-            outputSelectorsByTalkgroup[streamKey] = selector;
+            RegisterOutputSelector(streamKey, selector);
+        }
+
+        /// <summary>All visible copies of a resource edit the same saved output route.</summary>
+        private void RegisterOutputSelector(string resourceKey, ComboBox selector)
+        {
+            if (!outputSelectorsByTalkgroup.TryGetValue(resourceKey, out List<ComboBox> selectors))
+            {
+                selectors = new List<ComboBox>();
+                outputSelectorsByTalkgroup[resourceKey] = selectors;
+            }
+            if (selectors.Count > 0)
+                selector.SelectedValue = selectors[0].SelectedValue;
+            selectors.Add(selector);
+            selector.SelectionChanged += (sender, args) =>
+            {
+                if (synchronizingOutputSelectors)
+                    return;
+                synchronizingOutputSelectors = true;
+                try
+                {
+                    foreach (ComboBox other in selectors)
+                        if (!ReferenceEquals(other, selector))
+                            other.SelectedValue = selector.SelectedValue;
+                }
+                finally { synchronizingOutputSelectors = false; }
+            };
         }
 
         private ContextMenu BuildOutputSelectorContextMenu(ComboBox selector)
@@ -785,7 +812,7 @@ namespace dvmconsole
         {
             return outputSelectorsByTalkgroup.ToDictionary(
                 entry => entry.Key,
-                entry => entry.Value.SelectedValue as string ?? AudioDeviceResolver.INHERIT_MASTER_OUTPUT_KEY,
+                entry => entry.Value[0].SelectedValue as string ?? AudioDeviceResolver.INHERIT_MASTER_OUTPUT_KEY,
                 StringComparer.OrdinalIgnoreCase);
         }
 
@@ -1072,9 +1099,10 @@ namespace dvmconsole
             settingsManager.AudioInputPresetName = MicPresetNameTextBox.Text?.Trim() ?? string.Empty;
             settingsManager.AudioInputPresets = SettingsManager.NormalizeAudioInputPresets(micPresetDrafts);
 
-            foreach (KeyValuePair<string, ComboBox> entry in outputSelectorsByTalkgroup)
+            foreach (KeyValuePair<string, List<ComboBox>> entry in outputSelectorsByTalkgroup)
             {
-                string selectedOutputKey = entry.Value.SelectedValue as string ?? AudioDeviceResolver.INHERIT_MASTER_OUTPUT_KEY;
+                ComboBox selector = entry.Value[0];
+                string selectedOutputKey = selector.SelectedValue as string ?? AudioDeviceResolver.INHERIT_MASTER_OUTPUT_KEY;
                 if (string.Equals(selectedOutputKey, AudioDeviceResolver.INHERIT_MASTER_OUTPUT_KEY, StringComparison.OrdinalIgnoreCase))
                 {
                     settingsManager.ChannelOutputDevices.Remove(entry.Key);
@@ -1082,7 +1110,7 @@ namespace dvmconsole
                 }
                 else
                 {
-                    int selectedOutput = (entry.Value.SelectedItem as AudioDeviceOption)?.DeviceNumber ??
+                    int selectedOutput = (selector.SelectedItem as AudioDeviceOption)?.DeviceNumber ??
                         AudioDeviceResolver.ResolveOutputDeviceNumber(selectedOutputKey);
                     settingsManager.ChannelOutputDevices[entry.Key] = SettingsManager.NormalizeAudioDeviceIndex(selectedOutput);
                     settingsManager.ChannelOutputDeviceKeys[entry.Key] = SettingsManager.NormalizeAudioDeviceKey(selectedOutputKey);

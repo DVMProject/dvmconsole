@@ -980,7 +980,12 @@ namespace dvmconsole.Controls
             {
                 ExternalVocoderEnabled = true;
                 ExtFullRateVocoder = new AmbeVocoder();
-                ExtHalfRateVocoder = new AmbeVocoder(false);
+                try { ExtHalfRateVocoder = new AmbeVocoder(false); }
+                catch
+                {
+                    ExtFullRateVocoder.Dispose();
+                    throw;
+                }
             }
         }
 

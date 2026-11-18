@@ -50,16 +50,25 @@ namespace dvmconsole
 
             if (preferWasapi && !forceLegacyMme)
             {
+                AudioDeviceResolver.AudioDeviceSelection selection = null;
                 try
                 {
-                    AudioDeviceResolver.AudioDeviceSelection selection =
-                        AudioDeviceResolver.ResolveInputDevice(deviceKey, legacyDeviceNumber);
+                    selection = AudioDeviceResolver.ResolveInputDevice(deviceKey, legacyDeviceNumber);
                     if (selection.Backend == AudioBackendKind.Wasapi && selection.WasapiDevice != null)
-                        return new WasapiConsoleAudioInput(selection.WasapiDevice, selection.DisplayName, selection.DeviceNumber);
+                    {
+                        var input = new WasapiConsoleAudioInput(selection.WasapiDevice, selection.DisplayName, selection.DeviceNumber);
+                        selection.WasapiDevice = null; // Ownership transfers only after construction succeeds.
+                        return input;
+                    }
                 }
                 catch (Exception ex)
                 {
                     Log.WriteWarning($"WASAPI input unavailable; falling back to legacy MME input. {ex.Message}");
+                }
+                finally
+                {
+                    try { selection?.WasapiDevice?.Dispose(); }
+                    catch (Exception ex) { Log.WriteWarning($"WASAPI input cleanup failed: {ex.Message}"); }
                 }
             }
 
@@ -140,29 +149,39 @@ namespace dvmconsole
         private readonly FixedPcmBlockDispatcher blockDispatcher = new FixedPcmBlockDispatcher(AudioConverter.OriginalPcmLength);
         private readonly object converterSync = new object();
         private bool loggedFirstBuffer;
+        private int disposed;
 
         public WasapiConsoleAudioInput(MMDevice device, string displayName, int legacyFallbackDeviceNumber)
         {
             this.device = device ?? throw new ArgumentNullException(nameof(device));
-            capture = new WasapiRecorderBuilder()
-                .WithDevice(device)
-                .WithSharedMode()
-                .WithPollingSync()
-                .WithBufferLength(SharedModeCaptureBufferMilliseconds)
-                .WithFormat(new WaveFormat(8000, 16, 1))
-                .Build();
-            converter = IsTargetPcmFormat(capture.WaveFormat)
-                ? null
-                : new Pcm16Mono8kConverter(capture.WaveFormat);
-            DeviceDescription = string.IsNullOrWhiteSpace(displayName)
-                ? $"WASAPI input {device.FriendlyName}"
-                : displayName;
-            LegacyFallbackDeviceNumber = SettingsManager.NormalizeAudioDeviceIndex(legacyFallbackDeviceNumber);
+            try
+            {
+                capture = new WasapiRecorderBuilder()
+                    .WithDevice(device)
+                    .WithSharedMode()
+                    .WithPollingSync()
+                    .WithBufferLength(SharedModeCaptureBufferMilliseconds)
+                    .WithFormat(new WaveFormat(8000, 16, 1))
+                    .Build();
+                converter = IsTargetPcmFormat(capture.WaveFormat)
+                    ? null
+                    : new Pcm16Mono8kConverter(capture.WaveFormat);
+                DeviceDescription = string.IsNullOrWhiteSpace(displayName)
+                    ? $"WASAPI input {device.FriendlyName}"
+                    : displayName;
+                LegacyFallbackDeviceNumber = SettingsManager.NormalizeAudioDeviceIndex(legacyFallbackDeviceNumber);
 
-            Log.WriteLine($"WASAPI input format for {DeviceDescription}: {capture.WaveFormat}");
+                Log.WriteLine($"WASAPI input format for {DeviceDescription}: {capture.WaveFormat}");
 
-            capture.DataAvailable += Capture_DataAvailable;
-            capture.RecordingStopped += Capture_RecordingStopped;
+                capture.DataAvailable += Capture_DataAvailable;
+                capture.RecordingStopped += Capture_RecordingStopped;
+            }
+            catch
+            {
+                try { capture?.Dispose(); }
+                catch (Exception ex) { Log.WriteWarning($"WASAPI recorder cleanup failed: {ex.Message}"); }
+                throw; // The factory still owns the endpoint on construction failure.
+            }
         }
 
         public event EventHandler<ConsoleAudioDataAvailableEventArgs> DataAvailable;
@@ -184,14 +203,21 @@ namespace dvmconsole
 
         public void Dispose()
         {
-            capture.DataAvailable -= Capture_DataAvailable;
-            capture.RecordingStopped -= Capture_RecordingStopped;
-            capture.Dispose();
-            device.Dispose();
+            if (Interlocked.Exchange(ref disposed, 1) != 0)
+                return;
+            try
+            {
+                capture.DataAvailable -= Capture_DataAvailable;
+                capture.RecordingStopped -= Capture_RecordingStopped;
+                capture.Dispose();
+            }
+            finally { device.Dispose(); }
         }
 
         private void Capture_DataAvailable(ReadOnlySpan<byte> buffer, AudioClientBufferFlags flags, long devicePosition, long qpcPosition)
         {
+            if (Volatile.Read(ref disposed) != 0)
+                return;
             byte[] convertedAudio;
             lock (converterSync)
                 convertedAudio = converter == null

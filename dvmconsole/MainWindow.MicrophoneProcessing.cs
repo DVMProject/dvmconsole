@@ -60,10 +60,9 @@ namespace dvmconsole
                 previewMicEqLowGainDb = SettingsManager.NormalizeAudioInputEqGainDb(lowGainDb);
                 previewMicEqMidGainDb = SettingsManager.NormalizeAudioInputEqGainDb(midGainDb);
                 previewMicEqHighGainDb = SettingsManager.NormalizeAudioInputEqGainDb(highGainDb);
+                ResetMicrophoneProcessingState();
+                ResetInputAgcGain();
             }
-
-            ResetMicrophoneProcessingState();
-            ResetInputAgcGain();
         }
 
         private void RestoreSavedMicrophoneProcessingSettings()
@@ -75,21 +74,29 @@ namespace dvmconsole
                 previewMicEqLowGainDb = double.NaN;
                 previewMicEqMidGainDb = double.NaN;
                 previewMicEqHighGainDb = double.NaN;
+                ResetMicrophoneProcessingState();
+                ResetInputAgcGain();
             }
-
-            ResetMicrophoneProcessingState();
-            ResetInputAgcGain();
         }
 
         private void ResetMicrophoneProcessingState()
         {
-            micEqLowFilter.Reset();
-            micEqMidFilter.Reset();
-            micEqHighFilter.Reset();
-            micEqFiltersConfigured = false;
+            lock (micProcessingSettingsSync)
+            {
+                micEqLowFilter.Reset();
+                micEqMidFilter.Reset();
+                micEqHighFilter.Reset();
+                micEqFiltersConfigured = false;
+            }
         }
 
         private void ApplyMicrophoneProcessing(byte[] pcm)
+        {
+            lock (micProcessingSettingsSync)
+                ApplyMicrophoneProcessingCore(pcm);
+        }
+
+        private void ApplyMicrophoneProcessingCore(byte[] pcm)
         {
             if (pcm == null || pcm.Length < 2)
                 return;

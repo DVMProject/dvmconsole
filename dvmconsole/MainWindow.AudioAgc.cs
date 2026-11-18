@@ -26,10 +26,17 @@ namespace dvmconsole
 
         private void ResetInputAgcGain()
         {
-            inputAgcGain = 1.0;
+            lock (micProcessingSettingsSync)
+                inputAgcGain = 1.0;
         }
 
         private void ApplyInputAgc(byte[] pcm)
+        {
+            lock (micProcessingSettingsSync)
+                ApplyInputAgcCore(pcm);
+        }
+
+        private void ApplyInputAgcCore(byte[] pcm)
         {
             if (pcm == null || pcm.Length < 2 || !IsAudioInputAgcEnabled())
                 return;

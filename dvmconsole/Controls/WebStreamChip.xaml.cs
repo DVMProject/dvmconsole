@@ -31,7 +31,7 @@ namespace dvmconsole.Controls
     /// <summary>
     /// Compact web URL stream player chip.
     /// </summary>
-    public partial class WebStreamChip : UserControl, INotifyPropertyChanged
+    public partial class WebStreamChip : UserControl, INotifyPropertyChanged, IDisposable
     {
         private const int PlaybackBufferLength = 2560;
         private const int MaxConnectionAttempts = 3;
@@ -47,6 +47,9 @@ namespace dvmconsole.Controls
         private readonly object sync = new object();
         private readonly DispatcherTimer rxIdleTimer;
         private CancellationTokenSource playbackCts;
+        private readonly HashSet<Task> playbackTasks = new HashSet<Task>();
+        private long playbackGeneration;
+        private bool disposed;
         private bool isActive;
         private bool isConnecting;
         private bool isReceiving;
@@ -74,7 +77,6 @@ namespace dvmconsole.Controls
                 if (IsReceiving && DateTime.UtcNow - lastAudioActivityUtc > AudioActivityHold + TimeSpan.FromMilliseconds(200))
                     IsReceiving = false;
             };
-            rxIdleTimer.Start();
         }
 
         public string DisplayName
@@ -227,19 +229,60 @@ namespace dvmconsole.Controls
 
         public void Stop()
         {
-            CancellationTokenSource cts;
+            try
+            {
+                lock (sync)
+                {
+                    CancellationTokenSource cts = playbackCts;
+                    playbackCts = null;
+                    playbackGeneration++;
+                    // Cancel and retire output under the same fence used to publish PCM.
+                    try { cts?.Cancel(); }
+                    finally { AudioManager?.StopTalkgroupStream(ResolveAudioOutputKey()); }
+                }
+            }
+            finally
+            {
+                rxIdleTimer.Stop();
+                lastAudioActivityUtc = DateTime.MinValue;
+                IsConnecting = false;
+                IsReceiving = false;
+                IsFailed = false;
+                IsActive = false;
+                StreamId = 0;
+            }
+        }
+
+        /// <summary>Stops playback and observes retired workers without blocking the dispatcher.</summary>
+        public async Task StopAsync()
+        {
+            try { Stop(); }
+            catch (Exception ex) { Log.WriteWarning($"Web stream '{DisplayName}' stop failed: {ex.Message}"); }
+            Task[] workers;
+            lock (sync)
+                workers = playbackTasks.ToArray();
+            try { await Task.WhenAll(workers).WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (TimeoutException)
+            {
+                // Media Foundation URL readers cannot always interrupt a native open/read.
+                // Their tasks remain observed and fenced from this and replacement outputs.
+                Log.WriteWarning($"Web stream '{DisplayName}' is still closing its reader; retired output is disabled.");
+            }
+            catch (Exception ex)
+            {
+                Log.WriteWarning($"Web stream '{DisplayName}' worker cleanup failed: {ex.Message}");
+            }
+        }
+
+        public void Dispose()
+        {
             lock (sync)
             {
-                cts = playbackCts;
-                playbackCts = null;
+                if (disposed)
+                    return;
+                disposed = true;
             }
-
-            cts?.Cancel();
-            AudioManager?.StopTalkgroupStream(ResolveAudioOutputKey());
-            IsReceiving = false;
-            IsFailed = false;
-            IsActive = false;
-            StreamId = 0;
+            Stop();
         }
 
         private void ToggleActive()
@@ -270,19 +313,29 @@ namespace dvmconsole.Controls
         {
             lock (sync)
             {
-                if (playbackCts != null)
+                if (disposed || playbackCts != null)
                     return;
 
-                playbackCts = new CancellationTokenSource();
+                CancellationTokenSource sessionCts = new CancellationTokenSource();
+                playbackCts = sessionCts;
+                long generation = ++playbackGeneration;
+                StreamId = GenerateStreamId();
+                IsFailed = false;
+                IsActive = true;
+                rxIdleTimer.Start();
+                Task worker = Task.Run(() => PlaybackLoop(sessionCts, generation));
+                playbackTasks.Add(worker);
+                _ = worker.ContinueWith(completed =>
+                {
+                    lock (sync)
+                        playbackTasks.Remove(completed);
+                    if (completed.IsFaulted)
+                        Log.WriteWarning($"Web stream '{DisplayName}' worker failed: {completed.Exception.GetBaseException().Message}");
+                }, TaskScheduler.Default);
             }
-
-            StreamId = GenerateStreamId();
-            IsFailed = false;
-            IsActive = true;
-            Task.Run(() => PlaybackLoop(playbackCts));
         }
 
-        private void PlaybackLoop(CancellationTokenSource sessionCts)
+        private void PlaybackLoop(CancellationTokenSource sessionCts, long generation)
         {
             CancellationToken token = sessionCts.Token;
             bool failed = false;
@@ -290,11 +343,11 @@ namespace dvmconsole.Controls
             {
                 for (int attempt = 1; attempt <= MaxConnectionAttempts && !token.IsCancellationRequested; attempt++)
                 {
-                    SetConnectingStatus(attempt == 1 ? "Connecting" : $"Retry {attempt}/{MaxConnectionAttempts}");
+                    SetConnectingStatus(sessionCts, attempt == 1 ? "Connecting" : $"Retry {attempt}/{MaxConnectionAttempts}");
 
                     try
                     {
-                        RunPlaybackAttempt(token);
+                        RunPlaybackAttempt(sessionCts);
                         failed = false;
                         break;
                     }
@@ -316,58 +369,69 @@ namespace dvmconsole.Controls
             finally
             {
                 bool ownsSession;
+                bool finalFailed = failed && !token.IsCancellationRequested;
                 lock (sync)
                 {
                     ownsSession = ReferenceEquals(playbackCts, sessionCts);
                     if (ownsSession)
                         playbackCts = null;
+                    sessionCts.Dispose();
                 }
 
                 if (ownsSession)
                 {
-                    bool finalFailed = failed && !token.IsCancellationRequested;
-                    Dispatcher.Invoke(() =>
+                    Dispatcher.BeginInvoke(new Action(() =>
                     {
+                        if (disposed || generation != playbackGeneration)
+                            return;
                         AudioManager?.StopTalkgroupStream(ResolveAudioOutputKey());
+                        rxIdleTimer.Stop();
+                        IsConnecting = false;
                         IsReceiving = false;
                         IsActive = false;
                         IsFailed = finalFailed;
                         StreamId = 0;
-                    });
+                    }));
                 }
-
-                sessionCts.Dispose();
             }
         }
 
-        private void RunPlaybackAttempt(CancellationToken token)
+        private void RunPlaybackAttempt(CancellationTokenSource sessionCts)
         {
+            CancellationToken token = sessionCts.Token;
+            token.ThrowIfCancellationRequested();
             using IDisposable authenticatedResources = CreateStreamReader(token, out WaveStream reader);
             using (reader)
             using (MediaFoundationResampler resampler = new MediaFoundationResampler(reader, new WaveFormat(8000, 16, 1)))
             {
-                InitializePlayback();
+                InitializePlayback(sessionCts);
 
                 byte[] buffer = new byte[PlaybackBufferLength];
                 while (!token.IsCancellationRequested)
                 {
                     int bytesRead = resampler.Read(buffer.AsSpan());
+                    token.ThrowIfCancellationRequested();
                     if (bytesRead <= 0)
                         throw new EndOfStreamException("stream ended");
 
                     byte[] playbackChunk = new byte[bytesRead];
                     Buffer.BlockCopy(buffer, 0, playbackChunk, 0, bytesRead);
-                    AudioManager?.AddLiveMonitorStream(ResolveAudioOutputKey(), playbackChunk, LiveMonitorBufferDuration);
-                    UpdateActivityState(playbackChunk, playbackChunk.Length);
+                    lock (sync)
+                    {
+                        if (!ReferenceEquals(playbackCts, sessionCts) || token.IsCancellationRequested)
+                            return;
+                        AudioManager?.AddLiveMonitorStream(ResolveAudioOutputKey(), playbackChunk, LiveMonitorBufferDuration);
+                    }
+                    UpdateActivityState(sessionCts, playbackChunk, playbackChunk.Length);
                 }
             }
         }
 
-        private void SetConnectingStatus(string text)
+        private void SetConnectingStatus(CancellationTokenSource sessionCts, string text)
         {
             Dispatcher.BeginInvoke(new Action(() =>
             {
-                if (!IsActive)
+                if (!ReferenceEquals(playbackCts, sessionCts) || !IsActive)
                     return;
 
                 IsConnecting = true;
@@ -405,34 +469,36 @@ namespace dvmconsole.Controls
             }
             catch
             {
-                responseStream?.Dispose();
-                response?.Dispose();
-                request?.Dispose();
-                client?.Dispose();
+                new CompositeDisposable(client, request, response, responseStream).Dispose();
                 throw;
             }
         }
 
-        private void InitializePlayback()
+        private void InitializePlayback(CancellationTokenSource sessionCts)
         {
             Dispatcher.Invoke(() =>
             {
+                if (!ReferenceEquals(playbackCts, sessionCts))
+                    return;
                 AudioManager?.SetTalkgroupVolume(ResolveAudioOutputKey(), (float)Volume);
                 IsConnecting = false;
                 StatusText = "Idle";
             });
         }
 
-        private void UpdateActivityState(byte[] buffer, int bytesRead)
+        private void UpdateActivityState(CancellationTokenSource sessionCts, byte[] buffer, int bytesRead)
         {
             bool frameActive = IsAudioActive(buffer, bytesRead);
             DateTime now = DateTime.UtcNow;
 
-            if (frameActive)
-                lastAudioActivityUtc = now;
-
-            bool inActivityHold = now - lastAudioActivityUtc <= AudioActivityHold;
-            Dispatcher.BeginInvoke(new Action(() => IsReceiving = inActivityHold), DispatcherPriority.Background);
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!ReferenceEquals(playbackCts, sessionCts))
+                    return;
+                if (frameActive)
+                    lastAudioActivityUtc = now;
+                IsReceiving = now - lastAudioActivityUtc <= AudioActivityHold;
+            }), DispatcherPriority.Background);
         }
 
         private static bool IsAudioActive(byte[] buffer, int bytesRead)
@@ -615,7 +681,10 @@ namespace dvmconsole.Controls
             public void Dispose()
             {
                 foreach (IDisposable disposable in disposables.Reverse())
-                    disposable?.Dispose();
+                {
+                    try { disposable?.Dispose(); }
+                    catch (Exception ex) { Log.WriteWarning($"Web stream resource cleanup failed: {ex.Message}"); }
+                }
             }
         }
     }

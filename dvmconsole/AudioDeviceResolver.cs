@@ -394,13 +394,16 @@ namespace dvmconsole
                 using MMDeviceEnumerator enumerator = new MMDeviceEnumerator();
                 foreach (MMDevice device in enumerator.EnumerateAudioEndPoints(dataFlow, DeviceState.Active))
                 {
-                    devices.Add(new AudioDeviceOption
+                    using (device)
                     {
-                        DisplayName = $"{displayPrefix}: {device.FriendlyName}",
-                        DeviceNumber = SettingsManager.WINDOWS_DEFAULT_AUDIO_DEVICE,
-                        DeviceKey = BuildWasapiDeviceKey(keyPrefix, device.ID),
-                        Backend = AudioBackendKind.Wasapi
-                    });
+                        devices.Add(new AudioDeviceOption
+                        {
+                            DisplayName = $"{displayPrefix}: {device.FriendlyName}",
+                            DeviceNumber = SettingsManager.WINDOWS_DEFAULT_AUDIO_DEVICE,
+                            DeviceKey = BuildWasapiDeviceKey(keyPrefix, device.ID),
+                            Backend = AudioBackendKind.Wasapi
+                        });
+                    }
                 }
             }
             catch (Exception ex)
@@ -438,7 +441,7 @@ namespace dvmconsole
 
             try
             {
-                MMDeviceEnumerator enumerator = new MMDeviceEnumerator();
+                using MMDeviceEnumerator enumerator = new MMDeviceEnumerator();
                 if (IsWindowsDefault(deviceKey))
                 {
                     if (!enumerator.HasDefaultAudioEndpoint(dataFlow, Role.Multimedia))
@@ -455,13 +458,17 @@ namespace dvmconsole
                     return false;
 
                 device = enumerator.GetDevice(deviceId);
-                return device != null && device.State == DeviceState.Active;
+                if (device != null && device.State == DeviceState.Active)
+                    return true;
             }
             catch
             {
-                device = null;
-                return false;
+                // An acquired endpoint is still ours until it is returned successfully.
             }
+            try { device?.Dispose(); }
+            catch (Exception ex) { Log.WriteWarning($"WASAPI endpoint cleanup failed: {ex.Message}"); }
+            finally { device = null; }
+            return false;
         }
 
         private static int FindLegacyInputDeviceNumberByName(string friendlyName)

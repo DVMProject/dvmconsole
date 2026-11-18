@@ -21,7 +21,7 @@ namespace dvmconsole
     /// Implements P/Invoke to callback into external AMBE encoder/decoder library.
     /// </summary>
     /// <remarks>This is used to interface to a external library that talks to a DVSI USB-3000.</remarks>
-    public class AmbeVocoder
+    public class AmbeVocoder : IDisposable
     {
         private const int MBE_SAMPLES_LENGTH = 160;
         private const short NO_BIT_STEAL = 0;
@@ -53,6 +53,12 @@ namespace dvmconsole
         private ushort ecmode;
 
         private MBEInterleaver interleaver;
+
+        /// <summary>Releases the native interleaver owned by this external-vocoder adapter.</summary>
+        public void Dispose()
+        {
+            interleaver?.Dispose();
+        }
 
         /*
         ** Properties
@@ -115,14 +121,12 @@ namespace dvmconsole
             if (fullRate)
             {
                 this.mode = AmbeMode.FULL_RATE;
-                this.interleaver = new MBEInterleaver(MBE_MODE.IMBE_88BIT);
                 this.frameLengthInBits = 88;
                 this.frameLengthInBytes = 11;
             }
             else
             {
                 this.mode = AmbeMode.HALF_RATE;
-                this.interleaver = new MBEInterleaver(MBE_MODE.DMR_AMBE);
                 this.frameLengthInBits = 49;
                 this.frameLengthInBytes = 7;
             }
@@ -143,6 +147,9 @@ namespace dvmconsole
                 fixed (byte* state = encoderState)
                     ambe_init_enc((IntPtr)state, (short)mode, 1);
             }
+
+            // Acquire the owned native interleaver only after AMBE initialization succeeds.
+            this.interleaver = new MBEInterleaver(fullRate ? MBE_MODE.IMBE_88BIT : MBE_MODE.DMR_AMBE);
         }
 
         /// <summary>
