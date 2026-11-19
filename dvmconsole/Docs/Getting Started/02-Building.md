@@ -137,6 +137,46 @@ dvmconsole\bin\x86\Debug\net10.0-windows7.0\
 
 ---
 
+# Release ZIP
+
+Do not distribute a working `bin` folder. It may contain private configurations,
+keys, saved settings, recordings, or logs from local testing.
+
+From the repository root, use a directory containing the matching native library:
+
+```powershell
+.\scripts\Publish-Release.ps1 -VocoderSourceDirectory 'C:\Build\vocoder\x86'
+```
+
+This creates a new directory under `artifacts\packages`, publishes a Release x86
+build, checks required files and native architecture, and creates a ZIP plus a
+SHA256 checksum. It includes the runtime manifests, dependency DLLs, documentation,
+project notices, and example configurations. Unexpected files stop packaging.
+Only reviewed example configurations belong in the release; never put real
+credentials in them. The script does not sign or upload the package.
+
+Use `-Architecture x64` only with an x64 native library and after testing that
+package. `-OutputDirectory` can select a different **new** output directory;
+existing directories are deliberately rejected to prevent stale files leaking
+into a release. Do not run Console inside the publish folder before distribution.
+
+Recipients must extract the **entire ZIP**, retaining its directory structure,
+and install the **.NET 10 Desktop Runtime** matching the package architecture.
+The default x86 package needs the x86 Desktop Runtime even on 64-bit Windows.
+The ASP.NET Core Runtime or base .NET Runtime alone is not sufficient. Do not
+send only the EXE/DLL or omit `.deps.json` and `.runtimeconfig.json`.
+
+Before release, test a separate extracted copy on a clean Windows machine with
+the matching Desktop Runtime: startup, built-in help, local audio, and a test
+connection. A successful build on a developer PC does not verify prerequisites
+on another PC. Keep test profiles and recordings outside the distribution copy.
+
+About and startup logs show the UTC build timestamp embedded in the assembly,
+not the file's modification date. Build automation can set `BuildTimestampUtc`
+to an ISO 8601 UTC timestamp when it needs a fixed value.
+
+---
+
 # Documentation Files
 
 The built-in documentation viewer reads markdown files from:

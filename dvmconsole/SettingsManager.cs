@@ -817,9 +817,7 @@ namespace dvmconsole
 
                     AssemblyProductAttribute asmProd = asm.GetCustomAttributes(typeof(AssemblyProductAttribute), false)[0] as AssemblyProductAttribute;
                     AssemblyCopyrightAttribute asmCopyright = asm.GetCustomAttributes(typeof(AssemblyCopyrightAttribute), false)[0] as AssemblyCopyrightAttribute;
-                    DateTime buildDate = new DateTime(2000, 1, 1).AddDays(asm.GetName().Version.Build).AddSeconds(asm.GetName().Version.Revision * 2);
-
-                    Log.WriteLine($"{asmProd.Product} {_SEM_VERSION.ToString()} (Built: {buildDate.ToShortDateString() + " at " + buildDate.ToShortTimeString()})");
+                    Log.WriteLine($"{asmProd.Product} {_SEM_VERSION.ToString()} (Built: {BuildInformation.GetTimestampText(asm)})");
                     Log.WriteLine($"{asmCopyright.Copyright}");
                     Log.WriteLine(">> Desktop Dispatch Console");
 

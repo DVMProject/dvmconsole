@@ -11,7 +11,9 @@
     <Configurations>Debug;Release;WIN32</Configurations>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Copyright>Copyright (c) 2025 Caleb, K4PHP and DVMProject (https://github.com/dvmproject) Authors.</Copyright>
-    <PlatformTarget>x86</PlatformTarget>
+    <PlatformTarget Condition="'$(Platform)' == 'x64'">x64</PlatformTarget>
+    <PlatformTarget Condition="'$(PlatformTarget)' == ''">x86</PlatformTarget>
+    <BuildTimestampUtc Condition="'$(BuildTimestampUtc)' == ''">$([System.DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ'))</BuildTimestampUtc>
     <PackageLicenseExpression>AGPL-3.0-only</PackageLicenseExpression>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
     <Title>Digital Voice Modem - Desktop Dispatch Console</Title>
@@ -23,24 +25,13 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/DVMProject/dvmconsole</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
+    <Version>2.0.0</Version>
     <AssemblyVersion>2.0.0.0</AssemblyVersion>
     <FileVersion>2.0.0.0</FileVersion>
-    <AssemblyInformationalVersion>R02A00 ($(SourceRevisionId))</AssemblyInformationalVersion>
+    <InformationalVersion>R02A00</InformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="Docs\Getting Started\01-Configurations\**" />
-    <Compile Remove="Docs\Getting Started\Configurations\**" />
-    <EmbeddedResource Remove="Docs\Getting Started\01-Configurations\**" />
-    <EmbeddedResource Remove="Docs\Getting Started\Configurations\**" />
-    <None Remove="Docs\Getting Started\01-Configurations\**" />
-    <None Remove="Docs\Getting Started\Configurations\**" />
-    <Page Remove="Docs\Getting Started\01-Configurations\**" />
-    <Page Remove="Docs\Getting Started\Configurations\**" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Remove="alerttone.png" />
     <None Remove="Assets\alerttone.png" />
     <None Remove="Assets\AppIcon.ico" />
     <None Remove="Assets\audio.png" />
@@ -71,10 +62,6 @@
     <None Remove="Assets\transmit_in_msel.png" />
     <None Remove="Assets\transmit_out_msel.png" />
     <None Remove="Assets\transmit_out_patch.png" />
-    <None Remove="Assets\whackerlink-logo.png" />
-    <None Remove="Assets\WhackerLinkLogoV2.png" />
-    <None Remove="clearemerg.png" />
-    <None Remove="connection.png" />
     <None Remove="Docs\Getting Started\01-Overview.md" />
     <None Remove="Docs\Getting Started\02-Building.md" />
     <None Remove="Docs\Getting Started\03-Configurations\01-Codeplug Creation.md" />
@@ -88,10 +75,6 @@
     <None Remove="Docs\Getting Started\04-Operations\02-Settings Reference.md" />
     <None Remove="Docs\Getting Started\04-Operations\03-Audio Settings.md" />
     <None Remove="Docs\Getting Started\04-Operations\04-Alert Tones.md" />
-    <None Remove="Docs\Getting Started\Building.md" />
-    <None Remove="Docs\Getting Started\Overview.md" />
-    <None Remove="page.png" />
-    <None Remove="whackerlink-logo.png" />
   </ItemGroup>
 
   <ItemGroup>
@@ -167,6 +150,9 @@
     <None Include="..\README.md">
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
+      <Link>README.md</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </None>
   </ItemGroup>
 
@@ -203,24 +189,7 @@
     <ProjectReference Include="..\fnecore\fnecore.csproj" />
   </ItemGroup>
 
-  <PropertyGroup>
-    <VocoderSourceDirectory Condition="'$(VocoderSourceDirectory)' == '' And Exists('$(ProjectDir)libvocoder.dll')">$(ProjectDir)</VocoderSourceDirectory>
-    <VocoderSourceDirectory Condition="'$(VocoderSourceDirectory)' == '' And Exists('$(ProjectDir)libvocoder.DLL')">$(ProjectDir)</VocoderSourceDirectory>
-    <VocoderSourceDirectory Condition="'$(VocoderSourceDirectory)' == '' And Exists('$(ProjectDir)Native\$(PlatformTarget)\libvocoder.dll')">$(ProjectDir)Native\$(PlatformTarget)\</VocoderSourceDirectory>
-    <VocoderSourceDirectory Condition="'$(VocoderSourceDirectory)' == '' And Exists('$(ProjectDir)Native\$(Platform)\libvocoder.dll')">$(ProjectDir)Native\$(Platform)\</VocoderSourceDirectory>
-    <VocoderSourceDirectory Condition="'$(VocoderSourceDirectory)' == '' And Exists('$(ProjectDir)bin\$(Platform)\$(Configuration)\net8.0-windows7.0\libvocoder.dll')">$(ProjectDir)bin\$(Platform)\$(Configuration)\net8.0-windows7.0\</VocoderSourceDirectory>
-    <VocoderSourceDirectory Condition="'$(VocoderSourceDirectory)' == '' And Exists('$(ProjectDir)bin\x86\Release\net8.0-windows7.0\libvocoder.dll')">$(ProjectDir)bin\x86\Release\net8.0-windows7.0\</VocoderSourceDirectory>
-  </PropertyGroup>
-
-  <Target Name="CopyLocalVocoderRuntime" AfterTargets="Build" Condition="'$(VocoderSourceDirectory)' != ''">
-    <ItemGroup>
-      <LocalVocoderRuntime Include="$(VocoderSourceDirectory)libvocoder.dll" Condition="Exists('$(VocoderSourceDirectory)libvocoder.dll')" />
-      <LocalVocoderRuntime Include="$(VocoderSourceDirectory)libvocoder.DLL" Condition="Exists('$(VocoderSourceDirectory)libvocoder.DLL')" />
-      <LocalVocoderRuntime Include="$(VocoderSourceDirectory)AMBE.dll" Condition="Exists('$(VocoderSourceDirectory)AMBE.dll')" />
-      <LocalVocoderRuntime Include="$(VocoderSourceDirectory)AMBE.DLL" Condition="Exists('$(VocoderSourceDirectory)AMBE.DLL')" />
-    </ItemGroup>
-    <Copy SourceFiles="@(LocalVocoderRuntime)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
-  </Target>
+  <Import Project="..\build\NativeRuntime.targets" />
 
   <ItemGroup>
     <Resource Include="Assets\channelmarker.png">
@@ -302,15 +271,34 @@
     <None Update="Audio\hold.wav">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="codeplugs\codeplug.yml">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
   </ItemGroup>
 
   <ItemGroup>
-    <Page Update="Controls\ChannelBox.xaml">
-      <CopyToOutputDirectory></CopyToOutputDirectory>
-    </Page>
+    <AssemblyMetadata Include="BuildTimestampUtc" Value="$(BuildTimestampUtc)" />
+    <Content Include="..\LICENSE;..\AUTHORS.md">
+      <Link>%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\fnecore\LICENSE;..\fnecore\AUTHORS.md">
+      <Link>licenses\FNECore-%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\configs\codeplug.example.yml;..\configs\alias.example.yml">
+      <Link>configs\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <!-- Private runtime state is never release content. Examples above are opt-in. -->
+    <None Update="codeplugs\**;**\*.ekc;**\*.clear;**\*.log;**\UserSettings.json;**\EkcCredentials\**;**\recordings\**">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+    </None>
+    <Content Update="codeplugs\**;**\*.ekc;**\*.clear;**\*.log;**\UserSettings.json;**\EkcCredentials\**;**\recordings\**">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+    </Content>
   </ItemGroup>
 
 </Project>

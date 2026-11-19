@@ -53,6 +53,14 @@ dotnet build .\dvmconsole.sln
 
 If building for a different CPU architecture, `libvocoder.DLL` must be built for that same architecture.
 
+### Release Packaging
+
+Run `scripts\Publish-Release.ps1 -VocoderSourceDirectory 'C:\Build\vocoder\x86'`
+from PowerShell in the repository root to create a validated x86 ZIP in a new
+directory under `artifacts\packages`. Distribute the complete ZIP, not a working
+development folder. Recipients need the matching .NET 10 **Desktop Runtime**.
+See the Building page below for packaging and clean-machine test instructions.
+
 ## Documentation
 
 The same documentation is also built into the app under `Help > Documentation`.

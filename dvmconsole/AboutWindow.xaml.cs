@@ -82,15 +82,7 @@ namespace dvmconsole
                 }
             }
 
-            string buildTime = "Unknown";
-            try
-            {
-                buildTime = System.IO.File.GetLastWriteTime(assembly.Location).ToString("MM/dd/yyyy HH:mm:ss");
-            }
-            catch
-            {
-                // leave as Unknown
-            }
+            string buildTime = BuildInformation.GetTimestampText(assembly);
 
             txtVersion.Text = $"{releaseVersion} ({shortHash})\nBuilt: {buildTime}";
         }
