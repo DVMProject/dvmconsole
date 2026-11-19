@@ -137,7 +137,7 @@ Click a stream chip to start or stop playback. Streams load in the off state unl
 
 Stream chips use a compact volume slider. User volume changes are saved by stream name, and the chip turns green when audio is detected.
 
-When a stream is starting, the chip turns amber while connecting. The console tries up to three connection attempts before marking the stream down.
+When a stream is starting, the chip turns amber while connecting. The console tries up to three connection attempts before marking the stream down. HTTP authentication or access rejections (401/403) stop immediately instead of retrying the same credentials.
 
 If a stream URL is unreachable or cannot be decoded, the chip turns red and shows `Down`. Click a down stream once to return it to the off state.
 

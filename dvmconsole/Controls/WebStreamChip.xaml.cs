@@ -13,9 +13,8 @@
 
 using System.ComponentModel;
 using System.IO;
+using System.Net;
 using System.Net.Http;
-using System.Net.Http.Headers;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -355,11 +354,18 @@ namespace dvmconsole.Controls
                     {
                         failed = true;
                         Log.WriteWarning($"Web stream '{DisplayName}' playback attempt {attempt}/{MaxConnectionAttempts} failed: {ex.Message}");
+                        if (ex is HttpRequestException http &&
+                            (http.StatusCode == HttpStatusCode.Unauthorized || http.StatusCode == HttpStatusCode.Forbidden))
+                            break;
                     }
 
                     if (attempt < MaxConnectionAttempts && !token.IsCancellationRequested)
                         token.WaitHandle.WaitOne(ConnectionRetryDelay);
                 }
+            }
+            catch (Exception) when (token.IsCancellationRequested)
+            {
+                failed = false;
             }
             catch (Exception ex)
             {
@@ -447,29 +453,16 @@ namespace dvmconsole.Controls
                 return null;
             }
 
-            HttpClient client = null;
-            HttpRequestMessage request = null;
-            HttpResponseMessage response = null;
-            Stream responseStream = null;
-
+            AuthenticatedAudioRelay relay = AuthenticatedAudioRelay.Open(StreamUrl, AuthUsername, AuthPassword, token);
             try
             {
-                client = new HttpClient();
-                request = new HttpRequestMessage(HttpMethod.Get, StreamUrl);
-                string credential = $"{AuthUsername}:{AuthPassword ?? string.Empty}";
-                string encodedCredential = Convert.ToBase64String(Encoding.ASCII.GetBytes(credential));
-                request.Headers.Authorization = new AuthenticationHeaderValue("Basic", encodedCredential);
-
-                response = client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token).GetAwaiter().GetResult();
-                response.EnsureSuccessStatusCode();
-                responseStream = response.Content.ReadAsStreamAsync(token).GetAwaiter().GetResult();
-
-                reader = new StreamMediaFoundationReader(responseStream, new MediaFoundationReader.MediaFoundationReaderSettings());
-                return new CompositeDisposable(client, request, response, responseStream);
+                token.ThrowIfCancellationRequested();
+                reader = new MediaFoundationReader(relay.Url, new MediaFoundationReader.MediaFoundationReaderSettings { SingleReaderObject = true });
+                return relay;
             }
             catch
             {
-                new CompositeDisposable(client, request, response, responseStream).Dispose();
+                relay.Dispose();
                 throw;
             }
         }
@@ -669,23 +662,5 @@ namespace dvmconsole.Controls
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
 
-        private sealed class CompositeDisposable : IDisposable
-        {
-            private readonly IDisposable[] disposables;
-
-            public CompositeDisposable(params IDisposable[] disposables)
-            {
-                this.disposables = disposables ?? Array.Empty<IDisposable>();
-            }
-
-            public void Dispose()
-            {
-                foreach (IDisposable disposable in disposables.Reverse())
-                {
-                    try { disposable?.Dispose(); }
-                    catch (Exception ex) { Log.WriteWarning($"Web stream resource cleanup failed: {ex.Message}"); }
-                }
-            }
-        }
     }
 }

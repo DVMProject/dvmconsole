@@ -187,6 +187,13 @@ Fields:
 - `authPassword`: optional HTTP Basic Auth password for protected streams.
 - `idleColor`: optional active-idle chip color in hex. If omitted, the standard selected-resource blue is used.
 
+Protected streams must use a direct HTTP or HTTPS audio URL. Keep credentials in
+the auth fields, not in the URL, and prefer HTTPS when connecting across a network.
+Console passes authenticated audio to Windows Media Foundation through a temporary
+loopback-only endpoint. Credentials are not placed in that local URL, and audio is
+streamed without saving it to disk. Format support still depends on Windows codecs.
+Use the final stream URL if an endpoint redirects to a server that requires authentication.
+
 Web stream chips start disabled after console load. Click the chip to start or stop local playback.
 
 If **Restore Selected Channels On Startup** is enabled, active web streams are saved on shutdown and restarted on the next console launch.
