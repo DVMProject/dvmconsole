@@ -139,7 +139,7 @@ Used to manually start, stop, or restart configured FNE system connections.
 Open from:
 
 ```
-Help > About > View Debug Logs
+Help > Debug Logs
 ```
 
 Used to view recent live FNECore/debug log output.
@@ -183,7 +183,7 @@ This validation is per system. A talkgroup can be valid on one FNE and unavailab
 
 - The console does not interface directly with base station or mobile radios.
 - For a DVM-compatible console that supports base/mobile radio interfacing, see RadioConsole2 and rc2-dvm.
-- This software is intended for amateur and educational use. Any other use is at the user's discretion and risk.
+- This software is provided solely for personal, non-commercial, hobbyist use. It must never be used in public safety or life-safety-critical applications. Commercial, professional, governmental, and other non-hobbyist use is unsupported; see the repository README for the full usage restrictions.
 
 ---
 

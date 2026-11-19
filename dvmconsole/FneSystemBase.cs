@@ -195,7 +195,6 @@ namespace dvmconsole
         /// <param name="e"></param>
         protected override void KeyResponse(object sender, KeyResponseEvent e)
         {
-            byte[] payload = e.Data.Skip(11).ToArray();
             if (e.MessageId == (byte)KmmMessageType.MODIFY_KEY_CMD)
                 mainWindow.KeyResponseReceived(e, (this as PeerSystem)?.ConfiguredSystemName);
         }

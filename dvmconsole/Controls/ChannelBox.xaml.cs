@@ -1659,8 +1659,6 @@ namespace dvmconsole.Controls
                 SetPttInput(mousePttInput, false);
         }
 
-        private bool HasPendingPttRelease => pendingPttReleaseCts != null;
-
         private void CancelPendingPttRelease()
         {
             pendingPttReleaseCts?.Cancel();
@@ -1816,32 +1814,6 @@ namespace dvmconsole.Controls
                 return;
 
             callHistoryWindow.Show();
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void PttButton_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
-        {
-            if (!IsSelected || PttState || PatchForwardingTxState)
-                return;
-
-            ((Button)sender).Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF3FA0FF"));
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void PttButton_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
-        {
-            if (!IsSelected || PttState || PatchForwardingTxState)
-                return;
-
-            ((Button)sender).Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFDDDDDD"));
         }
     } // public partial class ChannelBox : UserControl, INotifyPropertyChanged
 } // namespace dvmconsole.Controls

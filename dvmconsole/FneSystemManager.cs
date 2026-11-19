@@ -26,7 +26,7 @@ namespace dvmconsole
         */
 
         /// <summary>
-        /// Creates an instance of <see cref="PeerSystem"/> class.
+        /// Creates an instance of the <see cref="FneSystemManager"/> class.
         /// </summary>
         public FneSystemManager()
         {
@@ -58,15 +58,13 @@ namespace dvmconsole
         /// Return a <see cref="PeerSystem"/> by looking up a systemid
         /// </summary>
         /// <param name="systemId"></param>
-        /// <returns></returns>
-        /// <exception cref="KeyNotFoundException"></exception>
+        /// <returns>The system handler, or null if the system is not registered.</returns>
         public PeerSystem GetFneSystem(string systemId)
         {
             if (peerHandlers.TryGetValue(systemId, out var handler))
                 return handler;
 
             return null;
-            //throw new KeyNotFoundException($"WebSocketHandler for system '{systemId}' not found.");
         }
 
         /// <summary>

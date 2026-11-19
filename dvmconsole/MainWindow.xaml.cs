@@ -165,7 +165,6 @@ namespace dvmconsole
         private bool noSaveSettingsOnClose = false;
         private SettingsManager settingsManager = new SettingsManager();
         private SelectedChannelsManager selectedChannelsManager;
-        private FlashingBackgroundManager flashingManager;
 
 
         private ChannelBox playbackChannelBox;
@@ -339,7 +338,6 @@ namespace dvmconsole
                 GetPatchFallbackSourceIdOnUiThread);
 
             selectedChannelsManager = new SelectedChannelsManager();
-            flashingManager = new FlashingBackgroundManager(null, channelsCanvas, null, this);
             AttachLayoutSelectionCanvasEvents(channelsCanvas);
 
             channelHoldTimer = new System.Timers.Timer(10000);
@@ -921,16 +919,6 @@ namespace dvmconsole
             }
         }
         
-        /// <summary>
-        /// Updates all tab audio indicators
-        /// </summary>
-        private void UpdateAllTabAudioIndicators()
-        {
-            foreach (TabItem tab in resourceTabs.Items)
-            {
-                UpdateTabAudioIndicator(tab);
-            }
-        }
         
         /// <summary>
         /// Updates the tab audio indicator for a specific channel
@@ -1580,17 +1568,6 @@ namespace dvmconsole
                             elementToTabMap[channelBox] = targetTab;
 
                         // Update offset for next channel in this tab
-                        double canvasWidth = targetCanvas.ActualWidth;
-
-                        // On first load ActualWidth may be 0 because layout hasn't completed yet
-                        if (canvasWidth < 200)
-                        {
-                            canvasWidth = channelsCanvas.ActualWidth;
-
-                            if (canvasWidth < 200)
-                                canvasWidth = ActualWidth;
-                        }
-
                         double layoutWidth = 0;
 
                         if (targetTab != null && tabScrollViewers.TryGetValue(targetTab, out ScrollViewer sv))
@@ -4949,41 +4926,6 @@ namespace dvmconsole
             }
         }
 
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private async void ManualPage_Click(object sender, RoutedEventArgs e)
-        {
-            QuickCallPage pageWindow = new QuickCallPage();
-            pageWindow.Owner = this;
-
-            if (pageWindow.ShowDialog() == true)
-            {
-                if (!Double.TryParse(pageWindow.ToneA, out double toneA) ||
-                    !Double.TryParse(pageWindow.ToneB, out double toneB))
-                {
-                    MessageBox.Show("Enter valid A and B tone frequencies.", "QuickCall II", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-
-                List<ChannelBox> pageTargets = selectedChannelsManager.GetSelectedChannels()
-                    .Where(channel => channel.PageState)
-                    .ToList();
-
-                await SendToneStackAsync(
-                    new[]
-                    {
-                        new SettingsManager.TonePresetStep { Kind = SettingsManager.TONE_PRESET_STEP_KIND_TONE, FrequencyHz = toneA, DurationSeconds = 1.0 },
-                        new SettingsManager.TonePresetStep { Kind = SettingsManager.TONE_PRESET_STEP_KIND_TONE, FrequencyHz = toneB, DurationSeconds = 3.0 }
-                    },
-                    pageTargets,
-                    "QCII TONE",
-                    clearPageStateAfterSend: true,
-                    sendStartSignal: true);
-            }
-        }
 
         /// <summary>
         /// 
@@ -6757,7 +6699,8 @@ namespace dvmconsole
         /// <summary>
         /// Resolves patch talkgroup state from existing channel widgets.
         /// </summary>
-        /// <param name="channelName"></param>
+        /// <param name="systemName">Configured system name.</param>
+        /// <param name="tgid">Talkgroup ID within that system.</param>
         /// <returns></returns>
         private PatchGroupsWindow.PatchTalkgroupState ResolvePatchTalkgroupState(string systemName, string tgid)
         {
@@ -7617,7 +7560,7 @@ namespace dvmconsole
         }
 
         /// <summary>
-        /// Activates Global PTT after a click or keyboard shortcut
+        /// Begins moving the system-status widget using the shared layout drag handler.
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
@@ -8032,17 +7975,5 @@ namespace dvmconsole
             });
         }
 
-        /** Keyboard Shortcuts */
-
-        /// <summary>
-        /// Toggles the fallback used when no Ctrl-click primary resource is selected.
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        /// <exception cref="NotImplementedException"></exception>
-        private void ToggleGlobalPTTAllChannels_Click(object sender, RoutedEventArgs e)
-        {
-            settingsManager.GlobalPTTKeysAllChannels = !settingsManager.GlobalPTTKeysAllChannels;
-        }
     } // public partial class MainWindow : Window
 } // namespace dvmconsole

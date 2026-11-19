@@ -16,6 +16,8 @@ using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Navigation;
+using System.Net;
 using Markdig;
 
 namespace dvmconsole
@@ -173,11 +175,72 @@ namespace dvmconsole
         private void treeDocs_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
         {
             if (treeDocs.SelectedItem is TreeViewItem item && item.Tag is string filePath && File.Exists(filePath))
+                LoadDocument(filePath);
+        }
+
+        private void LoadDocument(string filePath)
+        {
+            try
             {
                 string markdown = File.ReadAllText(filePath);
-                string html = Markdown.ToHtml(markdown);
-                RenderHtml(html);
+                RenderHtml(Markdown.ToHtml(markdown), filePath);
             }
+            catch (IOException ex)
+            {
+                Log.WriteWarning($"Unable to read documentation: {ex.Message}");
+                RenderHtml("<p>Unable to read this documentation page.</p>");
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                Log.WriteWarning($"Unable to read documentation: {ex.Message}");
+                RenderHtml("<p>Unable to read this documentation page.</p>");
+            }
+        }
+
+        /// <summary>
+        /// Resolves local Markdown navigation without opening files outside the documentation folder.
+        /// </summary>
+        internal static bool TryResolveDocumentPath(string root, Uri uri, out string filePath)
+        {
+            filePath = null;
+            if (uri == null || !uri.IsAbsoluteUri || !uri.IsFile)
+                return false;
+
+            try
+            {
+                string rootPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)) + Path.DirectorySeparatorChar;
+                string candidate = Path.GetFullPath(uri.LocalPath);
+                if (!candidate.StartsWith(rootPath, StringComparison.OrdinalIgnoreCase) ||
+                    !Path.GetExtension(candidate).Equals(".md", StringComparison.OrdinalIgnoreCase))
+                    return false;
+
+                filePath = candidate;
+                return true;
+            }
+            catch (ArgumentException) { return false; }
+            catch (NotSupportedException) { return false; }
+            catch (IOException) { return false; }
+        }
+
+        private void docViewer_Navigating(object sender, NavigatingCancelEventArgs e)
+        {
+            if (e.Uri == null || !e.Uri.IsAbsoluteUri || !e.Uri.IsFile)
+                return;
+
+            // NavigateToString has no file origin. Render linked Markdown ourselves,
+            // after the browser finishes cancelling its raw-file navigation.
+            e.Cancel = true;
+            if (!TryResolveDocumentPath(docsRoot, e.Uri, out string filePath))
+                return;
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!IsLoaded)
+                    return;
+                if (treeDocs.SelectedItem is TreeViewItem selected)
+                    selected.IsSelected = false;
+                LoadDocument(filePath);
+            }));
         }
 
         private void txtSearch_TextChanged(object sender, TextChangedEventArgs e)
@@ -185,7 +248,7 @@ namespace dvmconsole
             LoadDocumentationTree(txtSearch.Text);
         }
 
-        private void RenderHtml(string bodyHtml)
+        private void RenderHtml(string bodyHtml, string filePath = null)
         {
             bool darkMode = SettingsManager.Instance?.DarkMode ?? false;
 
@@ -194,11 +257,14 @@ namespace dvmconsole
             string borderColor = darkMode ? "#3a3a3a" : "#dddddd";
             string codeBackground = darkMode ? "#2d2d2d" : "#f3f3f3";
             string linkColor = darkMode ? "#7db7ff" : "#0066cc";
+            string baseElement = filePath == null ? string.Empty :
+                $"<base href=\"{WebUtility.HtmlEncode(new Uri(Path.GetFullPath(filePath)).AbsoluteUri)}\">";
 
             string fullHtml = $@"
 <html>
 <head>
 <meta charset='utf-8'>
+{baseElement}
 <style>
 body {{
     font-family: Segoe UI, Arial, sans-serif;

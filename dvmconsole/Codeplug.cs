@@ -443,7 +443,7 @@ namespace dvmconsole
             };
 
             /// <summary>
-            /// Returns true when this channel has configured TX encryption key material.
+            /// Returns true when TX encryption is configured; this does not check loaded key material.
             /// </summary>
             /// <returns></returns>
             public bool HasEncryptionConfig()

@@ -146,6 +146,10 @@ internal sealed class NxdnTxCall : IDisposable
             await Task.Delay(remaining, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Discards pending voice and cancels pacing. Await Completion for sender cleanup,
+    /// including the release for a call that has already started.
+    /// </summary>
     public void Abort()
     {
         lock (sync)

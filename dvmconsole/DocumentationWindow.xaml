@@ -59,7 +59,7 @@
                 BorderBrush="{DynamicResource MaterialDesignDivider}"
                 BorderThickness="1"
                 Padding="12">
-            <WebBrowser x:Name="docViewer"/>
+            <WebBrowser x:Name="docViewer" Navigating="docViewer_Navigating"/>
         </Border>
     </Grid>
 </Window>

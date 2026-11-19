@@ -104,19 +104,7 @@ namespace dvmconsole
 
             peer.PingTime = 5;
 
-            peer.PeerConnected += Peer_PeerConnected;
-
             return peer;
-        }
-
-        /// <summary>
-        /// Event action that handles when a peer connects.
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private static void Peer_PeerConnected(object sender, PeerConnectedEvent e)
-        {
-            /* stub */
         }
 
         /// <summary>

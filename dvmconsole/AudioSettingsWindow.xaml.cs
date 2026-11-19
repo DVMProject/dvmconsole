@@ -117,13 +117,8 @@ namespace dvmconsole
         }
 
         /// <summary>
-        /// Loads global input and master output device choices.
+        /// Populates the input/master selectors on the UI thread using the loaded device snapshot.
         /// </summary>
-        private void LoadAudioDevices()
-        {
-            LoadAudioDevices(settingsManager.AudioInputDeviceKey, settingsManager.MasterOutputDeviceKey, loadMicProcessing: true);
-        }
-
         private void LoadAudioDevices(string selectedInputDeviceKey, string selectedMasterOutputDeviceKey, bool loadMicProcessing)
         {
             List<AudioDeviceOption> inputDevices = GetAudioInputDevices();
@@ -384,13 +379,8 @@ namespace dvmconsole
         }
 
         /// <summary>
-        /// Builds per-zone resource routing tabs.
+        /// Rebuilds zone routing selectors while preserving pending device choices and the active tab.
         /// </summary>
-        private void LoadZoneOutputSettings()
-        {
-            LoadZoneOutputSettings(null, selectedZoneIndex: 0);
-        }
-
         private void LoadZoneOutputSettings(IReadOnlyDictionary<string, string> selectedOutputDeviceKeys, int selectedZoneIndex)
         {
             ZoneRoutingTabs.Items.Clear();

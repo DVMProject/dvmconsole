@@ -4,6 +4,39 @@ This page summarizes user-facing settings in the console.
 
 ---
 
+# File Menu
+
+## Import / Export Settings
+
+Transfers saved user preferences, globally or for selected resources. Scoped imports leave unrelated resources and groups alone. Invalid or failed imports leave the existing settings unchanged.
+
+Opens the Settings Transfer window.
+
+Use this to move console preferences between machines without manually copying `UserSettings.json`.
+
+The transfer file is a portable JSON file. You can choose which categories to export or import, including:
+
+- console layout, widget positions, and hidden zone tabs
+- audio routing and volumes
+- TAR configuration
+- patch and multi-select group state
+- custom alert tones
+- toolbar clocks
+- startup restore state
+- operator preferences
+- call history window preferences
+- keybinds and selectable encryption state
+
+Press `Ctrl+A` in the transfer window to select all categories and zone tabs.
+
+To share only part of a console layout, enable **Limit transfer to selected zone tabs** and check the zones you want to include. Zone-scoped transfers only include resource/tab-scoped data, such as resource positions, per-resource volume/routing, TAR settings, selectable encryption state, selected resources, web streams, tone presets, timed announcements, and patch/multi-select memberships for those resources.
+
+Global settings are intentionally skipped during a zone-scoped transfer so an imported file does not overwrite the other console's window size, global audio devices, clocks, keybinds, theme, startup behavior, or unrelated tabs.
+
+On import, only the selected categories are replaced. The console reloads the current codeplug/widgets after import so layout and routing changes take effect immediately.
+
+---
+
 # Settings Menu
 
 ## Toggle Push To Talk Mode
@@ -79,33 +112,6 @@ Opens the Audio Settings window.
 
 See **Audio Settings** for details.
 
-## Import / Export Settings
-
-Opens the Settings Transfer window.
-
-Use this to move console preferences between machines without manually copying `UserSettings.json`.
-
-The transfer file is a portable JSON file. You can choose which categories to export or import, including:
-
-- console layout, widget positions, and hidden zone tabs
-- audio routing and volumes
-- TAR configuration
-- patch and multi-select group state
-- custom alert tones
-- toolbar clocks
-- startup restore state
-- operator preferences
-- call history window preferences
-- keybinds and selectable encryption state
-
-Press `Ctrl+A` in the transfer window to select all categories and zone tabs.
-
-To share only part of a console layout, enable **Limit transfer to selected zone tabs** and check the zones you want to include. Zone-scoped transfers only include resource/tab-scoped data, such as resource positions, per-resource volume/routing, TAR settings, selectable encryption state, selected resources, web streams, tone presets, timed announcements, and patch/multi-select memberships for those resources.
-
-Global settings are intentionally skipped during a zone-scoped transfer so an imported file does not overwrite the other console's window size, global audio devices, clocks, keybinds, theme, startup behavior, or unrelated tabs.
-
-On import, only the selected categories are replaced. The console reloads the current codeplug/widgets after import so layout and routing changes take effect immediately.
-
 ## Reset Settings
 
 Clears saved user settings.
@@ -130,9 +136,9 @@ At least one zone must remain visible.
 
 Opens the Alert Tone Manager for custom WAV alert tones and timed announcements.
 
-## Keyboard Shortcuts > Set Global PTT Keybind
+## Keyboard Shortcuts > PTT Keybinds
 
-Prompts for a key and stores it as the global PTT shortcut.
+Configures five single-key PTT bindings. Green follows the Ctrl + left-click primary resource; blue, amber, violet, and cyan target fixed resources. Use **Click to Edit** and then click a resource card to assign a fixed target. Multiple bindings can be held at once. See [Console Operation](01-Console%20Operation.md) for selection and release behavior.
 
 ---
 
@@ -205,4 +211,8 @@ Opens this documentation viewer.
 
 ## About
 
-Shows version information and includes the **View Debug Logs** button.
+Shows version and project information.
+
+## Debug Logs
+
+Open **Help > Debug Logs** to view recent live Console and FNECore log output.

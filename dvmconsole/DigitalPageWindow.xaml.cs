@@ -23,8 +23,6 @@ namespace dvmconsole
     /// </summary>
     public partial class DigitalPageWindow : Window
     {
-        private List<Codeplug.System> systems = new List<Codeplug.System>();
-
         /// <summary>
         /// Destination ID.
         /// </summary>
@@ -41,7 +39,6 @@ namespace dvmconsole
         public DigitalPageWindow(List<Codeplug.System> systems)
         {
             InitializeComponent();
-            this.systems = systems;
 
             SystemCombo.DisplayMemberPath = "Name";
             SystemCombo.ItemsSource = systems;

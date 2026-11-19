@@ -95,6 +95,10 @@ internal sealed class DmrTxCall : IDisposable
         }
     }
 
+    /// <summary>
+    /// Discards queued audio and cancels pacing. Await Completion for sender cleanup,
+    /// including the end signal for a call that has already started.
+    /// </summary>
     public void Abort()
     {
         lock (sync)

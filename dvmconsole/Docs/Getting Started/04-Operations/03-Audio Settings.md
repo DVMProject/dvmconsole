@@ -8,6 +8,8 @@ Settings > Audio Settings
 
 Audio Settings controls microphone input and local speaker output routing.
 
+The device backend selector changes which Windows audio devices are listed (WASAPI or MME). Device lists load asynchronously; Save remains disabled until loading finishes. Changing the list backend does not apply a new route until you save.
+
 ---
 
 # Global Input Device
@@ -74,9 +76,15 @@ The **Enable AGC for console microphone audio** checkbox controls console microp
 
 When enabled, the console applies its microphone AGC path before transmit.
 
-When disabled, the console uses the raw microphone behavior.
+When disabled, only automatic gain control is bypassed. The configured microphone gain and EQ still apply.
 
 This setting is saved.
+
+## Microphone Gain, EQ, and Presets
+
+Microphone controls include input gain, low/mid/high EQ, and saved processing presets. Processing changes are previewed while this window is open, so they can affect microphone transmissions during the preview. **Save** keeps the settings; **Cancel** or closing the window restores the saved processing. Device routing changes are applied on Save, not during the processing preview.
+
+Per-resource routing identifies channels by system and talkgroup. Copies of the same resource share a route; identical TGIDs on different systems remain separate. Right-click a routing selector to fill the device choice up or down within the current zone.
 
 ---
 

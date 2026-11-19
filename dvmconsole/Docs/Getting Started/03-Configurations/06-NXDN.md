@@ -88,7 +88,7 @@ FNECore unwraps EHR responses to the required two-byte key and rejects invalid p
 
 FNECore handles NXDN framing, FACCH/SACCH signaling, EHR/DES/AES privacy, IV rotation, receive synchronization, and peer key-response unwrapping. The console supplies the native AMBE vocoder adapter and owns audio devices, transmit pacing, key selection/storage, UI, history, TAR, and group routing. This follows the same protocol-library/application split as P25; it does not require FNECore to load the console's native audio libraries.
 
-The NXDN API uses `NXDNCallData : RemoteCallData`, `NXDN.LC.RTCH`, `NXDNCrypto`, and the `FneSystemBase.CreateNXDN*` / `SendNXDN*` helpers. Console and FNECore must be built together after this API change; replacing only the FNECore DLL in an older console build is not supported. Existing codeplugs and key files do not need migration.
+The NXDN API uses `NXDNCallData : RemoteCallData`, `NXDN.LC.RTCH`, `NXDNCrypto`, and the `FneSystemBase.CreateNXDN*` / `SendNXDN*` helpers. Console and FNECore must be built together after this API change; replacing only the FNECore DLL in an older console build is not supported. This API change does not require changes to NXDN channel entries. Local key storage uses encrypted `.ekc` containers; legacy clear-text key files are not supported. See [Encryption Keys](02-Encryption%20Keys.md).
 
 NXDN carries four 20 ms AMBE codewords per 80 ms network voice frame. Call end completes a partial frame and sends one release; cancelled tones discard pending audio. A new call waits until the previous release has finished.
 

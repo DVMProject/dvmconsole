@@ -183,36 +183,6 @@ namespace dvmconsole
         }
 
         /// <summary>
-        /// Helper to unpack the codeword bytes into codeword bits for use with the AMBE decoder.
-        /// </summary>
-        /// <remarks><see cref="byte"/> output bits array.</remarks>
-        /// <param name="codewordBits">Codeword bits.</param>
-        /// <param name="codeword">Codeword bytes.</param>
-        /// <param name="lengthBytes">Length of codeword in bytes.</param>
-        /// <param name="lengthBits">Length of codeword in bits.</param>
-        private void unpackBytesToBits(out byte[] codewordBits, byte[] codeword, int lengthBytes, int lengthBits)
-        {
-            codewordBits = new byte[this.frameLengthInBits * 2];
-
-            int processed = 0, bitPtr = 0, bytePtr = 0;
-            for (int i = 0; i < lengthBytes; i++)
-            {
-                for (int j = 7; -1 < j; j--)
-                {
-                    if (processed < lengthBits)
-                    {
-                        codewordBits[bitPtr] = (byte)((codeword[bytePtr] >> ((byte)j & 0x1F)) & 1);
-                        bitPtr++;
-                    }
-
-                    processed++;
-                }
-
-                bytePtr++;
-            }
-        }
-
-        /// <summary>
         /// Decodes the given MBE codewords to PCM samples using the decoder mode.
         /// </summary>
         /// <param name="codeword"></param>

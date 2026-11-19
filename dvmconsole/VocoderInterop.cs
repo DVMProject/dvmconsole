@@ -197,8 +197,8 @@ namespace dvmconsole
         /// <summary>
         /// Decode MBE codeword to samples
         /// </summary>
-        /// <param name="samples">Input PCM samples</param>
-        /// <param name="codeword">Output MBE codeword</param>
+        /// <param name="samples">Output PCM samples</param>
+        /// <param name="codeword">Input MBE codeword</param>
         /// <returns>Number of decode errors</returns>
         [DllImport("libvocoder", CallingConvention = CallingConvention.Cdecl)]
         public static extern Int32 MBEDecoder_Decode(IntPtr pDecoder, [In] byte[] codeword, [Out] Int16[] samples);

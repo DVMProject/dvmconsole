@@ -68,7 +68,7 @@ If the folder does not exist, the console creates it when TAR settings are saved
 In the TAR Configuration window:
 
 - channels are grouped by console tab
-- each row is keyed by TGID
+- each row is keyed by system and TGID; the same TGID on another system is separate
 - check **Record** to enable TAR on that talkgroup
 - set **Keep Days** for retention
 - optionally enter ignored subscriber IDs in **Ignore RIDs**
@@ -119,7 +119,7 @@ Default columns:
 Use the **Columns** button in the TAR Viewer to show or hide additional fields such as:
 
 - Direction
-- Protocol
+- Protocol (All, P25, DMR, NXDN, or Analog)
 - System
 - Encryption
 

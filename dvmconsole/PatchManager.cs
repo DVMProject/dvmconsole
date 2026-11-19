@@ -324,8 +324,8 @@ namespace dvmconsole
                             target.OutboundSourceId = sourceId;
                     }
 
-                    // If starts were deferred because passthrough source ID was unavailable at
-                    // call start, begin any missing targets as soon as source ID is latched.
+                    // Retry missing targets on source progress. ExecuteStarts uses the
+                    // configured fallback RID when passthrough has no source ID yet.
                     if (sourceStarted || !passthrough || group.Source.SourceIdLatched)
                     {
                         foreach (PatchMember member in group.Members.Where(m => m.Key != sourceKey && !group.ActiveTargets.ContainsKey(m.Key)))

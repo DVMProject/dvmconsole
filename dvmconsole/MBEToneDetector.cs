@@ -55,7 +55,7 @@ namespace dvmconsole
         */
 
         /// <summary>
-        /// Create a pitch detector which reports the running average of pitch for a sequence of samples
+        /// Creates a pitch detector for PCM sample frames.
         /// </summary>
         /// <param name="detect_ratio">Ratio required for a valid tone detection</param>
         /// <param name="hits_reqd">Number of repeated "hits" on a frequency to count as a tone detection</param>

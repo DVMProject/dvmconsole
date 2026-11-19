@@ -46,7 +46,7 @@ Toggle PTT is off by default. If changed, the preference is saved.
 
 # Selectable TX Protection
 
-Some P25, DMR, and NXDN secure-capable resources, and analog resources with a configured voice-inversion code, may show **SELECT** in the card text area.
+Some P25 and NXDN secure-capable resources, and analog resources with a configured voice-inversion code, may show **SELECT** in the card text area. DMR encryption is unavailable in this build; configured encrypted DMR transmit is rejected rather than silently sent in the clear.
 
 Click **SELECT** to toggle that resource between protected and clear console transmit. The choice is saved by system/talkgroup and restored on the next startup. Analog voice inversion is not encryption, uses no FNE key, and cannot signal its on/off state to receivers. On an analog resource, SELECT also controls local RX decoding from the next call; both consoles must select the same mode to hear clear audio.
 
@@ -62,7 +62,7 @@ If no primary channel is available, legacy all-channel global PTT behavior is no
 
 ## PTT Keybinds
 
-Open **Keyboard Shortcuts > PTT Keybinds** to configure five single-key shortcuts:
+Open **Settings > Keyboard Shortcuts > PTT Keybinds** to configure five single-key shortcuts:
 
 - **1 / Green:** the existing Ctrl + left-click primary-resource selection.
 - **2 / Blue, 3 / Amber, 4 / Violet, 5 / Cyan:** one fixed codeplug resource per shortcut.

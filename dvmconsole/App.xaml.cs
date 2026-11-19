@@ -51,7 +51,7 @@ namespace dvmconsole
         /// </summary>
         private static void Usage(OptionSet p)
         {
-            string messageBoxText = "[-h | --help][--userprofile <path for UserProfile.yaml>]\r\nOptions:\r\n";
+            string messageBoxText = "[-h | --help] [--userprofile <profile directory>]\r\nOptions:\r\n";
 
             using (MemoryStream ms = new MemoryStream())
             {
@@ -75,13 +75,12 @@ namespace dvmconsole
         private void Application_Startup(object sender, StartupEventArgs e)
         {
             bool showHelp = false;
-            string configFile = string.Empty;
 
             // command line parameters
             OptionSet options = new OptionSet()
             {
                 { "h|help", "show this message and exit", v => showHelp = v != null },
-                { "userprofile=", "sets the path to the UserProfile.yaml", v => USER_PROFILE_PATH_OVERRIDE = v },
+                { "userprofile=", "sets the directory containing UserSettings.json and protected local credentials", v => USER_PROFILE_PATH_OVERRIDE = v },
             };
 
             // attempt to parse the commandline

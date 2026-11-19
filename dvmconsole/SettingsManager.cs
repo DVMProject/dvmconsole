@@ -211,7 +211,7 @@ namespace dvmconsole
         /// </summary>
         public string TarRecordingsRootPath { get; set; } = DefaultTarRecordingsPath;
         /// <summary>
-        /// Per-talkgroup TAR settings keyed by talkgroup ID.
+        /// TAR settings keyed by system/talkgroup resource identity.
         /// </summary>
         public Dictionary<string, TarChannelConfig> TarChannelConfigs { get; set; } = new Dictionary<string, TarChannelConfig>();
         /// <summary>
@@ -2847,14 +2847,12 @@ namespace dvmconsole
                 SaveSettings();
         }
 
+        /// <summary>
+        /// Prunes saved state using system/talkgroup resource keys. Legacy name and
+        /// bare-TGID arguments remain in the signature for caller compatibility.
+        /// </summary>
         public void PruneResourceSettings(IEnumerable<string> validChannelNames, IEnumerable<string> validTalkgroupIds, IEnumerable<string> validSystemNames, IEnumerable<string> validWebStreamNames = null, IEnumerable<string> validSelectableEncryptionKeys = null, IEnumerable<string> validResourceKeys = null)
         {
-            HashSet<string> channelNames = new HashSet<string>(
-                validChannelNames?.Where(v => !string.IsNullOrWhiteSpace(v)) ?? Enumerable.Empty<string>(),
-                StringComparer.OrdinalIgnoreCase);
-            HashSet<string> talkgroupIds = new HashSet<string>(
-                validTalkgroupIds?.Where(v => !string.IsNullOrWhiteSpace(v)) ?? Enumerable.Empty<string>(),
-                StringComparer.OrdinalIgnoreCase);
             HashSet<string> systemNames = new HashSet<string>(
                 validSystemNames?.Where(v => !string.IsNullOrWhiteSpace(v)) ?? Enumerable.Empty<string>(),
                 StringComparer.OrdinalIgnoreCase);
@@ -2865,8 +2863,6 @@ namespace dvmconsole
                 validResourceKeys?.Where(v => !string.IsNullOrWhiteSpace(v)) ?? Enumerable.Empty<string>(),
                 StringComparer.OrdinalIgnoreCase);
 
-            channelNames.Add(MainWindow.PLAYBACKCHNAME);
-            talkgroupIds.Add(MainWindow.PLAYBACKTG);
             HashSet<string> validAudioOutputKeys = new HashSet<string>(resourceKeys, StringComparer.OrdinalIgnoreCase);
             validAudioOutputKeys.Add(MainWindow.PLAYBACKTG);
             foreach (string webStreamName in webStreamNames)
