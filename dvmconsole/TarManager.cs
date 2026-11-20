@@ -281,6 +281,22 @@ namespace dvmconsole
             Task.WhenAll(completions).GetAwaiter().GetResult();
         }
 
+        /// <summary>
+        /// Allows recordings for rebuilt resources after StopAllSessions has drained
+        /// the old sessions and the caller has disconnected their producers.
+        /// Shutdown must leave the manager stopped instead of calling this method.
+        /// </summary>
+        public void ResumeRecording()
+        {
+            lock (syncRoot)
+            {
+                if (activeSessions.Count != 0 || finalizingSessions.Count != 0)
+                    throw new InvalidOperationException("TAR sessions must be drained before recording resumes.");
+
+                stopping = false;
+            }
+        }
+
         public void RunRetentionMaintenanceAsync()
         {
             Task.Run(RunRetentionMaintenance);

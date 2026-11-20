@@ -1108,7 +1108,10 @@ namespace dvmconsole
                 await ResetFneConnectionsAsync();
                 ClearResourceWidgets();
                 if (!isShuttingDown)
+                {
+                    tarManager.ResumeRecording();
                     rebuild(channels, streams);
+                }
             }
             catch (Exception ex)
             {
