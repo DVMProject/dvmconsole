@@ -84,6 +84,7 @@ namespace dvmconsole.Controls
         private bool isRxOnly;
         private bool isEncryptionSelectable;
         private bool isSelected;
+        private volatile bool isEnabledForTransmit = true;
         private bool forceHidePttButton;
         private ResourceCardSize cardSize = ResourceCardSize.Normal;
 
@@ -156,6 +157,11 @@ namespace dvmconsole.Controls
         /// </summary>
         internal Codeplug.Channel ConfiguredChannel { get; }
         internal bool IsLocalPlayback => ConfiguredChannel == null;
+        /// <summary>
+        /// UI-maintained enabled state for audio workers, including inherited disables.
+        /// Avoid reading WPF IsEnabled from capture or encoding threads.
+        /// </summary>
+        internal bool IsEnabledForTransmit => isEnabledForTransmit;
         internal string ResourceSystemName => ConfiguredChannel?.System ?? MainWindow.PLAYBACKSYS;
 
         private bool pttToggleMode = false;
@@ -912,6 +918,8 @@ namespace dvmconsole.Controls
         {
             ConfiguredChannel = channel;
             InitializeComponent();
+            isEnabledForTransmit = IsEnabled;
+            IsEnabledChanged += (_, e) => isEnabledForTransmit = (bool)e.NewValue;
 
             this.InternalID = ChannelIdx;
             ChannelIdx++;

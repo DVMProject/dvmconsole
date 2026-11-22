@@ -3134,7 +3134,7 @@ namespace dvmconsole
 
         private static bool IsGroupTransmitAllowed(ChannelBox channel)
         {
-            return channel != null && channel.IsSelected && channel.IsEnabled && !channel.IsLocalPlayback &&
+            return channel != null && channel.IsSelected && channel.IsEnabledForTransmit && !channel.IsLocalPlayback &&
                 !channel.IsRxOnly && channel.ConfiguredChannel?.RxOnly != true;
         }
 
