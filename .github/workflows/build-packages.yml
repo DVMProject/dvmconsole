@@ -1,0 +1,152 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (c) DVMProject Authors
+
+name: Build Console packages
+
+on:
+  push:
+    branches: ['r*_dev']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: console-packages-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  VOCODER_REVISION: e7ab96e4d68b3c700587e4dc0bafa227fc02802c
+
+jobs:
+  package:
+    name: Windows ${{ matrix.architecture }}
+    runs-on: windows-2022
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: x86
+            cmake_platform: Win32
+          - architecture: x64
+            cmake_platform: x64
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out Console and pinned submodules
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Check out pinned dvmvocoder source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: DVMProject/dvmvocoder
+          ref: ${{ env.VOCODER_REVISION }}
+          path: artifacts/dvmvocoder
+          persist-credentials: false
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build matching native vocoder
+        run: |
+          cmake -S artifacts/dvmvocoder -B artifacts/vocoder-build -G "Visual Studio 17 2022" -A '${{ matrix.cmake_platform }}' -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+          if ($LASTEXITCODE -ne 0) { throw 'Vocoder configure failed.' }
+          cmake --build artifacts/vocoder-build --config Release --parallel 4
+          if ($LASTEXITCODE -ne 0) { throw 'Vocoder build failed.' }
+
+      - name: Publish and validate Console package
+        run: |
+          ./scripts/Publish-Release.ps1 -Architecture '${{ matrix.architecture }}' -VocoderSourceDirectory "$env:GITHUB_WORKSPACE/artifacts/vocoder-build/Release" -OutputDirectory "$env:GITHUB_WORKSPACE/artifacts/packages/win-${{ matrix.architecture }}"
+
+      - name: Include native source and build revisions
+        run: |
+          $package = "$env:GITHUB_WORKSPACE/artifacts/packages/win-${{ matrix.architecture }}"
+          git -C artifacts/dvmvocoder archive --format=zip --output "$package/dvmvocoder-source.zip" HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Vocoder source archive failed.' }
+          $hash = (Get-FileHash "$package/dvmvocoder-source.zip" -Algorithm SHA256).Hash
+          "$hash  dvmvocoder-source.zip" | Set-Content "$package/dvmvocoder-source.zip.sha256" -Encoding ascii
+          $core = git -C fnecore rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot identify FNECore revision.' }
+          @("Console: $env:GITHUB_SHA", "FNECore: $core", "dvmvocoder: $env:VOCODER_REVISION", 'Architecture: ${{ matrix.architecture }}', 'Requires the matching .NET 10 Desktop Runtime.') | Set-Content "$package/build-info.txt" -Encoding utf8
+
+      - name: Upload downloadable package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: DVMConsole-win-${{ matrix.architecture }}-${{ github.sha }}
+          path: |
+            artifacts/packages/win-${{ matrix.architecture }}/*.zip
+            artifacts/packages/win-${{ matrix.architecture }}/*.sha256
+            artifacts/packages/win-${{ matrix.architecture }}/build-info.txt
+            artifacts/packages/win-${{ matrix.architecture }}/release-version.txt
+            artifacts/packages/win-${{ matrix.architecture }}/files.sha256.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  prerelease:
+    name: Publish dev prerelease
+    needs: package
+    if: github.ref_type == 'branch' && startsWith(github.ref_name, 'r') && endsWith(github.ref_name, '_dev')
+    runs-on: windows-2022
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download this build's packages
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: DVMConsole-win-*-${{ github.sha }}
+          path: packages
+
+      - name: Publish complete prerelease
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content "packages/DVMConsole-win-x86-$env:GITHUB_SHA/release-version.txt" -Raw).Trim()
+          if ($version -cnotmatch '^R[0-9]{2}A[0-9]{2}$') { throw 'Invalid Console release version.' }
+          $release = New-Item -ItemType Directory -Path release-assets
+          foreach ($architecture in @('x86', 'x64')) {
+            $package = "packages/DVMConsole-win-$architecture-$env:GITHUB_SHA"
+            if ((Get-Content "$package/release-version.txt" -Raw).Trim() -cne $version) { throw 'Package versions do not match.' }
+            foreach ($file in @("DVMConsole-$version-win-$architecture.zip", "DVMConsole-$version-win-$architecture.zip.sha256")) {
+              Copy-Item -LiteralPath "$package/$file" -Destination $release.FullName
+            }
+            Copy-Item -LiteralPath "$package/build-info.txt" -Destination "$release/build-info-$architecture.txt"
+            Copy-Item -LiteralPath "$package/files.sha256.json" -Destination "$release/files-$architecture.sha256.json"
+          }
+          $source = "packages/DVMConsole-win-x86-$env:GITHUB_SHA/dvmvocoder-source.zip"
+          $otherSource = "packages/DVMConsole-win-x64-$env:GITHUB_SHA/dvmvocoder-source.zip"
+          if ((Get-FileHash $source).Hash -ne (Get-FileHash $otherSource).Hash) {
+            throw 'Native source archives do not match.'
+          }
+          Copy-Item -LiteralPath $source -Destination $release.FullName
+          Copy-Item -LiteralPath "$source.sha256" -Destination $release.FullName
+          $assets = @(Get-ChildItem -LiteralPath $release.FullName -File | ForEach-Object FullName)
+          $shortSha = $env:GITHUB_SHA.Substring(0, 7)
+          $tag = "$version-dev-$shortSha-$env:GITHUB_RUN_ID.$env:GITHUB_RUN_ATTEMPT"
+          $title = "Console $version dev - $shortSha (build $env:GITHUB_RUN_NUMBER.$env:GITHUB_RUN_ATTEMPT)"
+          @(
+            'Development build for testing, not a stable release.'
+            ''
+            "Download DVMConsole-$version-win-x86.zip or DVMConsole-$version-win-x64.zip and extract the complete ZIP."
+            'Install the matching .NET 10 Desktop Runtime. The native vocoder is included.'
+            'Checksums, build revisions, and native vocoder source are attached separately.'
+            ''
+            "Branch: $env:GITHUB_REF_NAME"
+            "Console commit: $env:GITHUB_SHA"
+            "Build: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+          ) | Set-Content release-notes.md -Encoding utf8
+          # Keep incomplete uploads private, and never replace an older build's assets.
+          gh release create $tag @assets --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title $title --notes-file release-notes.md --draft --prerelease --latest=false
+          if ($LASTEXITCODE -ne 0) { throw 'Prerelease upload failed; any partial draft remains unpublished.' }
+          gh release edit $tag --repo $env:GITHUB_REPOSITORY --draft=false --prerelease --latest=false
+          if ($LASTEXITCODE -ne 0) { throw 'Prerelease publication failed; check the draft release.' }

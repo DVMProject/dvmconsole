@@ -139,6 +139,28 @@ dvmconsole\bin\x86\Debug\net10.0-windows7.0\
 
 # Release ZIP
 
+## Download a Prebuilt Package
+
+Open [GitHub Releases](https://github.com/DVMProject/dvmconsole/releases)
+and choose a dev **Pre-release** for the desired branch. Under **Assets**, download
+`DVMConsole-R02A00-win-x86.zip` or `DVMConsole-R02A00-win-x64.zip`, then extract the complete
+ZIP. No GitHub account is required. The native vocoder is already included.
+
+The workflow runs on pushes to `r*_dev` branches and can also be started with
+**Run workflow** when available on the repository's default branch. Both
+architecture builds must succeed before a prerelease is published. Each build
+gets a separate tag and prerelease without replacing older downloads or changing
+the stable **Latest** release. Release assets have no automatic expiration;
+they remain available unless removed by a maintainer. Checksums, the exact build
+revisions, and the pinned native vocoder source are also attached.
+The temporary Actions artifacts used during publishing expire after 30 days;
+this does not affect the published release assets.
+
+Install the matching .NET 10 Desktop Runtime as described below. No source build
+is required to use these downloads. ARM64-native packages are not produced.
+
+## Build a Package Locally
+
 Do not distribute a working `bin` folder. It may contain private configurations,
 keys, saved settings, recordings, or logs from local testing.
 

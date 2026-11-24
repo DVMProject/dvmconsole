@@ -55,6 +55,17 @@ If building for a different CPU architecture, `libvocoder.DLL` must be built for
 
 ### Release Packaging
 
+Prebuilt Windows **x86** and **x64** packages are available from
+[GitHub Releases](https://github.com/DVMProject/dvmconsole/releases).
+Choose a dev **Pre-release** and download `DVMConsole-R02A00-win-x86.zip` or
+`DVMConsole-R02A00-win-x64.zip` under **Assets**, then extract the complete ZIP.
+No GitHub account is required to download these public release assets.
+Install the matching **.NET 10 Desktop Runtime** before starting Console.
+Dev-branch pushes publish a separate prerelease after both packages build
+successfully. Release assets do not expire automatically; they remain available
+unless removed by a maintainer. Checksums, build revisions, and native vocoder
+source are attached to each prerelease.
+
 Run `scripts\Publish-Release.ps1 -VocoderSourceDirectory 'C:\Build\vocoder\x86'`
 from PowerShell in the repository root to create a validated x86 ZIP in a new
 directory under `artifacts\packages`. Distribute the complete ZIP, not a working

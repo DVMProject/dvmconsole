@@ -20,6 +20,11 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
+$project = [xml](Get-Content -LiteralPath (Join-Path $repo 'dvmconsole\DVMConsole.csproj') -Raw)
+$releaseVersion = [string]$project.Project.PropertyGroup.InformationalVersion
+if ($releaseVersion -cnotmatch '^R[0-9]{2}A[0-9]{2}$') {
+    throw 'Console InformationalVersion must use the R00A00 release format.'
+}
 $native = (Resolve-Path -LiteralPath $VocoderSourceDirectory).Path
 if (-not (Test-Path -LiteralPath (Join-Path $native 'libvocoder.dll') -PathType Leaf)) {
     throw 'VocoderSourceDirectory must contain libvocoder.dll.'
@@ -32,6 +37,7 @@ if (Test-Path -LiteralPath $output) {
     throw "OutputDirectory already exists. Choose a new directory: $output"
 }
 $null = New-Item -ItemType Directory -Path $output
+Set-Content -LiteralPath (Join-Path $output 'release-version.txt') -Value $releaseVersion -Encoding ascii
 $publish = Join-Path $output 'publish'
 $build = Join-Path $output 'build'
 
@@ -118,7 +124,7 @@ $hashes = @($files | Sort-Object FullName | ForEach-Object {
     }
 })
 $hashes | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $output 'files.sha256.json') -Encoding UTF8
-$zip = Join-Path $output "DVMConsole-win-$Architecture.zip"
+$zip = Join-Path $output "DVMConsole-$releaseVersion-win-$Architecture.zip"
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [IO.Compression.ZipFile]::CreateFromDirectory($publish, $zip)
 $zipHash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
