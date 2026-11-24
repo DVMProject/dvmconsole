@@ -129,6 +129,36 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// Asks a registered peer's FNE for its registry snapshot, once, right after the peer logs in.
+        /// </summary>
+        /// <param name="systemName">Codeplug system name.</param>
+        /// <remarks>
+        /// The FNE pushes a snapshot when a console logs in, but from its metadata port. A NAT router drops that until
+        /// this console has sent something to the port, and nothing else is sent there at login (alias sync is
+        /// optional). This request opens the path, and the FNE answers it even when the push was dropped. It is sent
+        /// once per login only: an FNE that does not answer does not have the registry. An FNE with the registry
+        /// turned off NAKs it, which fnecore takes as a refusal rather than a lost session.
+        /// </remarks>
+        public void RequestSnapshot(string systemName)
+        {
+            PeerSystem peer;
+            lock (sync)
+            {
+                if (string.IsNullOrWhiteSpace(systemName) || !peers.TryGetValue(systemName, out peer) || peer?.peer == null)
+                    return;
+            }
+
+            try
+            {
+                peer.peer.RequestPatchStatus();
+            }
+            catch (Exception ex)
+            {
+                Log.WriteWarning($"({systemName}) patch status registry request failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Unregisters a peer system.
         /// </summary>
         /// <param name="systemName">Codeplug system name.</param>
