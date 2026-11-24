@@ -67,6 +67,11 @@ namespace dvmconsole
         /// </summary>
         private const int HEARTBEAT_INTERVAL_MS = (int)(TTL_SECONDS * 1000 / 3);
 
+        /// <summary>
+        /// A reconnect this soon after a snapshot request, with no snapshot in between, is taken as the FNE refusing it.
+        /// </summary>
+        private static readonly TimeSpan SnapshotRequestRefusalWindow = TimeSpan.FromSeconds(10);
+
         private readonly Func<Codeplug> getCodeplug;
         private readonly object sync = new object();
 
@@ -75,6 +80,9 @@ namespace dvmconsole
         private readonly Dictionary<string, EventHandler<PatchStatusReceivedEvent>> peerHandlers =
             new Dictionary<string, EventHandler<PatchStatusReceivedEvent>>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> supportedSystems = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, DateTime> snapshotRequestedAt =
+            new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> snapshotRequestsSuppressed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, ReceivedSnapshot> snapshots =
             new Dictionary<string, ReceivedSnapshot>(StringComparer.OrdinalIgnoreCase);
 
@@ -129,6 +137,60 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// Asks a registered peer's FNE for its registry snapshot, once per login.
+        /// </summary>
+        /// <param name="systemName">Codeplug system name.</param>
+        /// <remarks>
+        /// The FNE pushes a snapshot when a console logs in, but from its metadata port to this console's traffic port
+        /// plus one. Nothing else is sent from the metadata socket at login, so behind NAT the router has no mapping for
+        /// it and drops the push; the console then never publishes. This request goes out from the metadata socket,
+        /// which opens that path, and the FNE answers it. It is skipped once a snapshot has arrived.
+        /// An FNE with the registry turned off NAKs the request, and FNECore treats that as a lost session and logs in
+        /// again. If the peer connects again within <see cref="SnapshotRequestRefusalWindow"/> of a request with no
+        /// snapshot received, the request is not sent to that system again until the peer is registered again.
+        /// </remarks>
+        public void RequestSnapshot(string systemName)
+        {
+            if (string.IsNullOrWhiteSpace(systemName))
+                return;
+
+            PeerSystem peer;
+            bool refused = false;
+            lock (sync)
+            {
+                if (!peers.TryGetValue(systemName, out peer) || peer?.peer == null)
+                    return;
+                if (supportedSystems.Contains(systemName) || snapshotRequestsSuppressed.Contains(systemName))
+                    return;
+
+                DateTime now = DateTime.UtcNow;
+                if (snapshotRequestedAt.TryGetValue(systemName, out DateTime last) && now - last < SnapshotRequestRefusalWindow)
+                {
+                    snapshotRequestsSuppressed.Add(systemName);
+                    snapshotRequestedAt.Remove(systemName);
+                    refused = true;
+                }
+                else
+                    snapshotRequestedAt[systemName] = now;
+            }
+
+            if (refused)
+            {
+                Log.WriteWarning($"({systemName}) FNE reconnected right after the patch status registry request; the registry may be turned off on that FNE. Not requesting it again.");
+                return;
+            }
+
+            try
+            {
+                peer.peer.RequestPatchStatus();
+            }
+            catch (Exception ex)
+            {
+                Log.WriteWarning($"({systemName}) Failed to request the patch status registry: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Unregisters a peer system.
         /// </summary>
         /// <param name="systemName">Codeplug system name.</param>
@@ -146,6 +208,8 @@ namespace dvmconsole
                 peers.Remove(systemName, out peer);
                 peerHandlers.Remove(systemName, out handler);
                 supportedSystems.Remove(systemName);
+                snapshotRequestedAt.Remove(systemName);
+                snapshotRequestsSuppressed.Remove(systemName);
                 hadSnapshot = snapshots.Remove(systemName);
             }
 
@@ -293,6 +357,8 @@ namespace dvmconsole
                     return;
 
                 first = supportedSystems.Add(systemName);
+                snapshotRequestedAt.Remove(systemName);
+                snapshotRequestsSuppressed.Remove(systemName);
                 changed = !snapshots.TryGetValue(systemName, out ReceivedSnapshot previous) ||
                     previous.Snapshot.Revision != e.Snapshot.Revision ||
                     previous.Snapshot.Peers.Count != e.Snapshot.Peers.Count;
