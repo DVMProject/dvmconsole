@@ -53,6 +53,7 @@
     <None Remove="Assets\page.png" />
     <None Remove="Assets\patch_edit_off.png" />
     <None Remove="Assets\patch_edit_on.png" />
+    <None Remove="Assets\patch_remote_on.png" />
     <None Remove="Assets\msel_active.png" />
     <None Remove="Assets\msel_inactive.png" />
     <None Remove="Assets\pageselect.png" />
@@ -223,6 +224,9 @@
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </Resource>
     <Resource Include="Assets\patch_edit_on.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\patch_remote_on.png">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </Resource>
     <Resource Include="Assets\msel_inactive.png">

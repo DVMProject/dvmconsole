@@ -7012,11 +7012,15 @@ namespace dvmconsole
 
                     string channelKey = BuildPatchTargetKey(channel.ResourceSystemName, channel.DstId);
                     List<RegistryPatch> registryPatches = FindRegistryPatches(channel, registries);
-                    bool isMember = patchMembers.Contains(channelKey) || registryPatches.Count > 0;
-                    bool isActive = activePatchMembers.Contains(channelKey) || registryPatches.Count > 0;
+                    bool isMember = patchMembers.Contains(channelKey);
+                    bool isActive = activePatchMembers.Contains(channelKey);
+                    bool isPatchedRemotely = registryPatches.Count > 0;
 
+                    // local membership and remote (registry) patches are kept apart so the card can show the remote
+                    // patch icon when only another console has this resource patched
                     channel.SetPatchMembershipIndicator(isMember, isActive,
-                        isMember ? BuildPatchIndicatorToolTip(channel, memberships, enabledStates, registryPatches) : null);
+                        isMember || isPatchedRemotely ? BuildPatchIndicatorToolTip(channel, memberships, enabledStates, registryPatches) : null,
+                        isPatchedRemotely);
                 }
 
             }

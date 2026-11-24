@@ -538,12 +538,18 @@ namespace dvmconsole.Controls
         }
 
         /// <summary>
-        /// Flag indicating whether this resource belongs to at least one patch group.
+        /// Flag indicating whether this resource belongs to at least one patch group on this console.
         /// </summary>
         public bool IsPatchGroupMember { get; private set; }
 
         /// <summary>
-        /// Flag indicating whether this resource belongs to at least one enabled patch group.
+        /// Flag indicating whether another console reports an active patch containing this resource (FNE patch
+        /// status registry).
+        /// </summary>
+        public bool IsPatchedRemotely { get; private set; }
+
+        /// <summary>
+        /// Flag indicating whether this resource belongs to at least one enabled patch group on this console.
         /// </summary>
         public bool IsPatchGroupActive
         {
@@ -1555,8 +1561,13 @@ namespace dvmconsole.Controls
 
         /// <summary>
         /// Updates the top-right indicator icon based on current state.
-        /// Multi-select takes priority over patch membership.
         /// </summary>
+        /// <remarks>
+        /// Multi-select membership takes priority. Otherwise, in order: an enabled patch group on this console shows
+        /// the patch enabled icon; an active patch reported by another console through the FNE patch status registry
+        /// shows the remote patch icon; patch groups on this console that are all disabled show the patch disabled
+        /// icon; with no patches anywhere the icon is hidden.
+        /// </remarks>
         private void UpdateIndicatorIcon()
         {
             Dispatcher.Invoke(() =>
@@ -1567,17 +1578,26 @@ namespace dvmconsole.Controls
                     IndicatorIconToolTip = "Member of the current multi-select group";
                     IndicatorIconVisibility = Visibility.Visible;
                 }
-                else if (IsPatchGroupMember)
+                else if (IsPatchGroupActive || IsPatchedRemotely || IsPatchGroupMember)
                 {
-                    IndicatorIconSource = IsPatchGroupActive
-                        ? "/dvmconsole;component/Assets/patch_edit_on.png"
-                        : "/dvmconsole;component/Assets/patch_edit_off.png";
-                    if (!string.IsNullOrWhiteSpace(patchIndicatorToolTip))
-                        IndicatorIconToolTip = patchIndicatorToolTip;
+                    string defaultToolTip;
+                    if (IsPatchGroupActive)
+                    {
+                        IndicatorIconSource = "/dvmconsole;component/Assets/patch_edit_on.png";
+                        defaultToolTip = "Member of one or more enabled patch groups";
+                    }
+                    else if (IsPatchedRemotely)
+                    {
+                        IndicatorIconSource = "/dvmconsole;component/Assets/patch_remote_on.png";
+                        defaultToolTip = "Patched by another console";
+                    }
                     else
-                        IndicatorIconToolTip = IsPatchGroupActive
-                            ? "Member of one or more enabled patch groups"
-                            : "Member of one or more patch groups";
+                    {
+                        IndicatorIconSource = "/dvmconsole;component/Assets/patch_edit_off.png";
+                        defaultToolTip = "Member of one or more patch groups";
+                    }
+
+                    IndicatorIconToolTip = !string.IsNullOrWhiteSpace(patchIndicatorToolTip) ? patchIndicatorToolTip : defaultToolTip;
                     IndicatorIconVisibility = Visibility.Visible;
                 }
                 else
@@ -1590,13 +1610,15 @@ namespace dvmconsole.Controls
         /// <summary>
         /// Sets the patch membership indicator state for this resource.
         /// </summary>
-        /// <param name="isMember"></param>
-        /// <param name="isActive"></param>
+        /// <param name="isMember">Member of at least one patch group on this console.</param>
+        /// <param name="isActive">Member of at least one enabled patch group on this console.</param>
         /// <param name="toolTip">Patch details to show on hover, or null for the default text.</param>
-        public void SetPatchMembershipIndicator(bool isMember, bool isActive = false, string toolTip = null)
+        /// <param name="isPatchedRemotely">Another console reports an active patch containing this resource.</param>
+        public void SetPatchMembershipIndicator(bool isMember, bool isActive = false, string toolTip = null, bool isPatchedRemotely = false)
         {
             IsPatchGroupMember = isMember;
             IsPatchGroupActive = isMember && isActive;
+            IsPatchedRemotely = isPatchedRemotely;
             patchIndicatorToolTip = toolTip;
             UpdateIndicatorIcon();
         }

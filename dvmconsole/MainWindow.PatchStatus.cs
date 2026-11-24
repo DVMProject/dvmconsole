@@ -195,7 +195,8 @@ namespace dvmconsole
         }
 
         /// <summary>
-        /// Recomputes the active patch and multiselect groups and hands them to the patch status service.
+        /// Recomputes the enabled patch groups and hands them to the patch status service (multiselect groups are not
+        /// advertised).
         /// </summary>
         /// <param name="publishImmediately">True to publish now rather than waiting for the next heartbeat.</param>
         /// <param name="reason">Reason recorded in the log.</param>
@@ -213,7 +214,6 @@ namespace dvmconsole
                 patchStatusService.UpdateActiveGroups(
                     FilterPatchMemberships(currentPatchMemberships, patchGroupEnabledStates),
                     patchGroupModes,
-                    FilterMultiSelectMemberships(currentPatchMemberships),
                     publishImmediately, reason);
             }
             catch (Exception ex)

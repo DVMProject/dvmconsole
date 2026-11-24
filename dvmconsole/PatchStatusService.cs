@@ -201,17 +201,20 @@ namespace dvmconsole
         }
 
         /// <summary>
-        /// Replaces the set of presently active patch and multiselect groups.
+        /// Replaces the set of presently active patch groups.
         /// </summary>
-        /// <param name="activePatchMemberships">Patch-type group memberships, already filtered to active groups.</param>
-        /// <param name="oneWayModes">Per group one-way mode. Only consulted for patch-type groups.</param>
-        /// <param name="activeMultiSelectMemberships">Multiselect-type group memberships, already filtered to active groups.</param>
+        /// <param name="activePatchMemberships">Patch-type group memberships, already filtered to enabled groups.</param>
+        /// <param name="oneWayModes">Per group one-way mode.</param>
         /// <param name="publishImmediately">True to publish now rather than waiting for the next heartbeat.</param>
         /// <param name="reason">Reason recorded in the log.</param>
+        /// <remarks>
+        /// Only enabled patch groups are advertised. Multiselect groups are not: they key several talkgroups together
+        /// from this console and forward no audio between them, so other consoles should not show those talkgroups
+        /// as patched.
+        /// </remarks>
         public void UpdateActiveGroups(
             Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> activePatchMemberships,
             Dictionary<string, bool> oneWayModes,
-            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> activeMultiSelectMemberships,
             bool publishImmediately,
             string reason)
         {
@@ -219,7 +222,6 @@ namespace dvmconsole
 
             List<PatchStatusPatch> patches = new List<PatchStatusPatch>();
             AppendActiveGroups(patches, codeplug, activePatchMemberships, oneWayModes);
-            AppendActiveGroups(patches, codeplug, activeMultiSelectMemberships, null);
 
             lock (sync)
                 currentPatches = patches;
