@@ -296,23 +296,35 @@ namespace dvmconsole
                     if (duplicate || (channel.RxStreamId == e.StreamId && channel.PeerId != e.PeerId))
                         continue;
                     string statusKey = ResourceIdentity.Build(system.Name, config.Tgid) + "|nxdn";
-                    if (!systemStatuses.TryGetValue(statusKey, out SlotStatus status))
-                        systemStatuses[statusKey] = status = new SlotStatus();
+                    systemStatuses.TryGetValue(statusKey, out SlotStatus status);
                     ReceiveCallState.Transition transition = channel.RxCall.Evaluate(e.PeerId, e.StreamId,
                         e.SrcId, e.FrameType == FrameType.TERMINATOR, allowSourceUpdate: false);
                     if (transition == ReceiveCallState.Transition.Ignore)
                         continue;
                     bool newCall = transition == ReceiveCallState.Transition.Start;
+                    NXDNCallData candidate = null;
                     try
                     {
+                        // Validate a replacement before ending the current call or starting a patch.
+                        NXDNCallData call = channel.NxdnRx;
+                        if (newCall)
+                            call = candidate = new NXDNCallData { SrcId = e.SrcId, DstId = e.DstId, TxStreamID = e.StreamId };
+                        channel.NxdnRxCodec ??= new NxdnAmbeCodec();
+                        byte[] voice = new byte[NXDNFrame.VoiceBytes];
+                        int voiceLength = NXDNFrame.Decode(call, e.Data, e.PacketSequence, voice, channel.NxdnRxCodec,
+                            (cipher, id) => GetNxdnKey(system.Name, cipher, id));
+                        if (!call.LastPacketAccepted)
+                            continue;
+                        if (status == null)
+                            systemStatuses[statusKey] = status = new SlotStatus();
                         string alias = TryResolveSubscriberAlias(system, (int)e.SrcId);
                         if (newCall)
                         {
                             if (channel.RxStreamId != 0)
                                 EndReceiveCall(channel, system, config, status, packetTime);
                             channel.NxdnRx?.Dispose();
-                            channel.NxdnRx = new NXDNCallData { SrcId = e.SrcId, DstId = e.DstId, TxStreamID = e.StreamId };
-                            channel.NxdnRxCodec ??= new NxdnAmbeCodec();
+                            channel.NxdnRx = call;
+                            candidate = null;
                             channel.IsReceiving = true;
                             channel.PeerId = e.PeerId;
                             channel.RxStreamId = e.StreamId;
@@ -320,10 +332,6 @@ namespace dvmconsole
                             status.RxStart = packetTime;
                             patchManager.HandleCallStart(system.Name, config.Tgid, e.StreamId, e.SrcId);
                         }
-                        NXDNCallData call = channel.NxdnRx;
-                        byte[] voice = new byte[NXDNFrame.VoiceBytes];
-                        int voiceLength = NXDNFrame.Decode(call, e.Data, e.PacketSequence, voice, channel.NxdnRxCodec,
-                            (cipher, id) => GetNxdnKey(system.Name, cipher, id));
                         channel.RxCall.Accept(e.PeerId, e.StreamId, e.SrcId);
                         channel.LastPktTime = packetTime;
                         channel.IsReceivingEncrypted = call.IsEncrypted;
@@ -387,6 +395,10 @@ namespace dvmconsole
                     catch (Exception ex)
                     {
                         Log.WriteWarning($"({system.Name}) NXDN RX ignored: {ex.Message}");
+                    }
+                    finally
+                    {
+                        candidate?.Dispose();
                     }
                 }
             });
