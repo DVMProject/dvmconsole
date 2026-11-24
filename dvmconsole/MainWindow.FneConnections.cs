@@ -340,7 +340,6 @@ namespace dvmconsole
                     PublishConnectionState(entry);
                     if (!IsCurrentFneConnectionEntry(entry) || !ReferenceEquals(entry.Peer, peer) || !entry.DesiredStarted)
                         return;
-                    patchStatusService?.RequestSnapshot(entry.SystemName);
                     QueueMissingChannelKeys(entry.SystemName);
                     ScheduleDeferredStartupKeyRequests(entry.SystemName);
                     PlayFneConnectedChime(entry);
