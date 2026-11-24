@@ -46,7 +46,7 @@ zones:
 
 # Transmit Timeout
 
-The top-level `transmitTimeoutSeconds` setting limits each operator transmission, including individual, global, patch-group, and MSEL PTT. It defaults to `180` seconds when omitted; set it to `0` to disable it. Negative values are rejected. There is no UI override. Generated tones, channel markers, and automatic patch forwarding are not timed out.
+The top-level `transmitTimeoutSeconds` setting limits each manual PTT transmission, including individual, global, patch-group, and MSEL PTT. It defaults to `180` seconds when omitted; set it to `0` to disable it. Negative values are rejected. There is no UI override. Generated tones, channel markers, and automatic patch forwarding are not timed out.
 
 During the final 10 seconds, Console plays a short local beep each second. At timeout it ends the call and plays a single local tone. Release PTT (or toggle it off) before starting another call. These alerts use the Console master audio output and are not added to transmitted audio.
 
@@ -147,7 +147,7 @@ Fields:
 - `keyId`: optional encryption key ID, written as a hexadecimal string (for example, `"50"` means `0x50`).
 - `algo`: optional encryption algorithm, such as `aes`, `des`, `arc4`, or `none`.
 - `scrambler_code`: optional analog voice-inversion code (`0` for off, or `2` through `16`); see [Analog](08-Analog.md). This is not an FNE encryption key.
-- `selectable_encryption`: optional flag for P25, NXDN, or analog resources with `scrambler_code`. When `true`, the card shows a **SELECT** toggle so operators can choose protected or clear transmit. Digital modes require a valid `keyId` and `algo`; analog inversion uses its codeplug frequency and no key. Encrypted DMR is temporarily unavailable.
+- `selectable_encryption`: optional flag for P25, NXDN, or analog resources with `scrambler_code`. When `true`, the card shows a **SELECT** toggle so you can choose protected or clear transmit. Digital modes require a valid `keyId` and `algo`; analog inversion uses its codeplug frequency and no key. Encrypted DMR is temporarily unavailable.
 - `resourceColor`: optional resource card color in hex.
 - `rx_only`: optional receive-only flag. When `true`, the resource card hides PTT, alert tone select, and channel marker/hold controls, and the resource is skipped by global, patch/group, and alert-tone transmit target paths.
 - `card_size`: optional fixed resource card size. Supported values are `small`, `normal`, and `large`. If omitted or invalid, `normal` is used.
@@ -334,7 +334,7 @@ zones:
 - Keep system names stable after deployment because channels reference them.
 - Use clear channel names as display labels. Routing uses each card's codeplug entry; saved channel positions, volume, and selection use system/TG identity. Matching channel names or TGIDs on different systems are supported.
 - Use clear group names, such as `Patch 1` or `Multi Select 1`.
-- Keep zone tabs short enough for operators to scan quickly.
+- Keep zone tabs short enough to scan quickly.
 - Verify each channel references a valid system.
 - Verify each group has a supported `type`.
 - Keep web stream names stable so saved chip position and volume remain associated with the correct stream.

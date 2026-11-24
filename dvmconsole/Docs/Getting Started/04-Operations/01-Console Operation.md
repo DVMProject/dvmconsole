@@ -1,6 +1,6 @@
 # Console Operation
 
-This page covers common operator workflows on the main console.
+This page covers common tasks on the main console.
 
 ---
 
@@ -58,7 +58,7 @@ If the resource does not show **SELECT**, transmit protection is fixed by the co
 
 Global PTT keys the current primary selected channel.
 
-If no primary channel is available, legacy all-channel global PTT behavior is not exposed in the menu. Use multi-select groups instead when an operator needs to transmit to multiple resources.
+If no primary channel is available, legacy all-channel global PTT behavior is not exposed in the menu. Use multi-select groups instead when you need to transmit to multiple resources.
 
 ## PTT Keybinds
 

@@ -1,10 +1,10 @@
 # Overview
 
-The Digital Voice Modem Desktop Dispatch Console is a WPF desktop console for monitoring and transmitting on DVM FNE talkgroups from one operator position.
+The Digital Voice Modem Desktop Dispatch Console is a WPF desktop console for monitoring and transmitting on DVM FNE talkgroups from one application.
 
 The console is organized around resources. A resource is a channel card that maps to a system and talkgroup from the loaded codeplug.
 
-Common operator tasks include:
+Common tasks include:
 
 - Monitor selected resources
 - Transmit with resource PTT or Global PTT

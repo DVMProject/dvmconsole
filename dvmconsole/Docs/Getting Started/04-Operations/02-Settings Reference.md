@@ -23,7 +23,7 @@ The transfer file is a portable JSON file. You can choose which categories to ex
 - custom alert tones
 - toolbar clocks
 - startup restore state
-- operator preferences
+- user preferences
 - call history window preferences
 - keybinds and selectable encryption state
 
@@ -57,7 +57,7 @@ This setting is saved.
 
 When enabled, the console plays a short local tone when transmit begins.
 
-This is local operator feedback only.
+This is local audio feedback only.
 
 ## Mute RX Audio While Transmitting
 
@@ -65,7 +65,7 @@ When enabled, local RX speaker playback is muted while the console is transmitti
 
 This does not block received network traffic, logs, patch forwarding, or RX visual state. It only suppresses local speaker playback during TX.
 
-Use this when operators use speakers and you want to reduce the chance of received audio feeding back into the microphone.
+Use this when listening through speakers to reduce the chance of received audio feeding back into the microphone.
 
 ## Retain Patch State on Startup
 

@@ -8,7 +8,7 @@ Open it from:
 View > Groups
 ```
 
-Groups are defined in the codeplug. Members are assigned in the app by the operator.
+Groups are defined in the codeplug. You assign members in the app.
 
 ---
 
@@ -88,13 +88,13 @@ If the wrong member is acting as the source, remove and re-add members in the de
 
 # Multi-Select Groups
 
-A multi-select group is an operator transmit tool.
+A multi-select group is a manual PTT tool.
 
 It lets the console transmit to multiple member resources at the same time using **Multi-Select PTT**.
 
 Unlike a patch group, a multi-select group does not forward received audio between members.
 
-Use multi-select when an operator wants to key several resources together from the console.
+Use multi-select when you want to key several resources together from the console.
 
 ---
 
@@ -157,7 +157,7 @@ If a resource belongs to both a patch and a multi-select group, the multi-select
 
 ---
 
-# Operator Tips
+# Usage Tips
 
 - Use patch groups for cross-resource receive forwarding.
 - Use multi-select groups for console-originated group transmit.

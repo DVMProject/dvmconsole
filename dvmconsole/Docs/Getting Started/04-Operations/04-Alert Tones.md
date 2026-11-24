@@ -2,7 +2,7 @@
 
 The console supports built-in and custom alert tones.
 
-Alert tones are used for operator alerting workflows such as page/alert tones and channel hold tone behavior.
+Alert tones provide paging, alerts, and channel hold tones.
 
 ---
 
@@ -36,7 +36,7 @@ Open from:
 Commands > Tones > Manage Custom Alert Tones
 ```
 
-The Alert Tone Manager allows operators or admins to:
+The Alert Tone Manager lets you:
 
 - view custom alert tones
 - add a new alert tone
@@ -102,7 +102,7 @@ Use the confirmation prompt to avoid accidental removal.
 
 Custom alert tones can be assigned to a tab/resource tab when supported by the current codeplug layout.
 
-This keeps custom tones near the resources operators use with them.
+This keeps custom tones near the resources you use with them.
 
 ---
 

@@ -2,7 +2,12 @@
 
 Encryption keys allow the console to decrypt and transmit encrypted voice traffic when supported by the connected FNE system.
 
-The console can load local traffic keys from an encrypted `.ekc` container created with [DVMProject KFDEKC](https://github.com/DVMProject/kfdekc). Clear YAML key files are no longer supported, including files renamed to `.ekc`.
+The console supports encrypted `.ekc` containers from both tools:
+
+- [DVMProject KFDEKC](https://github.com/DVMProject/kfdekc)
+- [KFDtool (omahacommsys)](https://github.com/omahacommsys/KFDtool)
+
+Both formats use the same `keyFile` setting and password prompt in Console. Clear YAML key files are no longer supported, including files renamed to `.ekc`.
 
 ---
 
@@ -28,7 +33,7 @@ keyFile: 'Keys.ekc'
 
 Relative paths resolve beside the codeplug. On first use, Console asks for the container password in a masked dialog. The password is saved only as a Windows DPAPI-protected blob for the current Windows account, under `EkcCredentials` in the Console AppData profile. It is not stored in the codeplug or `UserSettings.json`.
 
-If the password changes or Windows cannot open the saved credential, Console asks again. Cancel continues without local keys; FNE key requests remain available. Reload the codeplug to retry or to load edits made in KFDEKC. To forget saved passwords, close Console and remove the relevant profile's `EkcCredentials` folder.
+If the password changes or Windows cannot open the saved credential, Console asks again. Cancel continues without local keys; FNE key requests remain available. Reload the codeplug to retry or to load edits made in either container tool. To forget saved passwords, close Console and remove the relevant profile's `EkcCredentials` folder.
 
 Create traffic encryption keys (TEKs), matching the channel algorithm and key ID:
 
@@ -131,6 +136,6 @@ If an encrypted channel does not decrypt correctly:
 # Safety Notes
 
 - Protect the EKC container and your Windows account. DPAPI is not protection against software already running as your account.
-- Migrate old clear keys into KFDEKC and securely retire the old files yourself; Console does not delete personal key files.
+- Migrate old clear keys into a supported encrypted container and securely retire the old files yourself; Console does not delete personal key files.
 - Do not commit operational key material to source control.
 - Use test keys for development environments.
