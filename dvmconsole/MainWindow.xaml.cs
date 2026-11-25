@@ -193,6 +193,7 @@ namespace dvmconsole
         private Dictionary<string, SlotStatus> systemStatuses = new Dictionary<string, SlotStatus>();
         private FneSystemManager fneSystemManager = new FneSystemManager();
         private PatchManager patchManager;
+        private PatchStatusService patchStatusService;
         private readonly object patchPttSync = new object();
         private readonly Dictionary<string, PatchPttTargetSession> activePatchPttTargets = new Dictionary<string, PatchPttTargetSession>(StringComparer.OrdinalIgnoreCase);
         private Dictionary<string, bool> patchGroupModes = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
@@ -336,6 +337,8 @@ namespace dvmconsole
                 EndPatchForwardOnUiThread,
                 SendPatchForwardAudioOnUiThread,
                 GetPatchFallbackSourceIdOnUiThread);
+            patchStatusService = new PatchStatusService(() => Codeplug);
+            patchStatusService.RegistryUpdated += PatchStatusService_RegistryUpdated;
 
             selectedChannelsManager = new SelectedChannelsManager();
             AttachLayoutSelectionCanvasEvents(channelsCanvas);
@@ -1308,6 +1311,7 @@ namespace dvmconsole
                 Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships = patchGroupsWindow.GetCurrentMemberships();
                 currentPatchMemberships = ClonePatchMemberships(memberships);
                 patchManager.ApplyMemberships(FilterPatchMemberships(memberships, patchGroupEnabledStates), patchGroupModes);
+                PublishActiveGroups(publishImmediately: true, reason: "codeplug loaded");
 
                 // compile list of errors and throw up a messagebox of doom
                 if (errors.Count > 0)
@@ -1345,6 +1349,7 @@ namespace dvmconsole
                 patchGroupEnabledStates = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
                 currentPatchMemberships = new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>();
                 patchManager.ApplyMemberships(new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>(), patchGroupModes);
+                PublishActiveGroups(publishImmediately: true, reason: "codeplug unloaded");
                 UpdatePatchMemberIndicators(new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>(), new Dictionary<string, bool>());
                 UpdateMultiSelectIndicators(new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>());
                 UpdateTarIndicators();
@@ -4694,6 +4699,7 @@ namespace dvmconsole
 
         private void MainWindow_Closed(object sender, EventArgs e)
         {
+            patchStatusService?.Dispose();
             StopDmrChannels();
             StopNxdnChannels();
             StopAnalogChannels();
@@ -6787,6 +6793,7 @@ namespace dvmconsole
             Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> multiSelectMemberships = FilterMultiSelectMemberships(memberships);
 
             patchManager.ApplyMemberships(patchMemberships, patchGroupModes);
+            PublishActiveGroups(publishImmediately: true, reason: "memberships committed");
             SynchronizeActivePatchReceiveStreams();
             UpdatePatchMemberIndicators(FilterPatchMemberships(memberships), patchGroupEnabledStates);
             UpdateMultiSelectIndicators(multiSelectMemberships);
@@ -6826,6 +6833,7 @@ namespace dvmconsole
         {
             patchGroupModes = new Dictionary<string, bool>(modes ?? new Dictionary<string, bool>(), StringComparer.OrdinalIgnoreCase);
             patchManager.ApplyMemberships(FilterPatchMemberships(currentPatchMemberships, patchGroupEnabledStates), patchGroupModes);
+            PublishActiveGroups(publishImmediately: false, reason: "group modes changed");
             SynchronizeActivePatchReceiveStreams();
         }
 
@@ -6836,6 +6844,7 @@ namespace dvmconsole
         {
             patchGroupEnabledStates = new Dictionary<string, bool>(states ?? new Dictionary<string, bool>(), StringComparer.OrdinalIgnoreCase);
             patchManager.ApplyMemberships(FilterPatchMemberships(currentPatchMemberships, patchGroupEnabledStates), patchGroupModes);
+            PublishActiveGroups(publishImmediately: true, reason: "group enabled states changed");
             SynchronizeActivePatchReceiveStreams();
             UpdatePatchMemberIndicators(FilterPatchMemberships(currentPatchMemberships), patchGroupEnabledStates);
         }
@@ -6964,7 +6973,8 @@ namespace dvmconsole
         }
 
         /// <summary>
-        /// Updates channel resource badges indicating patch group membership.
+        /// Updates channel resource badges indicating patch group membership, both local and as reported by the
+        /// FNE patch status registry.
         /// </summary>
         /// <param name="memberships"></param>
         private void UpdatePatchMemberIndicators(
@@ -6973,6 +6983,7 @@ namespace dvmconsole
         {
             HashSet<string> patchMembers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             HashSet<string> activePatchMembers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            List<PatchStatusService.RegistryView> registries = patchStatusService?.GetRegistryViews() ?? new List<PatchStatusService.RegistryView>();
 
             enabledStates ??= new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
 
@@ -7000,7 +7011,16 @@ namespace dvmconsole
                     }
 
                     string channelKey = BuildPatchTargetKey(channel.ResourceSystemName, channel.DstId);
-                    channel.SetPatchMembershipIndicator(patchMembers.Contains(channelKey), activePatchMembers.Contains(channelKey));
+                    List<RegistryPatch> registryPatches = FindRegistryPatches(channel, registries);
+                    bool isMember = patchMembers.Contains(channelKey);
+                    bool isActive = activePatchMembers.Contains(channelKey);
+                    bool isPatchedRemotely = registryPatches.Count > 0;
+
+                    // local membership and remote (registry) patches are kept apart so the card can show the remote
+                    // patch icon when only another console has this resource patched
+                    channel.SetPatchMembershipIndicator(isMember, isActive,
+                        isMember || isPatchedRemotely ? BuildPatchIndicatorToolTip(channel, memberships, enabledStates, registryPatches) : null,
+                        isPatchedRemotely);
                 }
 
             }
