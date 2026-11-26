@@ -47,6 +47,7 @@ namespace dvmconsole
             public string ChannelName { get; init; } = string.Empty;
             public TarRecordingMetadata Metadata { get; init; }
             public TaskCompletionSource<TarRecordingMetadata> Completion { get; } = new TaskCompletionSource<TarRecordingMetadata>(TaskCreationOptions.RunContinuationsAsynchronously);
+            public TaskCompletionSource<bool> Finalized { get; } = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             public MemoryStream PcmBuffer { get; } = new MemoryStream();
             public object SyncRoot { get; } = new object();
             public bool AcceptingAudio { get; set; } = true;
@@ -271,7 +272,7 @@ namespace dvmconsole
                     finalizingSessions.Add(session);
                 }
                 activeSessions.Clear();
-                completions = finalizingSessions.Select(session => session.Completion.Task).ToArray();
+                completions = finalizingSessions.Select(session => session.Finalized.Task).ToArray();
             }
 
             DateTime nowUtc = DateTime.UtcNow;
@@ -340,15 +341,19 @@ namespace dvmconsole
 
         public List<TarRecordingMetadata> LoadRecordings(CancellationToken cancellationToken = default, bool rebuildIndex = false)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             List<TarRecordingMetadata> recordings = new List<TarRecordingMetadata>();
             if (!TryEnsureRecordingRoot(GetConfiguredRecordingRoot(), out string rootPath, out _))
                 return recordings;
 
+            if (rebuildIndex)
+                return RebuildRecordingIndex(rootPath, cancellationToken);
+
             Dictionary<string, TarRecordingIndexEntry> cachedEntries;
             lock (indexSyncRoot)
-                cachedEntries = LoadRecordingIndex(rootPath);
+                cachedEntries = LoadRecordingIndex(rootPath, cancellationToken: cancellationToken);
 
-            if (!rebuildIndex && cachedEntries.Count > 0)
+            if (cachedEntries.Count > 0)
                 return SortRecordings(cachedEntries.Values.Select(entry => entry.Metadata));
 
             return RebuildRecordingIndex(rootPath, cancellationToken);
@@ -367,23 +372,29 @@ namespace dvmconsole
                         RecurseSubdirectories = true,
                         AttributesToSkip = FileAttributes.ReparsePoint,
                         IgnoreInaccessible = false
+                    }).Select(path =>
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        return path;
                     }).ToList();
                 }
+                catch (OperationCanceledException) { throw; }
                 catch (Exception ex)
                 {
                     Log.WriteWarning($"Unable to scan TAR recordings: {ex.Message}");
                     return recordings;
                 }
 
-                Dictionary<string, TarRecordingIndexEntry> cachedEntries = LoadRecordingIndex(rootPath);
+                var checkedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                Dictionary<string, TarRecordingIndexEntry> cachedEntries = LoadRecordingIndex(rootPath, checkedDirectories, cancellationToken);
                 List<TarRecordingIndexEntry> updatedIndexEntries = new List<TarRecordingIndexEntry>();
                 bool indexChanged = false;
 
                 foreach (string metadataFile in metadataFiles)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    if (!IsRecordingPathSafe(rootPath, metadataFile) ||
-                        !IsRecordingPathSafe(rootPath, Path.ChangeExtension(metadataFile, ".wav")))
+                    if (!IsRecordingPathSafe(rootPath, metadataFile, checkedDirectories) ||
+                        !IsRecordingPathSafe(rootPath, Path.ChangeExtension(metadataFile, ".wav"), checkedDirectories))
                     {
                         indexChanged = true;
                         continue;
@@ -653,8 +664,10 @@ namespace dvmconsole
 
                 string json = JsonConvert.SerializeObject(session.Metadata, Formatting.Indented);
                 File.WriteAllText(metadataPath, json, Encoding.UTF8);
-                UpdateRecordingIndexEntry(rootPath, metadataPath, session.Metadata);
                 savedRecording = session.Metadata;
+                // History can play the closed WAV once its sidecar is saved, even during an index rebuild.
+                session.Completion.TrySetResult(savedRecording);
+                UpdateRecordingIndexEntry(rootPath, metadataPath, session.Metadata);
                 Log.WriteLine($"TAR recording saved: {session.Metadata.FileName}");
             }
             catch (Exception ex)
@@ -675,9 +688,10 @@ namespace dvmconsole
                     session.PcmBuffer.Dispose();
                 lock (syncRoot)
                 {
-                    // Complete only after all file work and buffer cleanup have finished.
                     session.Completion.TrySetResult(savedRecording);
                     finalizingSessions.Remove(session);
+                    // Shutdown/reload still waits for index maintenance and buffer cleanup.
+                    session.Finalized.TrySetResult(true);
                 }
             }
         }
@@ -796,10 +810,13 @@ namespace dvmconsole
             }
         }
 
-        private static Dictionary<string, TarRecordingIndexEntry> LoadRecordingIndex(string rootPath)
+        private static Dictionary<string, TarRecordingIndexEntry> LoadRecordingIndex(string rootPath,
+            HashSet<string> checkedDirectories = null, CancellationToken cancellationToken = default)
         {
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                checkedDirectories ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 string indexPath = Path.Combine(rootPath, RecordingIndexFileName);
                 if (!File.Exists(indexPath))
                     return new Dictionary<string, TarRecordingIndexEntry>(StringComparer.OrdinalIgnoreCase);
@@ -807,11 +824,15 @@ namespace dvmconsole
                 string json = File.ReadAllText(indexPath);
                 TarRecordingIndex index = JsonConvert.DeserializeObject<TarRecordingIndex>(json);
                 List<TarRecordingIndexEntry> entries = (index?.Entries ?? new List<TarRecordingIndexEntry>())
-                    .Where(entry => entry?.Metadata != null &&
-                        IsRecordingPathSafe(rootPath, entry.MetadataPath) &&
+                    .Where(entry =>
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        return entry?.Metadata != null &&
+                        IsRecordingPathSafe(rootPath, entry.MetadataPath, checkedDirectories) &&
                         File.Exists(entry.MetadataPath) &&
                         string.Equals(Path.GetExtension(entry.MetadataPath), ".json", StringComparison.OrdinalIgnoreCase) &&
-                        IsRecordingPathSafe(rootPath, Path.ChangeExtension(entry.MetadataPath, ".wav")))
+                        IsRecordingPathSafe(rootPath, Path.ChangeExtension(entry.MetadataPath, ".wav"), checkedDirectories);
+                    })
                     .ToList();
                 foreach (TarRecordingIndexEntry entry in entries)
                 {
@@ -824,6 +845,7 @@ namespace dvmconsole
                     .GroupBy(entry => entry.MetadataPath, StringComparer.OrdinalIgnoreCase)
                     .ToDictionary(group => group.Key, group => group.Last(), StringComparer.OrdinalIgnoreCase);
             }
+            catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
                 Log.WriteWarning($"Unable to read TAR recording index: {ex.Message}");
@@ -868,7 +890,7 @@ namespace dvmconsole
         /// Rejects paths outside this library and links/junctions that could redirect
         /// file operations, including linked ancestors of the configured root.
         /// </summary>
-        private static bool IsRecordingPathSafe(string rootPath, string path)
+        private static bool IsRecordingPathSafe(string rootPath, string path, HashSet<string> checkedDirectories = null)
         {
             try
             {
@@ -882,13 +904,25 @@ namespace dvmconsole
                     return false;
 
                 string current = fullPath;
+                List<string> directories = checkedDirectories == null ? null : new List<string>();
                 while (current != null)
                 {
-                    if ((File.Exists(current) || Directory.Exists(current)) &&
-                        (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
-                        return false;
+                    // Cache ancestors only within this scan; each leaf and every deletion is checked afresh.
+                    if (current != fullPath && checkedDirectories?.Contains(current) == true)
+                        break;
+                    try
+                    {
+                        if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                            return false;
+                        if (current != fullPath)
+                            directories?.Add(current);
+                    }
+                    catch (FileNotFoundException) { }
+                    catch (DirectoryNotFoundException) { }
                     current = Path.GetDirectoryName(current);
                 }
+                if (directories != null)
+                    checkedDirectories.UnionWith(directories);
                 return true;
             }
             catch
