@@ -467,19 +467,10 @@ namespace dvmconsole
         {
             DateTime pktTime = DateTime.Now;
 
-            // TODO: Handle TSBKs
             if (e.DUID == P25DUID.TSDU)
             {
-                byte lco = e.Data[4];
-
-                switch (lco)
-                {
-                    case P25Defines.TSBK_IOSP_ACK_RSP:
-                        break;
-
-                    case P25Defines.TSBK_IOSP_CALL_ALRT:
-                        break;
-                }
+                mainWindow.P25CallAlertReceived(this as PeerSystem, e, pktTime);
+                return;
             }
 
             if (e.DUID == P25DUID.HDU || e.DUID == P25DUID.TSDU || e.DUID == P25DUID.PDU)

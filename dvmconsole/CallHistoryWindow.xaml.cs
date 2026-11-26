@@ -17,10 +17,12 @@ using System.Collections.ObjectModel;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 using NAudio.Wave;
 
@@ -179,6 +181,9 @@ namespace dvmconsole
         private bool eventHistoryMode;
         private WaveOut playbackOutput;
         private AudioFileReader playbackReader;
+        private readonly Dictionary<CallEntry, long> pageHighlights = new Dictionary<CallEntry, long>();
+        private readonly Dictionary<CallEntry, Action> pageAcknowledgements = new Dictionary<CallEntry, Action>();
+        private DispatcherTimer pageHighlightTimer;
 
         /*
         ** Properties
@@ -242,11 +247,20 @@ namespace dvmconsole
         }
 
         /// <summary>
-        /// Plays the recording belonging to the clicked call, ignoring headers and event rows.
+        /// Acknowledges a page or plays the recording belonging to the clicked call.
         /// </summary>
         private void CallHistoryRow_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
-            if (e.ChangedButton != MouseButton.Left || sender is not DataGridRow row || row.Item is not CallEntry entry || entry.IsEvent)
+            if (e.ChangedButton != MouseButton.Left || sender is not DataGridRow row || row.Item is not CallEntry entry)
+                return;
+
+            if (pageHighlights.ContainsKey(entry))
+            {
+                e.Handled = true;
+                AcknowledgePage(entry);
+                return;
+            }
+            if (entry.IsEvent)
                 return;
 
             e.Handled = true;
@@ -488,6 +502,77 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// Adds a received page with a solid blue highlight for sixty seconds.
+        /// Pages are system events, not voice calls or TAR recordings.
+        /// </summary>
+        public void AddPage(string systemName, int sourceId, string alias, DateTime receivedAt, Action acknowledge = null)
+        {
+            if (!eventHistoryMode)
+                return;
+
+            Dispatcher.Invoke(() =>
+            {
+                TrimHistoryForNewEntry();
+                CallEntry entry = new CallEntry
+                {
+                    Channel = systemName,
+                    SrcId = sourceId,
+                    SrcIdText = sourceId.ToString(),
+                    RidAlias = alias ?? string.Empty,
+                    Timestamp = receivedAt.ToString("HH:mm:ss"),
+                    IsEvent = true,
+                    ForegroundColor = Brushes.White,
+                    BackgroundColor = Brushes.RoyalBlue
+                };
+                ViewModel.CallHistory.Insert(0, entry);
+                pageHighlights[entry] = Stopwatch.GetTimestamp();
+                if (acknowledge != null)
+                    pageAcknowledgements[entry] = acknowledge;
+                pageHighlightTimer ??= new DispatcherTimer(TimeSpan.FromSeconds(1),
+                    DispatcherPriority.Background, UpdatePageHighlights, Dispatcher);
+                pageHighlightTimer.Start();
+            });
+        }
+
+        private void UpdatePageHighlights(object sender, EventArgs e)
+        {
+            foreach (var page in pageHighlights.ToArray())
+            {
+                if (Stopwatch.GetElapsedTime(page.Value) < TimeSpan.FromSeconds(60))
+                    continue;
+
+                AcknowledgePage(page.Key);
+            }
+            if (pageHighlights.Count == 0)
+                pageHighlightTimer?.Stop();
+        }
+
+        private void AcknowledgePage(CallEntry entry)
+        {
+            pageHighlights.Remove(entry);
+            ResetEntryColors(entry);
+            if (pageHighlights.Count == 0)
+                pageHighlightTimer?.Stop();
+            if (pageAcknowledgements.Remove(entry, out Action acknowledge))
+            {
+                try { acknowledge(); }
+                catch (Exception ex) { Log.WriteWarning($"Unable to stop page alert: {ex.Message}"); }
+            }
+        }
+
+        /// <summary>
+        /// Stops pending page notifications before resources are reloaded or shut down.
+        /// </summary>
+        public void ClearPageAlerts()
+        {
+            Dispatcher.Invoke(() =>
+            {
+                foreach (CallEntry entry in pageHighlights.Keys.ToArray())
+                    AcknowledgePage(entry);
+            });
+        }
+
+        /// <summary>
         /// Adds a console-originated transmit row to Event History and marks it active.
         /// </summary>
         /// <param name="channel"></param>
@@ -595,7 +680,12 @@ namespace dvmconsole
         private void TrimHistoryForNewEntry()
         {
             if (ViewModel.CallHistory.Count == maxCallHistory)
+            {
+                CallEntry oldest = ViewModel.CallHistory[maxCallHistory - 1];
+                if (pageHighlights.ContainsKey(oldest))
+                    AcknowledgePage(oldest);
                 ViewModel.CallHistory.RemoveAt(maxCallHistory - 1);
+            }
         }
 
         private void ResetEntryColors(CallEntry entry)

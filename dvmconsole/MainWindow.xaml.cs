@@ -1168,6 +1168,7 @@ namespace dvmconsole
         /// <summary>Joins tone and voice workers while their cards and peers still exist.</summary>
         private async Task StopResourceActivityAsync()
         {
+            TryResourceCleanup(() => callHistoryWindow?.ClearPageAlerts());
             TryResourceCleanup(ReleaseAllOperatorPttInputs);
             TryResourceCleanup(StopOperatorPttTimers);
             TryResourceCleanup(StopAllTonePlayback);

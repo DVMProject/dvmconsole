@@ -111,6 +111,21 @@ Tabs show an audio activity icon when a resource on that tab is receiving. Long 
 
 ---
 
+# Receiving Pages
+
+P25 pages addressed to the receiving system's configured Console RID play a local
+alert three times and appear in **Event History**, even when no resources are selected.
+The row shows the time, system name in the Channel column, and the sender's RID
+and alias. Other fields stay blank. Its solid blue highlight clears after about
+60 seconds; the entry remains in history. Double-click the page row to silence
+that page's alert and clear its highlight immediately. Other pages are unaffected.
+
+This is automatic for each configured system. The alert is not transmitted or
+recorded by TAR. Use **Commands > Page Subscriber** on another Console to send
+a page to that system's Console RID.
+
+---
+
 # Hidden Zone Tabs
 
 Use **Settings > Tab Manager** to choose which codeplug zones appear across the top of the main console.
