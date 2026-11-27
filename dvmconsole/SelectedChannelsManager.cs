@@ -9,24 +9,43 @@
 *
 *   Copyright (C) 2024 Caleb, K4PHP
 *   Copyright (C) 2025 Steven Jennison, KD8RHO
+*   Copyright (C) 2026 C. Lovell, Dev_Ranger
 *
 */
 
 using dvmconsole.Controls;
+using System.Windows.Threading;
 
 namespace dvmconsole
 {
     /// <summary>
-    /// 
+    /// Tracks channel selection with UI-owned mutations and thread-safe snapshot reads.
     /// </summary>
     public class SelectedChannelsManager
     {
         private ChannelBox primaryChannel;
         
         private readonly HashSet<ChannelBox> selectedChannels;
+        private readonly object selectionLock = new object();
+        private readonly Dispatcher dispatcher;
 
-        public ChannelBox PrimaryChannel => primaryChannel;
-        public IReadOnlyCollection<ChannelBox> GetSelectedChannels() => selectedChannels;
+        public ChannelBox PrimaryChannel
+        {
+            get
+            {
+                lock (selectionLock)
+                    return primaryChannel;
+            }
+        }
+
+        /// <summary>
+        /// Returns a stable membership snapshot. Channel controls remain UI-owned.
+        /// </summary>
+        public IReadOnlyCollection<ChannelBox> GetSelectedChannels()
+        {
+            lock (selectionLock)
+                return selectedChannels.ToArray();
+        }
 
         /*
         ** Events
@@ -41,15 +60,21 @@ namespace dvmconsole
         /// Triggered when primary channel is changed
         /// </summary>
         public event Action PrimaryChannelChanged;
+        /// <summary>
+        /// Triggered when a channel selection changes.
+        /// </summary>
+        public event Action<ChannelBox, bool> ChannelSelectionChanged;
         /*
         ** Methods
         */
 
         /// <summary>
         /// Initializes a new instance of the <see cref="SelectedChannelsManager"/> class.
+        /// Create this manager on the channel controls' UI thread. Mutations marshal to it.
         /// </summary>
         public SelectedChannelsManager()
         {
+            dispatcher = Dispatcher.CurrentDispatcher;
             selectedChannels = new HashSet<ChannelBox>();
         }
 
@@ -59,11 +84,21 @@ namespace dvmconsole
         /// <param name="channel"></param>
         public void AddSelectedChannel(ChannelBox channel)
         {
-            if (selectedChannels.Add(channel))
+            if (!dispatcher.CheckAccess())
             {
-                channel.IsSelected = true;
-                SelectedChannelsChanged?.Invoke();
+                dispatcher.Invoke(() => AddSelectedChannel(channel));
+                return;
             }
+
+            lock (selectionLock)
+            {
+                if (!selectedChannels.Add(channel))
+                    return;
+            }
+
+            channel.IsSelected = true;
+            ChannelSelectionChanged?.Invoke(channel, true);
+            SelectedChannelsChanged?.Invoke();
         }
 
         /// <summary>
@@ -72,16 +107,29 @@ namespace dvmconsole
         /// <param name="channel"></param>
         public void RemoveSelectedChannel(ChannelBox channel)
         {
-            if (selectedChannels.Remove(channel))
+            if (!dispatcher.CheckAccess())
             {
-                if (primaryChannel == channel)
-                {
-                    ClearPrimaryChannel();
-                }
-                channel.IsPrimary = false;
-                channel.IsSelected = false;
-                SelectedChannelsChanged?.Invoke();
+                dispatcher.Invoke(() => RemoveSelectedChannel(channel));
+                return;
             }
+
+            bool primaryChanged;
+            lock (selectionLock)
+            {
+                if (!selectedChannels.Remove(channel))
+                    return;
+
+                primaryChanged = primaryChannel == channel;
+                if (primaryChanged)
+                    primaryChannel = null;
+            }
+
+            channel.IsPrimary = false;
+            channel.IsSelected = false;
+            if (primaryChanged)
+                PrimaryChannelChanged?.Invoke();
+            ChannelSelectionChanged?.Invoke(channel, false);
+            SelectedChannelsChanged?.Invoke();
         }
 
         /// <summary>
@@ -89,10 +137,35 @@ namespace dvmconsole
         /// </summary>
         public void ClearSelections()
         {
-            foreach (var channel in selectedChannels)
-                channel.IsSelected = false;
+            if (!dispatcher.CheckAccess())
+            {
+                dispatcher.Invoke(ClearSelections);
+                return;
+            }
 
-            selectedChannels.Clear();
+            ChannelBox[] channels;
+            ChannelBox previousPrimary;
+            lock (selectionLock)
+            {
+                channels = selectedChannels.ToArray();
+                selectedChannels.Clear();
+                previousPrimary = primaryChannel;
+                primaryChannel = null;
+            }
+
+            // Finish state and visual cleanup before callbacks can reenter the manager.
+            if (previousPrimary != null)
+                previousPrimary.IsPrimary = false;
+            foreach (var channel in channels)
+            {
+                channel.IsPrimary = false;
+                channel.IsSelected = false;
+            }
+
+            if (previousPrimary != null)
+                PrimaryChannelChanged?.Invoke();
+            foreach (var channel in channels)
+                ChannelSelectionChanged?.Invoke(channel, false);
             SelectedChannelsChanged?.Invoke();
         }
 
@@ -102,8 +175,15 @@ namespace dvmconsole
         /// <param name="channel"></param>
         public void SetPrimaryChannel(ChannelBox channel)
         {
+            if (!dispatcher.CheckAccess())
+            {
+                dispatcher.Invoke(() => SetPrimaryChannel(channel));
+                return;
+            }
+
             Log.WriteLine($"Setting primary channel to {channel.ChannelName}");
-            primaryChannel = channel;
+            lock (selectionLock)
+                primaryChannel = channel;
             PrimaryChannelChanged?.Invoke();
         }
         
@@ -112,7 +192,21 @@ namespace dvmconsole
         /// </summary>
         public void ClearPrimaryChannel()
         {
-            primaryChannel = null;
+            if (!dispatcher.CheckAccess())
+            {
+                dispatcher.Invoke(ClearPrimaryChannel);
+                return;
+            }
+
+            ChannelBox previousPrimary;
+            lock (selectionLock)
+            {
+                previousPrimary = primaryChannel;
+                primaryChannel = null;
+            }
+
+            if (previousPrimary != null)
+                previousPrimary.IsPrimary = false;
             PrimaryChannelChanged?.Invoke();
         }
     } // public class SelectedChannelsManager

@@ -30,9 +30,10 @@ namespace dvmconsole
     /// Wrapper class for the C++ dvmvocoder encoder library.
     /// </summary>
     /// Using info from https://stackoverflow.com/a/315064/1842613
-    public class MBEEncoder
+    public class MBEEncoder : IDisposable
     {
         private IntPtr encoder;
+        private readonly object nativeSync = new object();
 
         /*
         ** Methods
@@ -45,6 +46,8 @@ namespace dvmconsole
         public MBEEncoder(MBE_MODE mode)
         {
             encoder = MBEEncoder_Create(mode);
+            if (encoder == IntPtr.Zero)
+                throw new InvalidOperationException("Native vocoder allocation failed.");
         }
 
         /// <summary>
@@ -52,7 +55,26 @@ namespace dvmconsole
         /// </summary>
         ~MBEEncoder()
         {
-            MBEEncoder_Delete(encoder);
+            try { ReleaseNative(); }
+            catch { /* Finalization must also be safe after a failed native-library load. */ }
+        }
+
+        /// <summary>Releases the native instance once, after any in-flight codec operation.</summary>
+        public void Dispose()
+        {
+            ReleaseNative();
+            GC.SuppressFinalize(this);
+        }
+
+        private void ReleaseNative()
+        {
+            lock (nativeSync)
+            {
+                IntPtr instance = encoder;
+                encoder = IntPtr.Zero;
+                if (instance != IntPtr.Zero)
+                    MBEEncoder_Delete(instance);
+            }
         }
 
         /// <summary>
@@ -93,7 +115,11 @@ namespace dvmconsole
         /// <param name="codeword"></param>
         public void encode([In] Int16[] samples, [Out] byte[] codeword)
         {
-            MBEEncoder_Encode(encoder, samples, codeword);
+            lock (nativeSync)
+            {
+                ObjectDisposedException.ThrowIf(encoder == IntPtr.Zero, this);
+                MBEEncoder_Encode(encoder, samples, codeword);
+            }
         }
 
         /// <summary>
@@ -103,16 +129,21 @@ namespace dvmconsole
         /// <param name="codeword"></param>
         public void encodeBits([In] char[] bits, [Out] byte[] codeword)
         {
-            MBEEncoder_EncodeBits(encoder, bits, codeword);
+            lock (nativeSync)
+            {
+                ObjectDisposedException.ThrowIf(encoder == IntPtr.Zero, this);
+                MBEEncoder_EncodeBits(encoder, bits, codeword);
+            }
         }
     } // public class MBEEncoder
 
     /// <summary>
     /// Wrapper class for the C++ dvmvocoder decoder library.
     /// </summary>
-    public class MBEDecoder
+    public class MBEDecoder : IDisposable
     {
         private IntPtr decoder;
+        private readonly object nativeSync = new object();
 
         /*
         ** Methods
@@ -125,6 +156,8 @@ namespace dvmconsole
         public MBEDecoder(MBE_MODE mode)
         {
             decoder = MBEDecoder_Create(mode);
+            if (decoder == IntPtr.Zero)
+                throw new InvalidOperationException("Native vocoder allocation failed.");
         }
 
         /// <summary>
@@ -132,7 +165,26 @@ namespace dvmconsole
         /// </summary>
         ~MBEDecoder()
         {
-            MBEDecoder_Delete(decoder);
+            try { ReleaseNative(); }
+            catch { /* Finalization must also be safe after a failed native-library load. */ }
+        }
+
+        /// <summary>Releases the native instance once, after any in-flight codec operation.</summary>
+        public void Dispose()
+        {
+            ReleaseNative();
+            GC.SuppressFinalize(this);
+        }
+
+        private void ReleaseNative()
+        {
+            lock (nativeSync)
+            {
+                IntPtr instance = decoder;
+                decoder = IntPtr.Zero;
+                if (instance != IntPtr.Zero)
+                    MBEDecoder_Delete(instance);
+            }
         }
 
         /// <summary>
@@ -145,8 +197,8 @@ namespace dvmconsole
         /// <summary>
         /// Decode MBE codeword to samples
         /// </summary>
-        /// <param name="samples">Input PCM samples</param>
-        /// <param name="codeword">Output MBE codeword</param>
+        /// <param name="samples">Output PCM samples</param>
+        /// <param name="codeword">Input MBE codeword</param>
         /// <returns>Number of decode errors</returns>
         [DllImport("libvocoder", CallingConvention = CallingConvention.Cdecl)]
         public static extern Int32 MBEDecoder_Decode(IntPtr pDecoder, [In] byte[] codeword, [Out] Int16[] samples);
@@ -175,7 +227,11 @@ namespace dvmconsole
         /// <param name="codeword"></param>
         public Int32 decode([In] byte[] codeword, [Out] Int16[] samples)
         {
-            return MBEDecoder_Decode(decoder, codeword, samples);
+            lock (nativeSync)
+            {
+                ObjectDisposedException.ThrowIf(decoder == IntPtr.Zero, this);
+                return MBEDecoder_Decode(decoder, codeword, samples);
+            }
         }
 
         /// <summary>
@@ -186,7 +242,11 @@ namespace dvmconsole
         /// <returns></returns>
         public Int32 decodeBits([In] byte[] codeword, [Out] char[] bits)
         {
-            return MBEDecoder_DecodeBits(decoder, codeword, bits);
+            lock (nativeSync)
+            {
+                ObjectDisposedException.ThrowIf(decoder == IntPtr.Zero, this);
+                return MBEDecoder_DecodeBits(decoder, codeword, bits);
+            }
         }
     } // public class MBEDecoder
 
@@ -278,7 +338,7 @@ namespace dvmconsole
     /// <summary>
     /// 
     /// </summary>
-    public class MBEInterleaver
+    public class MBEInterleaver : IDisposable
     {
         public const int PCM_SAMPLES = 160;
         public const int AMBE_CODEWORD_SAMPLES = 9;
@@ -303,7 +363,19 @@ namespace dvmconsole
         {
             this.mode = mode;
             encoder = new MBEEncoder(this.mode);
-            decoder = new MBEDecoder(this.mode);
+            try { decoder = new MBEDecoder(this.mode); }
+            catch
+            {
+                encoder.Dispose();
+                throw;
+            }
+        }
+
+        /// <summary>Releases both native codec instances owned by this interleaver.</summary>
+        public void Dispose()
+        {
+            try { encoder.Dispose(); }
+            finally { decoder.Dispose(); }
         }
 
         /// <summary>
@@ -376,7 +448,9 @@ namespace dvmconsole
                 {
                     throw new ArgumentOutOfRangeException($"AMBE codeword bit length is != {AMBE_CODEWORD_BITS}");
                 }
-                bits = new char[AMBE_CODEWORD_BITS];
+                // The native encoder packs nine bytes and reads 72 input bits.
+                // Only 49 carry AMBE parameters; zero-pad the remaining reads.
+                bits = new char[AMBE_CODEWORD_SAMPLES * 8];
                 for (int i = 0; i < mbeBits.Length; i++)
                     bits[i] = (char)(mbeBits[i] & 0x01);
             }

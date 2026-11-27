@@ -1,0 +1,533 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+/**
+* Digital Voice Modem - Desktop Dispatch Console
+* AGPLv3 Open Source. Use is subject to license terms.
+* DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+*
+* @package DVM / Desktop Dispatch Console
+* @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
+*
+*   Copyright (C) 2026 DVMProject Authors
+*   Copyright (C) 2026 Lorenzo L. Romero, K2LLR
+*
+*/
+
+using System.Threading;
+
+using fnecore;
+
+namespace dvmconsole
+{
+    /// <summary>
+    /// Publishes the console's active patch and multiselect groups to the FNE console patch status registry, and
+    /// keeps the registry contents each FNE sends back.
+    /// </summary>
+    /// <remarks>
+    /// Publishing is heartbeat driven: every tick re-sends the complete active set to every FNE that supports
+    /// the registry, and a group that is no longer active is simply absent from the next publish. Callers may
+    /// also request an immediate publish for changes that should not wait for the next tick. Each member carries
+    /// its own system name, so a patch spanning multiple systems is a single record on every FNE.
+    /// </remarks>
+    public class PatchStatusService : IDisposable
+    {
+        /// <summary>
+        /// Represents the registry contents most recently received from one FNE.
+        /// </summary>
+        public class RegistryView
+        {
+            /// <summary>
+            /// Codeplug system name of the FNE connection the registry was received on.
+            /// </summary>
+            public string SystemName { get; init; }
+            /// <summary>
+            /// This console's peer ID on that connection, used to tell its own records apart.
+            /// </summary>
+            public uint LocalPeerId { get; init; }
+            /// <summary>
+            /// Console peer records held by the registry.
+            /// </summary>
+            public List<PatchStatusPeer> Peers { get; init; }
+        } // public class RegistryView
+
+        /// <summary>
+        /// Received registry snapshot, with the local time it was received.
+        /// </summary>
+        private class ReceivedSnapshot
+        {
+            public PatchStatusRegistrySnapshot Snapshot;
+            public DateTime ReceivedAt;
+        } // private class ReceivedSnapshot
+
+        /// <summary>
+        /// TTL, in seconds, requested for published patch status records.
+        /// </summary>
+        public const uint TTL_SECONDS = 15;
+        /// <summary>
+        /// Heartbeat interval; a third of the TTL so a single lost publish does not expire the record.
+        /// </summary>
+        private const int HEARTBEAT_INTERVAL_MS = (int)(TTL_SECONDS * 1000 / 3);
+
+        /// <summary>
+        /// A reconnect this soon after a snapshot request, with no snapshot in between, is taken as the FNE refusing it.
+        /// </summary>
+        private static readonly TimeSpan SnapshotRequestRefusalWindow = TimeSpan.FromSeconds(10);
+
+        private readonly Func<Codeplug> getCodeplug;
+        private readonly object sync = new object();
+
+        private readonly Dictionary<string, PeerSystem> peers =
+            new Dictionary<string, PeerSystem>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, EventHandler<PatchStatusReceivedEvent>> peerHandlers =
+            new Dictionary<string, EventHandler<PatchStatusReceivedEvent>>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> supportedSystems = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, DateTime> snapshotRequestedAt =
+            new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> snapshotRequestsSuppressed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, ReceivedSnapshot> snapshots =
+            new Dictionary<string, ReceivedSnapshot>(StringComparer.OrdinalIgnoreCase);
+
+        private List<PatchStatusPatch> currentPatches = new List<PatchStatusPatch>();
+        private Timer heartbeatTimer;
+        private bool disposed;
+
+        /*
+        ** Events
+        */
+
+        /// <summary>
+        /// Occurs when the registry contents received from any FNE change. Raised off the UI thread.
+        /// </summary>
+        public event EventHandler RegistryUpdated;
+
+        /*
+        ** Methods
+        */
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="PatchStatusService"/> class.
+        /// </summary>
+        /// <param name="getCodeplug">Accessor for the active codeplug, used to resolve member mode and slot.</param>
+        public PatchStatusService(Func<Codeplug> getCodeplug)
+        {
+            this.getCodeplug = getCodeplug ?? throw new ArgumentNullException(nameof(getCodeplug));
+            heartbeatTimer = new Timer(HeartbeatTick, null, HEARTBEAT_INTERVAL_MS, HEARTBEAT_INTERVAL_MS);
+        }
+
+        /// <summary>
+        /// Registers a peer system for patch status publishing.
+        /// </summary>
+        /// <param name="systemName">Codeplug system name.</param>
+        /// <param name="peer">Peer system.</param>
+        public void RegisterPeer(string systemName, PeerSystem peer)
+        {
+            if (string.IsNullOrWhiteSpace(systemName) || peer?.peer == null)
+                return;
+
+            UnregisterPeer(systemName);
+
+            EventHandler<PatchStatusReceivedEvent> handler = (sender, e) => OnPatchStatusReceived(systemName, e);
+
+            lock (sync)
+            {
+                peers[systemName] = peer;
+                peerHandlers[systemName] = handler;
+            }
+
+            peer.peer.PatchStatusReceived += handler;
+        }
+
+        /// <summary>
+        /// Asks a registered peer's FNE for its registry snapshot, once per login.
+        /// </summary>
+        /// <param name="systemName">Codeplug system name.</param>
+        /// <remarks>
+        /// The FNE pushes a snapshot when a console logs in, but from its metadata port to this console's traffic port
+        /// plus one. Nothing else is sent from the metadata socket at login, so behind NAT the router has no mapping for
+        /// it and drops the push; the console then never publishes. This request goes out from the metadata socket,
+        /// which opens that path, and the FNE answers it. It is skipped once a snapshot has arrived.
+        /// An FNE with the registry turned off NAKs the request, and FNECore treats that as a lost session and logs in
+        /// again. If the peer connects again within <see cref="SnapshotRequestRefusalWindow"/> of a request with no
+        /// snapshot received, the request is not sent to that system again until the peer is registered again.
+        /// </remarks>
+        public void RequestSnapshot(string systemName)
+        {
+            if (string.IsNullOrWhiteSpace(systemName))
+                return;
+
+            PeerSystem peer;
+            bool refused = false;
+            lock (sync)
+            {
+                if (!peers.TryGetValue(systemName, out peer) || peer?.peer == null)
+                    return;
+                if (supportedSystems.Contains(systemName) || snapshotRequestsSuppressed.Contains(systemName))
+                    return;
+
+                DateTime now = DateTime.UtcNow;
+                if (snapshotRequestedAt.TryGetValue(systemName, out DateTime last) && now - last < SnapshotRequestRefusalWindow)
+                {
+                    snapshotRequestsSuppressed.Add(systemName);
+                    snapshotRequestedAt.Remove(systemName);
+                    refused = true;
+                }
+                else
+                    snapshotRequestedAt[systemName] = now;
+            }
+
+            if (refused)
+            {
+                Log.WriteWarning($"({systemName}) FNE reconnected right after the patch status registry request; the registry may be turned off on that FNE. Not requesting it again.");
+                return;
+            }
+
+            try
+            {
+                peer.peer.RequestPatchStatus();
+            }
+            catch (Exception ex)
+            {
+                Log.WriteWarning($"({systemName}) Failed to request the patch status registry: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Unregisters a peer system.
+        /// </summary>
+        /// <param name="systemName">Codeplug system name.</param>
+        public void UnregisterPeer(string systemName)
+        {
+            if (string.IsNullOrWhiteSpace(systemName))
+                return;
+
+            PeerSystem peer;
+            EventHandler<PatchStatusReceivedEvent> handler;
+            bool hadSnapshot;
+
+            lock (sync)
+            {
+                peers.Remove(systemName, out peer);
+                peerHandlers.Remove(systemName, out handler);
+                supportedSystems.Remove(systemName);
+                snapshotRequestedAt.Remove(systemName);
+                snapshotRequestsSuppressed.Remove(systemName);
+                hadSnapshot = snapshots.Remove(systemName);
+            }
+
+            if (peer?.peer != null && handler != null)
+                peer.peer.PatchStatusReceived -= handler;
+
+            if (hadSnapshot)
+                RegistryUpdated?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>
+        /// Stops publishing to a system until its FNE proves registry support again.
+        /// </summary>
+        /// <param name="systemName">Codeplug system name.</param>
+        /// <remarks>
+        /// The FNE may come back from a disconnect with the registry disabled, or as a build that predates it,
+        /// so support has to be re-established on every connection.
+        /// </remarks>
+        public void PeerDisconnected(string systemName)
+        {
+            if (string.IsNullOrWhiteSpace(systemName))
+                return;
+
+            bool hadSnapshot;
+            lock (sync)
+            {
+                supportedSystems.Remove(systemName);
+                hadSnapshot = snapshots.Remove(systemName);
+            }
+
+            if (hadSnapshot)
+                RegistryUpdated?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>
+        /// Gets the registry contents most recently received from every FNE.
+        /// </summary>
+        /// <returns>One <see cref="RegistryView"/> per FNE that has sent a registry snapshot.</returns>
+        public List<RegistryView> GetRegistryViews()
+        {
+            lock (sync)
+            {
+                return snapshots
+                    .Where(kvp => peers.ContainsKey(kvp.Key))
+                    .Select(kvp => new RegistryView
+                    {
+                        SystemName = kvp.Key,
+                        LocalPeerId = peers[kvp.Key].peer?.PeerId ?? 0,
+                        Peers = kvp.Value.Snapshot.Peers.ToList()
+                    })
+                    .ToList();
+            }
+        }
+
+        /// <summary>
+        /// Replaces the set of presently active patch groups.
+        /// </summary>
+        /// <param name="activePatchMemberships">Patch-type group memberships, already filtered to enabled groups.</param>
+        /// <param name="oneWayModes">Per group one-way mode.</param>
+        /// <param name="publishImmediately">True to publish now rather than waiting for the next heartbeat.</param>
+        /// <param name="reason">Reason recorded in the log.</param>
+        /// <remarks>
+        /// Only enabled patch groups are advertised. Multiselect groups are not: they key several talkgroups together
+        /// from this console and forward no audio between them, so other consoles should not show those talkgroups
+        /// as patched.
+        /// </remarks>
+        public void UpdateActiveGroups(
+            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> activePatchMemberships,
+            Dictionary<string, bool> oneWayModes,
+            bool publishImmediately,
+            string reason)
+        {
+            Codeplug codeplug = getCodeplug();
+
+            List<PatchStatusPatch> patches = new List<PatchStatusPatch>();
+            AppendActiveGroups(patches, codeplug, activePatchMemberships, oneWayModes);
+
+            lock (sync)
+                currentPatches = patches;
+
+            if (publishImmediately)
+                PublishAll(reason);
+        }
+
+        /// <summary>
+        /// Publishes the current patch set to every registered peer whose FNE supports the registry.
+        /// </summary>
+        /// <param name="reason">Reason recorded in the log.</param>
+        /// <remarks>
+        /// dvmhost answers a patch status transfer it will not service with a NAK, and fnecore treats an
+        /// unsolicited master NAK as a demand to re-login; publishing to an FNE without the registry would drop
+        /// the connection. dvmhost pushes a registry snapshot to every console peer once it accepts the login, so
+        /// only systems that have sent one are published to.
+        /// </remarks>
+        private void PublishAll(string reason)
+        {
+            List<KeyValuePair<string, PeerSystem>> targets;
+            List<PatchStatusPatch> patches;
+
+            lock (sync)
+            {
+                if (disposed)
+                    return;
+
+                targets = peers.Where(kvp => supportedSystems.Contains(kvp.Key)).ToList();
+                patches = currentPatches;
+            }
+
+            foreach (KeyValuePair<string, PeerSystem> target in targets)
+            {
+                FnePeer peer = target.Value?.peer;
+                if (peer == null)
+                    continue;
+
+                try
+                {
+                    // patches is never mutated once published to currentPatches, and is encoded synchronously
+                    peer.PublishPatchStatus(new PatchStatusPublish
+                    {
+                        // left empty so the FNE substitutes the authenticated connection identity
+                        PeerName = string.Empty,
+                        TtlSeconds = TTL_SECONDS,
+                        Patches = patches
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Log.WriteError($"({target.Key}) Failed to publish patch status ({reason}): {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Handles a registry snapshot received from an FNE.
+        /// </summary>
+        private void OnPatchStatusReceived(string systemName, PatchStatusReceivedEvent e)
+        {
+            if (e?.Snapshot == null)
+                return;
+
+            bool first, changed;
+            lock (sync)
+            {
+                if (!peers.ContainsKey(systemName))
+                    return;
+
+                first = supportedSystems.Add(systemName);
+                snapshotRequestedAt.Remove(systemName);
+                snapshotRequestsSuppressed.Remove(systemName);
+                changed = !snapshots.TryGetValue(systemName, out ReceivedSnapshot previous) ||
+                    previous.Snapshot.Revision != e.Snapshot.Revision ||
+                    previous.Snapshot.Peers.Count != e.Snapshot.Peers.Count;
+                snapshots[systemName] = new ReceivedSnapshot { Snapshot = e.Snapshot, ReceivedAt = DateTime.UtcNow };
+            }
+
+            // snapshots also arrive in answer to our own heartbeat publishes, so only redraw when the contents moved
+            // (the peer count catches records pruned locally that the FNE still holds)
+            if (changed)
+                RegistryUpdated?.Invoke(this, EventArgs.Empty);
+
+            // the first snapshot on a connection is what enables publishing, so publish right away
+            if (first)
+            {
+                Log.WriteLine($"({systemName}) FNE supports the patch status registry, publishing enabled.");
+                PublishAll($"registry available ({systemName})");
+            }
+        }
+
+        /// <summary>
+        /// Drops console peer records whose TTL has run out since their snapshot was received.
+        /// </summary>
+        /// <returns>True, if any record was dropped, otherwise false.</returns>
+        /// <remarks>
+        /// Each record's TTL is taken as the difference between its FNE supplied update and expiry times, so
+        /// this does not depend on the console and FNE clocks agreeing.
+        /// </remarks>
+        private bool PruneExpiredRecords()
+        {
+            DateTime now = DateTime.UtcNow;
+            bool pruned = false;
+
+            lock (sync)
+            {
+                foreach (ReceivedSnapshot received in snapshots.Values)
+                {
+                    pruned |= received.Snapshot.Peers.RemoveAll(peer =>
+                        peer.ExpiresAt > peer.UpdatedAt &&
+                        received.ReceivedAt.AddMilliseconds(peer.ExpiresAt - peer.UpdatedAt) <= now) > 0;
+                }
+            }
+
+            return pruned;
+        }
+
+        /// <summary>
+        /// Periodic heartbeat republish.
+        /// </summary>
+        /// <remarks>
+        /// The FNE only refreshes a record's TTL when the publish sequence advances, which
+        /// <see cref="FnePeer.PublishPatchStatus"/> guarantees on every call.
+        /// </remarks>
+        private void HeartbeatTick(object state)
+        {
+            PublishAll("heartbeat");
+
+            if (PruneExpiredRecords())
+                RegistryUpdated?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>
+        /// Appends one set of active groups to a patch list.
+        /// </summary>
+        /// <param name="patches">Destination list.</param>
+        /// <param name="codeplug">Active codeplug, used to resolve member mode and slot.</param>
+        /// <param name="memberships">Active group memberships.</param>
+        /// <param name="oneWayModes">Per group one-way mode, or null to report every group as two-way.</param>
+        private static void AppendActiveGroups(
+            List<PatchStatusPatch> patches,
+            Codeplug codeplug,
+            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships,
+            Dictionary<string, bool> oneWayModes)
+        {
+            if (memberships == null)
+                return;
+
+            foreach (KeyValuePair<string, List<SettingsManager.PatchTalkgroupMember>> kvp in memberships)
+            {
+                if (string.IsNullOrWhiteSpace(kvp.Key) || kvp.Value == null)
+                    continue;
+
+                PatchStatusPatch patch = new PatchStatusPatch
+                {
+                    PatchId = kvp.Key,
+                    Active = true,
+                    OneWay = oneWayModes != null && oneWayModes.TryGetValue(kvp.Key, out bool oneWay) && oneWay
+                };
+
+                foreach (SettingsManager.PatchTalkgroupMember member in kvp.Value)
+                {
+                    PatchStatusMember resolved = ResolveMember(codeplug, member);
+                    if (resolved != null)
+                        patch.Members.Add(resolved);
+                }
+
+                // a group with fewer than two members forwards nothing, so it is not advertised; this also drops
+                // unresolvable members, as the FNE rejects the whole publish if any member carries a zero TGID
+                if (patch.Members.Count >= 2)
+                    patches.Add(patch);
+            }
+        }
+
+        /// <summary>
+        /// Resolves a stored patch member to a publishable registry member.
+        /// </summary>
+        private static PatchStatusMember ResolveMember(Codeplug codeplug, SettingsManager.PatchTalkgroupMember member)
+        {
+            if (member == null || string.IsNullOrWhiteSpace(member.SystemName) || string.IsNullOrWhiteSpace(member.Tgid))
+                return null;
+
+            if (!uint.TryParse(member.Tgid.Trim(), out uint tgid) || tgid == 0)
+                return null;
+
+            string mode = "unknown";
+            byte slot = 0;
+
+            Codeplug.Channel channel = FindChannel(codeplug, member.SystemName, member.Tgid);
+            if (channel != null)
+            {
+                Codeplug.ChannelMode channelMode = channel.GetChannelMode();
+                mode = channelMode.ToString().ToLowerInvariant();
+                if (channelMode == Codeplug.ChannelMode.DMR)
+                    slot = (byte)(channel.Slot >= 2 ? 2 : 1);
+            }
+
+            return new PatchStatusMember
+            {
+                System = member.SystemName.Trim(),
+                Mode = mode,
+                Tgid = tgid,
+                Slot = slot
+            };
+        }
+
+        /// <summary>
+        /// Finds the codeplug channel backing a system and talkgroup pair.
+        /// </summary>
+        internal static Codeplug.Channel FindChannel(Codeplug codeplug, string systemName, string tgid)
+        {
+            string wantedTgid = (tgid ?? string.Empty).Trim();
+
+            return (codeplug?.Zones ?? new List<Codeplug.Zone>())
+                .SelectMany(zone => zone?.Channels ?? new List<Codeplug.Channel>())
+                .FirstOrDefault(channel => channel != null &&
+                    ResourceIdentity.SystemMatches(channel.System, systemName) &&
+                    string.Equals(channel.Tgid?.Trim() ?? string.Empty, wantedTgid, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// Releases resources held by the service.
+        /// </summary>
+        public void Dispose()
+        {
+            List<string> systemNames;
+            lock (sync)
+            {
+                if (disposed)
+                    return;
+
+                disposed = true;
+                systemNames = peers.Keys.ToList();
+            }
+
+            heartbeatTimer?.Dispose();
+            heartbeatTimer = null;
+            RegistryUpdated = null;
+
+            foreach (string systemName in systemNames)
+                UnregisterPeer(systemName);
+        }
+    } // public class PatchStatusService
+} // namespace dvmconsole

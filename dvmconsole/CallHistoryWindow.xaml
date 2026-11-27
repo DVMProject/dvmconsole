@@ -10,19 +10,32 @@
         mc:Ignorable="d" Icon="/dvmconsole;component/Assets/history.png"
         Title="Call History" Height="450" Width="551" WindowStartupLocation="CenterOwner">
     <Grid>
-        <DataGrid ItemsSource="{Binding CallHistory}" AutoGenerateColumns="False" IsReadOnly="True" Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <DataGrid x:Name="CallHistoryGrid" ItemsSource="{Binding CallHistory}" AutoGenerateColumns="False" IsReadOnly="True" Margin="10">
             <DataGrid.RowStyle>
                 <Style TargetType="DataGridRow">
+                    <EventSetter Event="MouseDoubleClick" Handler="CallHistoryRow_MouseDoubleClick" />
                     <Setter Property="Background" Value="{Binding BackgroundColor}" />
                     <Setter Property="Foreground" Value="{Binding ForegroundColor}" />
                 </Style>
             </DataGrid.RowStyle>
             <DataGrid.Columns>
-                <DataGridTextColumn Header="Channel" Binding="{Binding Channel}" Width="150" />
-                <DataGridTextColumn Header="Radio ID" Binding="{Binding SrcId}" Width="*" />
-                <DataGridTextColumn Header="Talkgroup" Binding="{Binding DstId}" Width="*" />
-                <DataGridTextColumn Header="Timestamp" Binding="{Binding Timestamp}" Width="150" />
+                <DataGridTextColumn x:Name="TimestampColumn" Header="Timestamp" Binding="{Binding Timestamp}" Width="120" />
+                <DataGridTextColumn x:Name="ChannelColumn" Header="Channel" Binding="{Binding Channel}" Width="150" />
+                <DataGridTextColumn x:Name="RidAliasColumn" Header="RID Alias" Binding="{Binding RidAlias}" Width="160" />
+                <DataGridTextColumn x:Name="RidColumn" Header="RID" Binding="{Binding SrcIdText}" Width="90" />
+                <DataGridTextColumn x:Name="TgidColumn" Header="TGID" Binding="{Binding DstIdText}" Width="80" />
+                <DataGridTextColumn x:Name="EncryptionKeyIdColumn" Header="ENC KID (hex)" Binding="{Binding EncryptionKeyId, StringFormat='{}{0:X4}'}" Width="115" />
             </DataGrid.Columns>
         </DataGrid>
+        <DockPanel Grid.Row="1" Margin="10,0,10,10">
+            <Button x:Name="StopPlaybackButton" DockPanel.Dock="Right" Content="Stop" Margin="10,0,0,0"
+                    IsEnabled="False" Click="StopPlayback_Click" ToolTip="Stop TAR playback" />
+            <TextBlock x:Name="PlaybackStatusText" Text="Double-click a recorded call to play TAR audio."
+                       VerticalAlignment="Center" TextWrapping="Wrap" />
+        </DockPanel>
     </Grid>
 </Window>

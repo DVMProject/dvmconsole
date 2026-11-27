@@ -1,0 +1,192 @@
+# Overview
+
+The Digital Voice Modem Desktop Dispatch Console is a WPF desktop console for monitoring and transmitting on DVM FNE talkgroups from one application.
+
+The console is organized around resources. A resource is a channel card that maps to a system and talkgroup from the loaded codeplug.
+
+Common tasks include:
+
+- Monitor selected resources
+- Transmit with resource PTT or Global PTT
+- Send alert tones or hold tones
+- Build patch groups and multi-select groups
+- Manage audio input and output routing
+- View call history, key status, connection status, and debug logs
+
+---
+
+# Compatibility Warning
+
+DVMConsole R02A00 has limited backwards compatibility with older FNE builds and older codeplugs.
+
+DVMConsole R02A00 is intended for use with DVMHost/FNE R06A00 or newer.
+
+Older FNE builds are not recommended and may behave unpredictably with this console release.
+
+Codeplugs created for R01A00 should be reviewed before use with R02A00. There have been major changes to resource configuration.
+
+---
+
+# Main Concepts
+
+## Systems
+
+A system is an FNE connection defined in the codeplug.
+
+Each system has its own address, port, peer ID, console RID, password, and optional alias file.
+
+## Zones
+
+Zones become tabs across the top of the main console.
+
+Use zones to group resources by dispatch area, agency, site, or operational role.
+
+Zones can also be hidden from the main tab strip with **Settings > Tab Manager**. Hidden zones are collected behind a **More** tab and their resources stay off until the zone is shown again.
+
+## Resources
+
+Resources are channel cards inside a zone.
+
+Each resource maps to:
+
+- a system
+- a talkgroup ID
+- a mode such as P25, DMR, NXDN, or analog
+- optional encryption information
+- optional visual color
+
+## Groups
+
+Groups are configured in the codeplug and managed at runtime in the Groups window.
+
+Two group types are supported:
+
+- Patch groups
+- Multi-select groups
+
+Patch group membership can persist across restart. Patch active state is controlled separately.
+
+---
+
+# Important Windows
+
+## Main Console
+
+The main console contains resource cards, system status widgets, toolbar buttons, menus, and tabs.
+
+## Groups
+
+Open from:
+
+```
+View > Groups
+```
+
+Used to edit patch and multi-select memberships, enable or disable patch groups, and use group PTT.
+
+## Audio Settings
+
+Open from:
+
+```
+Settings > Audio Settings
+```
+
+Used to select the global microphone input, master output device, per-resource output overrides, and AGC behavior.
+
+## Tab Manager
+
+Open from:
+
+```
+Settings > Tab Manager
+```
+
+Used to choose which codeplug zones are shown across the top of the main console. Hidden zones retain saved layout and configuration, but their resources and web stream chips are not active while hidden.
+
+## Alert Tone Manager
+
+Open from:
+
+```
+Commands > Tones > Manage Custom Alert Tones
+```
+
+Used to add, rename, delete, replace, assign custom alert tones to tabs, and schedule timed announcements.
+
+## Talkgroup Audio Recorder (TAR)
+
+Open from:
+
+```
+Tools > Talkgroup Audio Recorder
+```
+
+Used to configure per-talkgroup recording, review saved recordings, filter results, and manage TAR playback or deletion.
+
+## FNE Connection Manager
+
+Open from:
+
+```
+Tools > FNE Connection Manager
+```
+
+Used to manually start, stop, or restart configured FNE system connections.
+
+## Debug Logs
+
+Open from:
+
+```
+Help > Debug Logs
+```
+
+Used to view recent live FNECore/debug log output.
+
+---
+
+# Startup Behavior
+
+The console can restore selected channels on startup if enabled in Settings.
+
+When this is enabled:
+
+- selected channel state is restored
+- saved per-resource volume is restored for those restored channels
+- encrypted restored channels request keys after the relevant FNE connection is established and a short post-connect delay has passed
+
+When restore selected channels is disabled:
+
+- resources start unselected
+- per-resource volumes start at default
+
+Patch group members are sticky across restart. Patch active state only restores if **Retain Patch State on Startup** is enabled.
+
+---
+
+# Talkgroup Availability
+
+The console validates target talkgroups using active talkgroup rules received from the connected FNE.
+
+If a resource targets a talkgroup that is not currently available on that FNE, transmit actions are blocked and the console displays:
+
+```
+Target TG unavailable on FNE
+```
+
+This validation is per system. A talkgroup can be valid on one FNE and unavailable on another.
+
+---
+
+# Project Notes
+
+- The console does not interface directly with base station or mobile radios.
+- For a DVM-compatible console that supports base/mobile radio interfacing, see RadioConsole2 and rc2-dvm.
+- This software is provided solely for personal, non-commercial, hobbyist use. It must never be used in public safety or life-safety-critical applications. Commercial, professional, governmental, and other non-hobbyist use is unsupported; see the repository README for the full usage restrictions.
+
+---
+
+# License
+
+This project is licensed under the AGPLv3 License. See the repository `LICENSE` file for details.

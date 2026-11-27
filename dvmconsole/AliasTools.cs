@@ -12,6 +12,8 @@
 */
 
 using System.IO;
+using System.Globalization;
+using System.Text;
 
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
@@ -74,6 +76,51 @@ namespace dvmconsole
 
             var match = aliases.FirstOrDefault(a => a.Rid == rid);
             return match?.Alias ?? string.Empty;
+        }
+
+        /// <summary>
+        /// Parses the FNE's RID,alias, file format into a complete lookup snapshot.
+        /// </summary>
+        public static IReadOnlyDictionary<int, string> ParseNetworkAliases(byte[] data)
+        {
+            if (data == null || data.Length > 8 * 1024 * 1024)
+                throw new InvalidDataException("Invalid radio alias file size.");
+
+            var aliases = new Dictionary<int, string>();
+            using var stream = new MemoryStream(data, writable: false);
+            using var reader = new StreamReader(stream, new UTF8Encoding(false, true), detectEncodingFromByteOrderMarks: true);
+            string line;
+            int lineNumber = 0;
+            while ((line = reader.ReadLine()) != null)
+            {
+                lineNumber++;
+                line = line.Trim();
+                if (line.Length == 0 || line.StartsWith('#'))
+                    continue;
+
+                string[] fields = line.Split(',');
+                if (fields.Length < 2 || !int.TryParse(fields[0].Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out int rid) ||
+                    rid <= 0 || rid > 0xFFFFFF || fields.Skip(2).Any(field => !string.IsNullOrWhiteSpace(field)) ||
+                    fields[1].Any(char.IsControl))
+                    throw new InvalidDataException($"Invalid radio alias entry at line {lineNumber}.");
+
+                string alias = fields[1].Trim();
+                if (alias.Length > 0)
+                    aliases[rid] = alias;
+                else
+                    aliases.Remove(rid);
+            }
+            return new System.Collections.ObjectModel.ReadOnlyDictionary<int, string>(aliases);
+        }
+
+        /// <summary>
+        /// Resolves this system's downloaded aliases first, with its local YAML as fallback.
+        /// </summary>
+        public static string ResolveAlias(Codeplug.System system, int rid)
+        {
+            if (system?.SyncRadioAliases == true && system.NetworkRidAliases?.TryGetValue(rid, out string alias) == true)
+                return alias;
+            return GetAliasByRid(system?.RidAlias, rid);
         }
     } //public static class AliasTools
 } // namespace DVMConsole

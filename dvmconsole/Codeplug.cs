@@ -11,10 +11,13 @@
 *   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
 *   Copyright (C) 2025 Steven Jennison, KD8RHO
 *   Copyright (C) 2025 Lorenzo L Romero, K2LLR
+*   Copyright (C) 2026 C. Lovell, Dev_Ranger
 *
 */
 
 using fnecore.P25;
+using System.IO;
+using YamlDotNet.Serialization;
 
 namespace dvmconsole
 {
@@ -30,7 +33,8 @@ namespace dvmconsole
         {
             DMR = 0,
             NXDN = 1,
-            P25 = 2
+            P25 = 2,
+            Analog = 3
         } // public enum ChannelMode
 
         /*
@@ -38,9 +42,29 @@ namespace dvmconsole
         */
 
         /// <summary>
-        /// The location of the YAML keyfile
+        /// Loaded codeplug location used to resolve local file references.
+        /// </summary>
+        [YamlIgnore]
+        public string SourcePath { get; internal set; }
+
+        /// <summary>
+        /// The location of a password-protected KFDEKC container.
         /// </summary>
         public string KeyFile { get; set; } = null;
+        /// <summary>
+        /// Maximum operator PTT duration in seconds. Zero disables the timeout.
+        /// </summary>
+        public int TransmitTimeoutSeconds
+        {
+            get => transmitTimeoutSeconds;
+            set
+            {
+                if (value < 0)
+                    throw new ArgumentOutOfRangeException(nameof(TransmitTimeoutSeconds), "Transmit timeout must be zero or a positive number of seconds.");
+                transmitTimeoutSeconds = value;
+            }
+        }
+        private int transmitTimeoutSeconds = 180;
         /// <summary>
         /// List of systems.
         /// </summary>
@@ -49,6 +73,19 @@ namespace dvmconsole
         /// List of zones (each zone becomes a tab).
         /// </summary>
         public List<Zone> Zones { get; set; }
+        /// <summary>
+        /// List of groups.
+        /// </summary>
+        public List<Group> Groups { get; set; }
+        /// <summary>
+        /// Backward compatibility key for legacy patch groups.
+        /// </summary>
+        [YamlMember(Alias = "patchGroups")]
+        public List<Group> LegacyPatchGroups { get; set; }
+        /// <summary>
+        /// Optional flag to pass through received source ID while patch forwarding.
+        /// </summary>
+        public bool PatchSourceIdPassthrough { get; set; } = false;
 
         /*
         ** Classes
@@ -89,6 +126,11 @@ namespace dvmconsole
             /// Preshared Encryption key.
             /// </summary>
             public string PresharedKey { get; set; }
+
+            /// <summary>
+            /// Optional AES-256 key used to unwrap FNE key responses, separate from transport encryption.
+            /// </summary>
+            public string KmfPresharedKey { get; set; }
             /// <summary>
             /// Flag indicating whether or not the connection to the FNE is encrypted.
             /// </summary>
@@ -103,11 +145,25 @@ namespace dvmconsole
             /// Unique Radio ID.
             /// </summary>
             public string Rid { get; set; }
+            /// <summary>
+            /// Optional 16-bit NXDN subscriber ID for systems also using P25/DMR IDs.
+            /// </summary>
+            public string NxdnRid { get; set; }
 
             /// <summary>
             /// 
             /// </summary>
-            public string AliasPath { get; set; } = "./alias.yml";
+            public string AliasPath { get; set; } = "alias.yml";
+            /// <summary>
+            /// Automatically download RID aliases from the connected FNE.
+            /// </summary>
+            public bool SyncRadioAliases { get; set; } = false;
+            /// <summary>
+            /// Last complete FNE alias snapshot. Published snapshots are never modified.
+            /// </summary>
+            [YamlIgnore]
+            [Newtonsoft.Json.JsonIgnore]
+            public IReadOnlyDictionary<int, string> NetworkRidAliases { get; set; }
             /// <summary>
             /// 
             /// </summary>
@@ -145,10 +201,93 @@ namespace dvmconsole
             /// </summary>
             public string TabColor { get; set; }
             /// <summary>
+            /// Tab Text Color in Hex (#RRGGBB)
+            /// </summary>
+            public string TabTextColor { get; set; }
+            /// <summary>
             /// List of channels in the zone.
             /// </summary>
             public List<Channel> Channels { get; set; }
+            /// <summary>
+            /// Optional web URL stream chips displayed in this zone.
+            /// </summary>
+            [YamlMember(Alias = "web_streams", ApplyNamingConventions = false)]
+            public List<WebStream> WebStreams { get; set; }
         } // public class Zone
+
+        /// <summary>
+        /// Data structure representation of a console group.
+        /// </summary>
+        public class Group
+        {
+            /*
+            ** Properties
+            */
+
+            /// <summary>
+            /// Textual name for group.
+            /// </summary>
+            public string Name { get; set; }
+            /// <summary>
+            /// Group type. Supported values: "patch", "multiselect".
+            /// </summary>
+            public string Type { get; set; } = "patch";
+
+            /// <summary>
+            /// Returns true for patch groups, including an omitted or blank legacy type.
+            /// </summary>
+            /// <returns></returns>
+            public bool IsPatchGroup()
+            {
+                return string.IsNullOrWhiteSpace(Type) ||
+                    string.Equals(Type.Trim(), "patch", StringComparison.OrdinalIgnoreCase);
+            }
+
+            /// <summary>
+            /// Returns true if this group is a multiselect group.
+            /// </summary>
+            /// <returns></returns>
+            public bool IsMultiselectGroup()
+            {
+                return string.Equals(Type?.Trim(), "multiselect", StringComparison.OrdinalIgnoreCase);
+            }
+        } // public class Group
+
+        /// <summary>
+        /// Normalizes and resolves group configuration from legacy and current keys.
+        /// </summary>
+        public void NormalizeGroups()
+        {
+            List<Group> resolved = new List<Group>();
+            if (Groups != null)
+                resolved.AddRange(Groups);
+
+            if (LegacyPatchGroups != null)
+            {
+                foreach (Group legacy in LegacyPatchGroups)
+                {
+                    if (legacy == null)
+                        continue;
+                    if (string.IsNullOrWhiteSpace(legacy.Type))
+                        legacy.Type = "patch";
+                    resolved.Add(legacy);
+                }
+            }
+
+            Groups = resolved
+                .Where(g => g != null)
+                .GroupBy(g => (g.Name ?? string.Empty).Trim(), StringComparer.OrdinalIgnoreCase)
+                .Select(g =>
+                {
+                    Group first = g.First();
+                    return new Group
+                    {
+                        Name = first.Name?.Trim() ?? string.Empty,
+                        Type = string.IsNullOrWhiteSpace(first.Type) ? "patch" : first.Type.Trim().ToLowerInvariant()
+                    };
+                })
+                .ToList();
+        }
 
         /// <summary>
         /// Data structure representation of the data for a channel.
@@ -187,6 +326,35 @@ namespace dvmconsole
             /// Digital Voice Mode.
             /// </summary>
             public string Mode { get; set; } = "p25";
+            /// <summary>
+            /// NXDN radio access number (0-63).
+            /// </summary>
+            public int Ran { get; set; } = 0;
+            /// <summary>
+            /// Optional analog voice-inversion code (0 disables scrambling).
+            /// </summary>
+            [YamlMember(Alias = "scrambler_code", ApplyNamingConventions = false)]
+            public int ScramblerCode { get; set; } = 0;
+
+            /// <summary>
+            /// Resource color in hex (#RRGGBB or #AARRGGBB).
+            /// </summary>
+            public string ResourceColor { get; set; }
+            /// <summary>
+            /// Optional flag indicating this resource is receive-only and should not expose transmit controls.
+            /// </summary>
+            [YamlMember(Alias = "rx_only", ApplyNamingConventions = false)]
+            public bool RxOnly { get; set; } = false;
+            /// <summary>
+            /// Optional flag indicating secure TX can be toggled on/off from the resource card.
+            /// </summary>
+            [YamlMember(Alias = "selectable_encryption", ApplyNamingConventions = false)]
+            public bool SelectableEncryption { get; set; } = false;
+            /// <summary>
+            /// Optional fixed card size: small, normal, or large.
+            /// </summary>
+            [YamlMember(Alias = "card_size", ApplyNamingConventions = false)]
+            public string CardSize { get; set; } = "normal";
 
             /*
             ** Methods
@@ -198,7 +366,50 @@ namespace dvmconsole
             /// <returns></returns>
             public ushort GetKeyId()
             {
+                if (string.IsNullOrWhiteSpace(KeyId))
+                    return 0;
+
+                if (GetChannelMode() is ChannelMode.NXDN or ChannelMode.P25)
+                {
+                    string value = KeyId.Trim();
+                    if (value.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                        value = value.Substring(2);
+                    return ushort.TryParse(value, global::System.Globalization.NumberStyles.HexNumber,
+                        global::System.Globalization.CultureInfo.InvariantCulture, out ushort id) ? id : (ushort)0;
+                }
+
                 return Convert.ToUInt16(KeyId, 16);
+            }
+
+            /// <summary>
+            /// Rejects invalid P25 protection settings even when selectable TX is set to clear.
+            /// </summary>
+            /// <param name="error">The configuration error, or null when valid.</param>
+            /// <returns>True for valid P25 settings or a different channel mode.</returns>
+            public bool ValidateP25EncryptionConfig(out string error)
+            {
+                error = null;
+                if (GetChannelMode() != ChannelMode.P25)
+                    return true;
+
+                switch ((Algo ?? string.Empty).ToLowerInvariant())
+                {
+                    case "":
+                    case "none":
+                        return true;
+                    case "aes":
+                    case "aes256":
+                    case "des":
+                    case "arc4":
+                        if (GetKeyId() == 0)
+                            error = "P25 encryption requires a hexadecimal keyId between 1 and FFFF.";
+                        break;
+                    default:
+                        error = "P25 supports none, aes, aes256, des, or arc4 encryption.";
+                        break;
+                }
+
+                return error == null;
             }
 
             /// <summary>
@@ -207,9 +418,10 @@ namespace dvmconsole
             /// <returns></returns>
             public byte GetAlgoId()
             {
-                switch (Algo.ToLowerInvariant())
+                switch ((Algo ?? string.Empty).ToLowerInvariant())
                 {
                     case "aes":
+                    case "aes256":
                         return P25Defines.P25_ALGO_AES;
                     case "des":
                         return P25Defines.P25_ALGO_DES;
@@ -219,6 +431,65 @@ namespace dvmconsole
                         return P25Defines.P25_ALGO_UNENCRYPT;
                 }
             }
+
+            /// <summary>
+            /// Returns the FNE key-service algorithm, not the NXDN wire cipher number.
+            /// </summary>
+            public byte GetKeyRequestAlgoId() => GetChannelMode() switch
+            {
+                ChannelMode.NXDN => fnecore.NXDN.NXDNCrypto.ToKeyRequestAlgorithm(GetNxdnCipherType()),
+                ChannelMode.DMR => 0,
+                _ => GetAlgoId()
+            };
+
+            /// <summary>
+            /// Returns true when TX encryption is configured; this does not check loaded key material.
+            /// </summary>
+            /// <returns></returns>
+            public bool HasEncryptionConfig()
+            {
+                if (GetChannelMode() == ChannelMode.Analog)
+                    return false;
+                if (GetChannelMode() == ChannelMode.NXDN)
+                    return GetNxdnCipherType() != 0;
+                if (GetChannelMode() == ChannelMode.DMR)
+                    return GetDmrAlgorithmId() != 0;
+                return GetAlgoId() != P25Defines.P25_ALGO_UNENCRYPT && GetKeyId() > 0;
+            }
+
+            /// <summary>
+            /// Analog inversion uses a codeplug frequency, not an FNE encryption key.
+            /// </summary>
+            public bool HasSelectableTxProtection() => GetChannelMode() == ChannelMode.Analog
+                ? AnalogVoiceInversion.TryGetFrequency(ScramblerCode, out _)
+                : HasEncryptionConfig();
+
+            /// <summary>
+            /// Returns the NXDN wire cipher, distinct from P25 KMM algorithm IDs.
+            /// Unknown algorithms remain invalid rather than falling back to clear TX.
+            /// </summary>
+            public byte GetNxdnCipherType() => (Algo ?? string.Empty).ToLowerInvariant() switch
+            {
+                "" or "none" => 0,
+                "ehr" or "scrambler" => 1,
+                "des" => 2,
+                "aes" or "aes256" => 3,
+                _ => byte.MaxValue
+            };
+
+            /// <summary>Returns the DMR Association wire algorithm ID.</summary>
+            public byte GetDmrAlgorithmId() => (Algo ?? string.Empty).ToLowerInvariant() switch
+            {
+                "" or "none" => 0,
+                "arc4" => 1,
+                "des" or "des-ofb" => 2,
+                "aes" or "aes256" or "aes-256" => 5,
+                _ => byte.MaxValue
+            };
+
+            public string GetSourceRid(System system) =>
+                GetChannelMode() == ChannelMode.NXDN && !string.IsNullOrWhiteSpace(system?.NxdnRid)
+                    ? system.NxdnRid : system?.Rid;
 
             /// <summary>
             /// Helper to return the channel mode.
@@ -234,47 +505,55 @@ namespace dvmconsole
         } // public class Channel
 
         /// <summary>
+        /// Data structure representation of a web audio stream chip.
+        /// </summary>
+        public class WebStream
+        {
+            /// <summary>
+            /// Display name for the stream chip.
+            /// </summary>
+            public string Name { get; set; }
+            /// <summary>
+            /// HTTP/HTTPS audio stream URL.
+            /// </summary>
+            public string Url { get; set; }
+            /// <summary>
+            /// Optional HTTP Basic Auth username for protected streams.
+            /// </summary>
+            public string AuthUsername { get; set; }
+            /// <summary>
+            /// Optional HTTP Basic Auth password for protected streams.
+            /// </summary>
+            public string AuthPassword { get; set; }
+            /// <summary>
+            /// Optional idle color in hex (#RRGGBB or #AARRGGBB).
+            /// </summary>
+            public string IdleColor { get; set; }
+        } // public class WebStream
+
+        /// <summary>
         /// Helper to return a system by looking up a <see cref="Channel"/>
         /// </summary>
         /// <param name="channel"></param>
         /// <returns></returns>
         public System GetSystemForChannel(Channel channel)
         {
-            return Systems.FirstOrDefault(s => s.Name == channel.System);
+            if (channel == null || string.IsNullOrWhiteSpace(channel.System))
+                return null;
+
+            return Systems?.FirstOrDefault(s => ResourceIdentity.SystemMatches(s.Name, channel.System));
         }
 
         /// <summary>
-        /// Helper to return a system by looking up a channel name
+        /// Resolve local files beside the codeplug, not the process working directory.
         /// </summary>
-        /// <param name="channelName"></param>
-        /// <returns></returns>
-        public System GetSystemForChannel(string channelName)
+        public string ResolveFilePath(string path)
         {
-            foreach (Zone zone in Zones)
-            {
-                Channel channel = zone.Channels.FirstOrDefault(c => c.Name == channelName);
-                if (channel != null)
-                    return Systems.FirstOrDefault(s => s.Name == channel.System);
-            }
+            if (string.IsNullOrWhiteSpace(path))
+                return null;
 
-            return null;
+            return Path.GetFullPath(path, Path.GetDirectoryName(SourcePath));
         }
 
-        /// <summary>
-        /// Helper to return a <see cref="Channel"/> by channel name
-        /// </summary>
-        /// <param name="channelName"></param>
-        /// <returns></returns>
-        public Channel GetChannelByName(string channelName)
-        {
-            foreach (Zone zone in Zones)
-            {
-                Channel channel = zone.Channels.FirstOrDefault(c => c.Name == channelName);
-                if (channel != null)
-                    return channel;
-            }
-
-            return null;
-        }
     } //public class Codeplug
 } // namespace dvmconsole

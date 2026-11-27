@@ -1,0 +1,99 @@
+# NXDN
+
+NXDN resources use 4800-bit/s (6.25 kHz) NXDN group voice through the FNE. They can share a codeplug and FNE connection with P25 and DMR resources.
+
+Normal PTT, global/multi-select PTT, patches, generated/custom tones, channel hold, audio routing, RID aliases, Event/Call History, and TAR use the same console controls. NXDN encryption has its own wire format and key limits.
+
+---
+
+# Codeplug
+
+Set the system's `nxdnRid` when its regular `rid` is outside the NXDN range or a different NXDN identity is wanted. Otherwise NXDN uses `rid`. Both the NXDN subscriber ID and talkgroup must be between 1 and 65535. The console does not truncate larger IDs.
+
+Example system fields to add to an existing connection:
+
+```yaml
+rid: "600109"
+nxdnRid: "1001"
+```
+
+Example channels under a zone:
+
+```yaml
+channels:
+  - name: "NXDN Clear"
+    system: "System 1"
+    tgid: "300"
+    mode: "nxdn"
+    ran: 0
+    algo: "none"
+    rx_only: false
+
+  - name: "NXDN Secure"
+    system: "System 1"
+    tgid: "303"
+    mode: "nxdn"
+    ran: 0
+    algo: "aes"
+    keyId: "03"
+    selectable_encryption: true
+```
+
+`ran` is the transmitted radio access number, from 0 through 63. It defaults to 0. NXDN does not use the DMR `slot` field. Configure the FNE to allow NXDN traffic and provision the talkgroups in its active rules.
+
+Use distinct talkgroup IDs for different protocols within a system: console resource settings, patches, and audio routing are identified by system/talkgroup.
+
+---
+
+# Encryption
+
+| Channel `algo` | EKC algorithm | Key material |
+| --- | --- | --- |
+| `none` | Not applicable | Clear voice |
+| `ehr` or `scrambler` | `0x01` | 2 bytes / 4 hex digits; value 1-32767 |
+| `des` | `0x81` | 8 bytes / 16 hex digits; weak DES keys rejected |
+| `aes` or `aes256` | `0x84` | 32 bytes / 64 hex digits |
+
+EHR is scrambling, not strong encryption. NXDN key IDs are 1-63. Channel `keyId` strings are hexadecimal, so `"3F"` means key 63.
+
+Reference a KFDEKC encrypted `.ekc` container using the top-level `keyFile` setting. Console prompts for its password and remembers it using Windows account encryption. Clear key files are no longer supported.
+
+EKC traffic keys apply to matching algorithms and key IDs across systems in this codeplug and take precedence over FNE responses. See **Encryption Keys** for container setup and duplicate-key handling.
+
+## FNE-Supplied Keys
+
+Selected NXDN resources can request EHR, DES, and AES material from the FNE without a local `keyFile`. Key requests use the existing peer KMM service, not over-the-air NXDN rekeying.
+
+| NXDN channel | FNE container / request algorithm | Key length |
+| --- | --- | --- |
+| EHR | `0x01` | 2 bytes |
+| DES | `0x81` | 8 bytes |
+| AES | `0x84` | 32 bytes |
+
+These algorithm IDs are also used for local EKC keys, but differ from NXDN wire cipher IDs. EHR requires a container entry with algorithm 1 and a two-byte key; not every container editor exposes that combination. The FNE looks up material by key ID, so use distinct key IDs for different keys across protocols in the same container.
+
+The FNE must have crypto-container support compiled in, a successfully loaded container, and RID authorization for the requested keys. Authorize the console system's regular `rid`, **not** `nxdnRid`, with `CanRequestKeys` and the appropriate allowed KIDs in the FNE radio-ID list.
+
+If the FNE enables `kmfEncKeyRequest`, set `kmfPresharedKey` under the console system to the same 64-hex-character wrapping key. This is separate from `encrypted` / `presharedKey`, which protect the FNE network transport. Protect the codeplug because it contains these secrets. Prefer encrypted transport as well; without either protection, key responses expose traffic keys on the network.
+
+Startup requests wait five seconds after connection and are spaced 100 ms apart. Missing keys for selected resources are requested again after reconnect. Downloaded NXDN keys are scoped to the source FNE and kept in memory, not saved to a local key file.
+
+FNECore unwraps EHR responses to the required two-byte key and rejects invalid padding. Check **Key Status** for the actual loaded state.
+
+**SELECT** switches secure-capable resources between clear and encrypted TX and saves that choice. Encrypted TX is blocked if the key is missing or invalid. Incoming encrypted audio is muted without a matching key or usable synchronization. A wrong key cannot be reliably detected by these unauthenticated voice ciphers.
+
+---
+
+# Operation and Limits
+
+FNECore handles NXDN framing, FACCH/SACCH signaling, EHR/DES/AES privacy, IV rotation, receive synchronization, and peer key-response unwrapping. The console supplies the native AMBE vocoder adapter and owns audio devices, transmit pacing, key selection/storage, UI, history, TAR, and group routing. This follows the same protocol-library/application split as P25; it does not require FNECore to load the console's native audio libraries.
+
+The NXDN API uses `NXDNCallData : RemoteCallData`, `NXDN.LC.RTCH`, `NXDNCrypto`, and the `FneSystemBase.CreateNXDN*` / `SendNXDN*` helpers. Console and FNECore must be built together after this API change; replacing only the FNECore DLL in an older console build is not supported. This API change does not require changes to NXDN channel entries. Local key storage uses encrypted `.ekc` containers; legacy clear-text key files are not supported. See [Encryption Keys](02-Encryption%20Keys.md).
+
+NXDN carries four 20 ms AMBE codewords per 80 ms network voice frame. Call end completes a partial frame and sends one release; cancelled tones discard pending audio. A new call waits until the previous release has finished.
+
+The receiver supports late entry and reacquires privacy synchronization after packet loss. Duplicate and stale packets do not advance the cipher position. FACCH1-stolen voice slots are skipped at their original positions; usable voice slots retain the correct encryption alignment. Audio remains muted until call metadata, keys, and synchronization are available. A mid-call cipher/key change is rejected rather than silently switching to clear audio.
+
+Automated checks cover EHR, DES, AES, IV rotation, DVMHost framing, and traffic in both directions through a local FNE with downloaded keys. They also cover packet loss, late entry, stolen voice slots, short PTT releases, and cancellation. These checks do not replace hands-on testing of audio, history/TAR, patches/multi-select, and radio/repeater operation before putting a build into service.
+
+This is NXDN group voice, not a translation of every P25 service. P25 subscriber paging/check/inhibit commands remain P25-only. NXDN 9600/EFR, individual calls, packet data, OTAR, and trunking control-channel services are not implemented by this console path.

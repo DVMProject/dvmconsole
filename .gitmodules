@@ -1,3 +1,4 @@
 [submodule "fnecore"]
 	path = fnecore
 	url = https://github.com/dvmproject/fnecore
+	branch = r05a06_dev

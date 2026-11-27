@@ -9,15 +9,18 @@
 *
 *   Copyright (C) 2023 Bryan Biedenkapp, N2PLL
 *   Copyright (C) 2024-2025 Caleb, K4PHP
+*   Copyright (C) 2026 C. Lovell, Dev_Ranger
 *
 */
 
 using System.Net;
 using System.Reflection;
+using System.Linq;
 
 using fnecore;
 using fnecore.Utility;
 using NAudio.Mixer;
+using static dvmconsole.Codeplug;
 
 namespace dvmconsole
 {
@@ -27,6 +30,7 @@ namespace dvmconsole
     public class PeerSystem : FneSystemBase
     {
         public FnePeer peer;
+        public string ConfiguredSystemName { get; }
 
         /*
         ** Methods
@@ -38,6 +42,7 @@ namespace dvmconsole
         public PeerSystem(MainWindow mainWindow, Codeplug.System system) : base(Create(system), mainWindow)
         {
             peer = (FnePeer)fne;
+            ConfiguredSystemName = system?.Name ?? string.Empty;
         }
 
         /// <summary>
@@ -67,7 +72,12 @@ namespace dvmconsole
 
             string key = system.Encrypted ? system.PresharedKey : null;
 
+            if (!string.IsNullOrWhiteSpace(system.KmfPresharedKey) &&
+                (system.KmfPresharedKey.Length != 64 || !system.KmfPresharedKey.All(Uri.IsHexDigit)))
+                throw new ArgumentException("kmfPresharedKey must contain exactly 64 hexadecimal characters.");
+
             FnePeer peer = new FnePeer("DVMCONSOLE", system.PeerId, endpoint, key);
+            peer.SetKMFPresharedKey(string.IsNullOrWhiteSpace(system.KmfPresharedKey) ? null : system.KmfPresharedKey);
 
             Assembly asm = Assembly.GetExecutingAssembly();
             SemVersion _SEM_VERSION = new SemVersion(asm);
@@ -86,6 +96,7 @@ namespace dvmconsole
                 Details = new PeerDetails
                 {
                     ConventionalPeer = true,
+                    PeerClass = PeerConnectionClass.PEER_CONN_CLASS_CONSOLE,
                     Software = software,
                     Identity = system.Identity
                 }
@@ -93,19 +104,7 @@ namespace dvmconsole
 
             peer.PingTime = 5;
 
-            peer.PeerConnected += Peer_PeerConnected;
-
             return peer;
-        }
-
-        /// <summary>
-        /// Event action that handles when a peer connects.
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private static void Peer_PeerConnected(object sender, PeerConnectedEvent e)
-        {
-            /* stub */
         }
 
         /// <summary>
@@ -124,6 +123,111 @@ namespace dvmconsole
         public void SendDiagnosticsTransfer(string message)
         {
             /* stub */
+        }
+
+        /// <summary>
+        /// Returns whether the configured channel talkgroup is currently available on this FNE.
+        /// If the peer has not announced any talkgroups yet, this allows traffic to avoid false blocks.
+        /// </summary>
+        public bool IsTalkgroupAvailable(Codeplug.Channel channel)
+        {
+            if (peer == null || channel == null)
+                return true;
+
+            if (!uint.TryParse(channel.Tgid, out uint talkgroupId))
+                return true;
+
+            TalkgroupEntry[] snapshot;
+            try
+            {
+                snapshot = peer.AnnouncedTGs?.ToArray() ?? Array.Empty<TalkgroupEntry>();
+            }
+            catch (InvalidOperationException)
+            {
+                // The peer updates the announced TG list from a network thread.
+                // If we race a mutation, fail open for this attempt rather than blocking valid traffic.
+                return true;
+            }
+
+            if (snapshot.Length == 0)
+                return true;
+
+            TalkgroupEntry[] matchingEntries = snapshot
+                .Where(entry => entry.ID == talkgroupId)
+                .ToArray();
+
+            if (matchingEntries.Length == 0)
+                return false;
+
+            bool isDmr = string.Equals(channel.Mode, "dmr", StringComparison.OrdinalIgnoreCase);
+            if (!isDmr)
+                return matchingEntries.Any(entry => !entry.Invalid);
+
+            // Announced TG rules use slots 1/2, not the 0/1 voice-packet slot index.
+            int desiredSlot = NormalizeChannelSlot(channel.Slot);
+            if (matchingEntries.Any(entry => !entry.Invalid && NormalizeAnnouncedSlot(entry.Slot) == desiredSlot))
+                return true;
+
+            // Some rule pushes may not carry a meaningful DMR slot for every entry.
+            // If the matching TG has no standard slot information at all, allow any active entry.
+            bool hasStandardSlotInfo = matchingEntries.Any(entry => NormalizeAnnouncedSlot(entry.Slot) is 1 or 2);
+            if (!hasStandardSlotInfo)
+                return matchingEntries.Any(entry => !entry.Invalid);
+
+            return false;
+        }
+
+        public string DescribeTalkgroupAvailability(Codeplug.Channel channel)
+        {
+            if (peer == null)
+                return "peer unavailable";
+
+            if (channel == null)
+                return "channel unavailable";
+
+            if (!uint.TryParse(channel.Tgid, out uint talkgroupId))
+                return $"unparseable TGID '{channel.Tgid}'";
+
+            TalkgroupEntry[] snapshot;
+            try
+            {
+                snapshot = peer.AnnouncedTGs?.ToArray() ?? Array.Empty<TalkgroupEntry>();
+            }
+            catch (InvalidOperationException)
+            {
+                return "announced TG list changed during read";
+            }
+
+            if (snapshot.Length == 0)
+                return "no announced TG rules received yet";
+
+            TalkgroupEntry[] matchingEntries = snapshot
+                .Where(entry => entry.ID == talkgroupId)
+                .ToArray();
+
+            if (matchingEntries.Length == 0)
+                return $"TG {talkgroupId} not present in announced rules ({snapshot.Length} entries loaded)";
+
+            string matches = string.Join(", ", matchingEntries.Select(entry =>
+                $"slot={NormalizeAnnouncedSlot(entry.Slot)} invalid={entry.Invalid} affiliated={entry.Affiliated} nonPreferred={entry.NonPreferred}"));
+
+            if (!string.Equals(channel.Mode, "dmr", StringComparison.OrdinalIgnoreCase))
+                return $"TG {talkgroupId} entries: {matches}";
+
+            return $"TG {talkgroupId} requested on DMR slot {NormalizeChannelSlot(channel.Slot)}; entries: {matches}";
+        }
+
+        private static int NormalizeChannelSlot(int slot)
+        {
+            if (slot <= 1)
+                return 1;
+
+            return slot;
+        }
+
+        private static byte NormalizeAnnouncedSlot(byte slot)
+        {
+            return (byte)(slot & 0x03);
         }
     } // public class PeerSystem
 } // namespace dvmconsole

@@ -1,0 +1,11 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <SolidColorBrush x:Key="ConsoleButtonBackground" Color="#E3E8ED" />
+    <SolidColorBrush x:Key="ConsoleButtonForeground" Color="#28323D" />
+    <SolidColorBrush x:Key="ConsoleButtonBorder" Color="#7A8D9D" />
+    <SolidColorBrush x:Key="ConsoleButtonHover" Color="#D4E5F2" />
+    <SolidColorBrush x:Key="ConsoleButtonPressed" Color="#B6D5EC" />
+    <SolidColorBrush x:Key="ConsoleIconBlue" Color="#006BA6" />
+    <SolidColorBrush x:Key="ConsoleIconGreen" Color="#008340" />
+    <SolidColorBrush x:Key="ConsoleIconAmber" Color="#9A6100" />
+</ResourceDictionary>

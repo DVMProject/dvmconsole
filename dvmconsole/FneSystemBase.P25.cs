@@ -1,10 +1,10 @@
 ﻿// SPDX-License-Identifier: AGPL-3.0-only
 /**
-* Digital Voice Modem - Audio Bridge
+* Digital Voice Modem - Desktop Dispatch Console
 * AGPLv3 Open Source. Use is subject to license terms.
 * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 *
-* @package DVM / Audio Bridge
+* @package DVM / Desktop Dispatch Console
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
 *   Copyright (C) 2022-2025 Bryan Biedenkapp, N2PLL
@@ -25,6 +25,8 @@ namespace dvmconsole
     public abstract partial class FneSystemBase : fnecore.FneSystemBase
     {
         public const int IMBE_BUF_LEN = 11;
+        private const byte P25_SERVICE_OPTIONS_PROTECTED = 0x40;
+        private const byte P25_SERVICE_OPTIONS_PRIORITY_4 = 0x04;
 
         /*
         ** Methods
@@ -63,14 +65,15 @@ namespace dvmconsole
         /// <param name="srcId"></param>
         /// <param name="dstId"></param>
         /// <param name="grantDemand"></param>
-        /// <param name="callTerm"></param>
-        public void SendP25TDU(uint srcId, uint dstId, bool grantDemand = false)
+        /// <param name="streamId">Voice stream being ended; zero retains FNECore's default stream behavior.</param>
+        public void SendP25TDU(uint srcId, uint dstId, bool grantDemand = false, uint streamId = 0)
         {
             RemoteCallData callData = new RemoteCallData()
             {
                 SrcId = srcId,
                 DstId = dstId,
-                LCO = P25Defines.LC_GROUP
+                LCO = P25Defines.LC_GROUP,
+                TxStreamID = streamId
             };
 
             if (grantDemand)
@@ -90,7 +93,7 @@ namespace dvmconsole
         /// <param name="imbe"></param>
         /// <param name="frameType"></param>
         /// <param name="srcIdOverride"></param>
-        private void EncodeLDU1(ref byte[] data, int offset, byte[] imbe, byte frameType, uint srcId, uint dstId)
+        private void EncodeLDU1(ref byte[] data, int offset, byte[] imbe, byte frameType, uint srcId, uint dstId, byte serviceOptions)
         {
             if (data == null)
                 throw new ArgumentNullException("data");
@@ -148,7 +151,7 @@ namespace dvmconsole
                     {
                         dfsiFrame[1U] = P25Defines.LC_GROUP;                                // LCO
                         dfsiFrame[2U] = 0;                                                  // MFId
-                        dfsiFrame[3U] = 0;                                                  // Service Options
+                        dfsiFrame[3U] = serviceOptions;                                     // Service Options
                         Buffer.BlockCopy(imbe, 0, dfsiFrame, 5, IMBE_BUF_LEN);              // IMBE
                     }
                     break;
@@ -217,49 +220,59 @@ namespace dvmconsole
         /// </summary>
         /// <param name="data"></param>
         /// <param name="srcId"></param>
-        public void CreateP25LDU1Message(in byte[] netLDU1, ref byte[] data, uint srcId, uint dstId)
+        public void CreateP25LDU1Message(in byte[] netLDU1, ref byte[] data, uint srcId, uint dstId, bool encrypted = false)
         {
             // pack DFSI data
             int count = P25_MSG_HDR_SIZE;
             byte[] imbe = new byte[IMBE_BUF_LEN];
+            byte serviceOptions = BuildP25VoiceServiceOptions(encrypted);
 
             Buffer.BlockCopy(netLDU1, 10, imbe, 0, IMBE_BUF_LEN);
-            EncodeLDU1(ref data, 24, imbe, P25DFSI.P25_DFSI_LDU1_VOICE1, srcId, dstId);
+            EncodeLDU1(ref data, 24, imbe, P25DFSI.P25_DFSI_LDU1_VOICE1, srcId, dstId, serviceOptions);
             count += (int)P25DFSI.P25_DFSI_LDU1_VOICE1_FRAME_LENGTH_BYTES;
 
             Buffer.BlockCopy(netLDU1, 26, imbe, 0, IMBE_BUF_LEN);
-            EncodeLDU1(ref data, 46, imbe, P25DFSI.P25_DFSI_LDU1_VOICE2, srcId, dstId);
+            EncodeLDU1(ref data, 46, imbe, P25DFSI.P25_DFSI_LDU1_VOICE2, srcId, dstId, serviceOptions);
             count += (int)P25DFSI.P25_DFSI_LDU1_VOICE2_FRAME_LENGTH_BYTES;
 
             Buffer.BlockCopy(netLDU1, 55, imbe, 0, IMBE_BUF_LEN);
-            EncodeLDU1(ref data, 60, imbe, P25DFSI.P25_DFSI_LDU1_VOICE3, srcId, dstId);
+            EncodeLDU1(ref data, 60, imbe, P25DFSI.P25_DFSI_LDU1_VOICE3, srcId, dstId, serviceOptions);
             count += (int)P25DFSI.P25_DFSI_LDU1_VOICE3_FRAME_LENGTH_BYTES;
 
             Buffer.BlockCopy(netLDU1, 80, imbe, 0, IMBE_BUF_LEN);
-            EncodeLDU1(ref data, 77, imbe, P25DFSI.P25_DFSI_LDU1_VOICE4, srcId, dstId);
+            EncodeLDU1(ref data, 77, imbe, P25DFSI.P25_DFSI_LDU1_VOICE4, srcId, dstId, serviceOptions);
             count += (int)P25DFSI.P25_DFSI_LDU1_VOICE4_FRAME_LENGTH_BYTES;
 
             Buffer.BlockCopy(netLDU1, 105, imbe, 0, IMBE_BUF_LEN);
-            EncodeLDU1(ref data, 94, imbe, P25DFSI.P25_DFSI_LDU1_VOICE5, srcId, dstId);
+            EncodeLDU1(ref data, 94, imbe, P25DFSI.P25_DFSI_LDU1_VOICE5, srcId, dstId, serviceOptions);
             count += (int)P25DFSI.P25_DFSI_LDU1_VOICE5_FRAME_LENGTH_BYTES;
 
             Buffer.BlockCopy(netLDU1, 130, imbe, 0, IMBE_BUF_LEN);
-            EncodeLDU1(ref data, 111, imbe, P25DFSI.P25_DFSI_LDU1_VOICE6, srcId, dstId);
+            EncodeLDU1(ref data, 111, imbe, P25DFSI.P25_DFSI_LDU1_VOICE6, srcId, dstId, serviceOptions);
             count += (int)P25DFSI.P25_DFSI_LDU1_VOICE6_FRAME_LENGTH_BYTES;
 
             Buffer.BlockCopy(netLDU1, 155, imbe, 0, IMBE_BUF_LEN);
-            EncodeLDU1(ref data, 128, imbe, P25DFSI.P25_DFSI_LDU1_VOICE7, srcId, dstId);
+            EncodeLDU1(ref data, 128, imbe, P25DFSI.P25_DFSI_LDU1_VOICE7, srcId, dstId, serviceOptions);
             count += (int)P25DFSI.P25_DFSI_LDU1_VOICE7_FRAME_LENGTH_BYTES;
 
             Buffer.BlockCopy(netLDU1, 180, imbe, 0, IMBE_BUF_LEN);
-            EncodeLDU1(ref data, 145, imbe, P25DFSI.P25_DFSI_LDU1_VOICE8, srcId, dstId);
+            EncodeLDU1(ref data, 145, imbe, P25DFSI.P25_DFSI_LDU1_VOICE8, srcId, dstId, serviceOptions);
             count += (int)P25DFSI.P25_DFSI_LDU1_VOICE8_FRAME_LENGTH_BYTES;
 
             Buffer.BlockCopy(netLDU1, 204, imbe, 0, IMBE_BUF_LEN);
-            EncodeLDU1(ref data, 162, imbe, P25DFSI.P25_DFSI_LDU1_VOICE9, srcId, dstId);
+            EncodeLDU1(ref data, 162, imbe, P25DFSI.P25_DFSI_LDU1_VOICE9, srcId, dstId, serviceOptions);
             count += (int)P25DFSI.P25_DFSI_LDU1_VOICE9_FRAME_LENGTH_BYTES;
 
             data[23U] = (byte)count;
+        }
+
+        private static byte BuildP25VoiceServiceOptions(bool encrypted)
+        {
+            byte serviceOptions = P25_SERVICE_OPTIONS_PRIORITY_4;
+            if (encrypted)
+                serviceOptions |= P25_SERVICE_OPTIONS_PROTECTED;
+
+            return serviceOptions;
         }
 
         /// <summary>
@@ -454,19 +467,10 @@ namespace dvmconsole
         {
             DateTime pktTime = DateTime.Now;
 
-            // TODO: Handle TSBKs
             if (e.DUID == P25DUID.TSDU)
             {
-                byte lco = e.Data[4];
-
-                switch (lco)
-                {
-                    case P25Defines.TSBK_IOSP_ACK_RSP:
-                        break;
-
-                    case P25Defines.TSBK_IOSP_CALL_ALRT:
-                        break;
-                }
+                mainWindow.P25CallAlertReceived(this as PeerSystem, e, pktTime);
+                return;
             }
 
             if (e.DUID == P25DUID.HDU || e.DUID == P25DUID.TSDU || e.DUID == P25DUID.PDU)
@@ -477,7 +481,7 @@ namespace dvmconsole
                 if (e.SrcId == 0)
                     return;
 
-                mainWindow.P25DataReceived(e, pktTime);
+                mainWindow.P25DataReceived((this as PeerSystem)?.ConfiguredSystemName, e, pktTime);
             }
         }
     } // public abstract partial class FneSystemBase : fnecore.FneSystemBase

@@ -1,0 +1,218 @@
+# Settings Reference
+
+This page summarizes user-facing settings in the console.
+
+---
+
+# File Menu
+
+## Import / Export Settings
+
+Transfers saved user preferences, globally or for selected resources. Scoped imports leave unrelated resources and groups alone. Invalid or failed imports leave the existing settings unchanged.
+
+Opens the Settings Transfer window.
+
+Use this to move console preferences between machines without manually copying `UserSettings.json`.
+
+The transfer file is a portable JSON file. You can choose which categories to export or import, including:
+
+- console layout, widget positions, and hidden zone tabs
+- audio routing and volumes
+- TAR configuration
+- patch and multi-select group state
+- custom alert tones
+- toolbar clocks
+- startup restore state
+- user preferences
+- call history window preferences
+- keybinds and selectable encryption state
+
+Press `Ctrl+A` in the transfer window to select all categories and zone tabs.
+
+To share only part of a console layout, enable **Limit transfer to selected zone tabs** and check the zones you want to include. Zone-scoped transfers only include resource/tab-scoped data, such as resource positions, per-resource volume/routing, TAR settings, selectable encryption state, selected resources, web streams, tone presets, timed announcements, and patch/multi-select memberships for those resources.
+
+Global settings are intentionally skipped during a zone-scoped transfer so an imported file does not overwrite the other console's window size, global audio devices, clocks, keybinds, theme, startup behavior, or unrelated tabs.
+
+On import, only the selected categories are replaced. The console reloads the current codeplug/widgets after import so layout and routing changes take effect immediately.
+
+---
+
+# Settings Menu
+
+## Toggle Push To Talk Mode
+
+When enabled, clicking PTT toggles transmit on or off.
+
+When disabled, PTT behaves as press-and-hold.
+
+Default:
+
+```
+Off
+```
+
+This setting is saved.
+
+## Talk Permit Tone
+
+When enabled, the console plays a short local tone when transmit begins.
+
+This is local audio feedback only.
+
+## Mute RX Audio While Transmitting
+
+When enabled, local RX speaker playback is muted while the console is transmitting.
+
+This does not block received network traffic, logs, patch forwarding, or RX visual state. It only suppresses local speaker playback during TX.
+
+Use this when listening through speakers to reduce the chance of received audio feeding back into the microphone.
+
+## Retain Patch State on Startup
+
+When enabled, patch active/on-off state is restored on startup.
+
+Patch members always persist. This setting only controls whether enabled patches come back enabled after restart.
+
+Default:
+
+```
+Off
+```
+
+## Restore Selected Channels On Startup
+
+When enabled, selected resources are restored on startup.
+
+Restored selected encrypted resources request keys after the relevant FNE connection is established and a short delay has passed.
+
+When disabled, selected resources and per-resource volume do not come back sticky on startup.
+
+## Clock Manager
+
+Opens the Clock Manager window.
+
+Clock Manager controls the optional clocks shown in the top-right toolbar area. Up to eight clocks can be enabled.
+
+Each clock has:
+
+- an enable/disable checkbox
+- a UTC offset, such as `UTC+00`, `UTC-05`, or `UTC+09`
+- a preset box color for visual grouping
+
+Clock Manager also controls the shared clock display format:
+
+- `Use 24-hour time`
+- `Show seconds`
+
+Clock settings are saved and restored on startup. Enabled clock slots, UTC offsets, colors, 12/24-hour mode, and seconds display are all sticky user preferences.
+
+## Audio Settings
+
+Opens the Audio Settings window.
+
+See **Audio Settings** for details.
+
+## Reset Settings
+
+Clears saved user settings.
+
+Use with care. This can remove saved window layout, widget positions, audio routing, selected channel state, and other preferences.
+
+## Select Widgets to Display
+
+Controls whether major widget categories are shown.
+
+## Tab Manager
+
+Opens the Tab Manager window.
+
+Use this to choose which codeplug zones are shown in the main top tab strip.
+
+Hidden zones are moved behind the **More** tab. Their resources and web stream chips stay off while hidden, but saved layout and per-resource configuration are kept so the zone can be shown again later.
+
+At least one zone must remain visible.
+
+## Commands > Tones > Manage Custom Alert Tones
+
+Opens the Alert Tone Manager for custom WAV alert tones and timed announcements.
+
+## Keyboard Shortcuts > PTT Keybinds
+
+Configures five single-key PTT bindings. Green follows the Ctrl + left-click primary resource; blue, amber, violet, and cyan target fixed resources. Use **Click to Edit** and then click a resource card to assign a fixed target. Multiple bindings can be held at once. See [Console Operation](01-Console%20Operation.md) for selection and release behavior.
+
+---
+
+# View Menu
+
+## Select User Background
+
+Chooses a custom background image for the main console.
+
+## Dark Mode
+
+Toggles the app theme. Dark mode is the default for new settings; your saved theme preference is restored on startup.
+
+## Lock Widgets
+
+Prevents resource and status widgets from being moved.
+
+## Reset Tab Layout
+
+Snaps channel cards back to a grid-style layout.
+
+## Fit Channel Display to Window Size
+
+Resizes the channel display area to the current window.
+
+## Snap Event History To Window
+
+Keeps the Event History window aligned next to the main console when shown.
+
+## Groups
+
+Opens the Groups window.
+
+## Always on Top
+
+Keeps the console above other windows.
+
+---
+
+# Tools Menu
+
+## Talkgroup Audio Recorder
+
+Open from:
+
+```
+Tools > Talkgroup Audio Recorder
+```
+
+Sub-items:
+
+- Viewer
+- Configuration
+
+See **Configurations > Talkgroup Audio Recorder** for TAR recording, retention, playback, filtering, and retention details.
+
+## FNE Connection Manager
+
+Opens manual connection controls for configured FNE systems.
+
+For systems configured with `syncRadioAliases: true`, **Sync Aliases** refreshes the FNE's RID alias list without restarting the connection. **RID Aliases** shows the sync status and alias count. Automatic refresh also runs after connecting; failures retain the previous list. See **Configurations > RID Aliases** for FNE and codeplug requirements.
+
+---
+
+# Help Menu
+
+## Documentation
+
+Opens this documentation viewer.
+
+## About
+
+Shows version and project information.
+
+## Debug Logs
+
+Open **Help > Debug Logs** to view recent live Console and FNECore log output.

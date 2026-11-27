@@ -16,6 +16,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.ExceptionServices;
 using System.Text;
 
 namespace dvmconsole
@@ -31,13 +32,18 @@ namespace dvmconsole
     /// </summary>
     public class Log
     {
+        private const int MAX_RECENT_LOG_LINES = 500;
         public static FileStream logStream = null;
         /// <summary>
         /// Flag indicating logging should display on a console window.
         /// </summary>
         public static bool DisplayToConsole = false;
         private static TextWriter tw;
+        private static readonly object writerSync = new object();
+        private static readonly object consoleSync = new object();
         private const string LOG_TIME_FORMAT = "MM/dd/yyyy HH:mm:ss";
+        private static readonly object recentLinesSync = new object();
+        private static readonly Queue<string> recentLines = new Queue<string>();
 
         private static ConsoleColor defColor = Console.ForegroundColor;
 
@@ -55,6 +61,11 @@ namespace dvmconsole
         /// </summary>
         public static LogWriteLine LogWriter { get; set; } = null;
 
+        /// <summary>
+        /// Raised whenever a new rendered log line is written.
+        /// </summary>
+        public static event Action<string> LogLineWritten;
+
         /*
         ** Methods
         */
@@ -66,13 +77,38 @@ namespace dvmconsole
         /// <param name="logFile"></param>
         public static void SetupTextWriter(string directoryPath, string logFile)
         {
-            // destroy existing log file
-            if (File.Exists(directoryPath + Path.DirectorySeparatorChar + logFile))
-                File.Delete(directoryPath + Path.DirectorySeparatorChar + logFile);
+            lock (writerSync)
+            {
+                CloseTextWriter();
+                try
+                {
+                    logStream = new FileStream(Path.Combine(directoryPath, logFile), FileMode.Create);
+                    tw = new StreamWriter(logStream);
+                }
+                catch (Exception ex)
+                {
+                    CloseTextWriter();
+                    ReportLoggingFailure(ex);
+                }
+            }
+        }
 
-            // open a new log stream
-            logStream = new FileStream(directoryPath + Path.DirectorySeparatorChar + logFile, FileMode.CreateNew);
-            tw = new StreamWriter(logStream);
+        // Called under writerSync; a failed sink must not interrupt runtime callbacks.
+        private static void CloseTextWriter()
+        {
+            try { tw?.Dispose(); }
+            catch (Exception ex) { ReportLoggingFailure(ex); }
+            try { logStream?.Dispose(); }
+            catch (Exception ex) { ReportLoggingFailure(ex); }
+            tw = null;
+            logStream = null;
+        }
+
+        private static void ReportLoggingFailure(Exception ex)
+        {
+            // Do not recurse through WriteLog if a sink or subscriber fails.
+            try { System.Diagnostics.Trace.WriteLine($"Logging failed: {ex.Message}"); }
+            catch { }
         }
 
         /// <summary>
@@ -82,36 +118,85 @@ namespace dvmconsole
         /// <param name="noTimeStamp"></param>
         public static void WriteLog(string message, bool noTimeStamp = false)
         {
+            message ??= string.Empty;
             string logTime = DateTime.Now.ToString(LOG_TIME_FORMAT) + " ";
-            if (tw != null)
+            string renderedMessage = noTimeStamp ? message : logTime + message;
+            lock (writerSync)
             {
-                if (noTimeStamp)
-                    tw.WriteLine(message);
-                else
-                    tw.WriteLine(logTime + message);
-                tw.Flush();
+                try
+                {
+                    tw?.WriteLine(renderedMessage);
+                    tw?.Flush();
+                }
+                catch (Exception ex)
+                {
+                    CloseTextWriter();
+                    ReportLoggingFailure(ex);
+                }
             }
 
-            if (noTimeStamp)
-                System.Diagnostics.Trace.WriteLine(message);
-            else
-                System.Diagnostics.Trace.WriteLine(logTime + message);
-            if (LogWriter != null)
-                LogWriter(message);
+            try { System.Diagnostics.Trace.WriteLine(renderedMessage); }
+            catch { }
+            AddRecentLine(renderedMessage);
+            LogWriteLine writer = LogWriter;
+            if (writer != null)
+                foreach (LogWriteLine subscriber in writer.GetInvocationList())
+                {
+                    try { subscriber(message); }
+                    catch (Exception ex) { ReportLoggingFailure(ex); }
+                }
             if (DisplayToConsole)
             {
-                if (!noTimeStamp)
-                    Console.Write(logTime);
+                lock (consoleSync)
+                {
+                    try
+                    {
+                        if (!noTimeStamp)
+                            Console.Write(logTime);
 
-                if (message.StartsWith("WARN"))
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                else if (message.StartsWith("FAIL") || message.StartsWith("ERROR"))
-                    Console.ForegroundColor = ConsoleColor.Red;
+                        if (message.StartsWith("WARN"))
+                            Console.ForegroundColor = ConsoleColor.Yellow;
+                        else if (message.StartsWith("FAIL") || message.StartsWith("ERROR"))
+                            Console.ForegroundColor = ConsoleColor.Red;
 
-                Console.WriteLine(message);
-
-                Console.ForegroundColor = defColor;
+                        Console.WriteLine(message);
+                    }
+                    catch (Exception ex) { ReportLoggingFailure(ex); }
+                    finally
+                    {
+                        try { Console.ForegroundColor = defColor; }
+                        catch (Exception ex) { ReportLoggingFailure(ex); }
+                    }
+                }
             }
+        }
+
+        /// <summary>
+        /// Returns a snapshot of the most recent rendered log lines.
+        /// </summary>
+        public static IReadOnlyList<string> GetRecentLines()
+        {
+            lock (recentLinesSync)
+                return recentLines.ToList();
+        }
+
+        private static void AddRecentLine(string line)
+        {
+            lock (recentLinesSync)
+            {
+                while (recentLines.Count >= MAX_RECENT_LOG_LINES)
+                    recentLines.Dequeue();
+
+                recentLines.Enqueue(line);
+            }
+
+            Action<string> handlers = LogLineWritten;
+            if (handlers != null)
+                foreach (Action<string> subscriber in handlers.GetInvocationList())
+                {
+                    try { subscriber(line); }
+                    catch (Exception ex) { ReportLoggingFailure(ex); }
+                }
         }
 
         /// <summary>
@@ -198,15 +283,18 @@ namespace dvmconsole
 
             WriteLog("<" + mb.ReflectedType.Name + "::" + mb.Name + "(" + funcParams + ")>");
             WriteLog(throwable.Source);
-            foreach (string str in throwable.StackTrace.Split(new string[] { Environment.NewLine }, StringSplitOptions.None))
+            foreach (string str in (throwable.StackTrace ?? string.Empty).Split(new string[] { Environment.NewLine }, StringSplitOptions.None))
                 WriteLog(str);
-            if (inner != null)
-                foreach (string str in throwable.StackTrace.Split(new string[] { Environment.NewLine }, StringSplitOptions.None))
+            while (inner != null)
+            {
+                foreach (string str in (inner.StackTrace ?? string.Empty).Split(new string[] { Environment.NewLine }, StringSplitOptions.None))
                     WriteLog("inner trace: " + str);
+                inner = inner.InnerException;
+            }
             WriteLog("---- TRACE SNIP ----");
 
             if (reThrow)
-                throw throwable;
+                ExceptionDispatchInfo.Capture(throwable).Throw();
         }
 
         /// <summary>

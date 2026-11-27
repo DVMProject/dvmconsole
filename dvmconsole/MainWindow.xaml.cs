@@ -11,12 +11,14 @@
 *   Copyright (C) 2025 J. Dean
 *   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
 *   Copyright (C) 2025 Steven Jennison, KD8RHO
-*   Copyright (C) 2025 Lorenzo L Romero, K2LLR
+*   Copyright (C) 2025 Lorenzo L. Romero, K2LLR
+*   Copyright (C) 2026 C. Lovell, Dev_Ranger
 *
 */
 
 using System.Net.Sockets;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Timers;
 using System.Windows;
 using System.Windows.Controls;
@@ -24,6 +26,7 @@ using System.Windows.Forms;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Media;
 
 using NAudio;
 using NAudio.CoreAudioApi;
@@ -95,7 +98,40 @@ namespace dvmconsole
 
         private const string URI_RESOURCE_PATH = "pack://application:,,,/dvmconsole;component";
 
+        private const int ALERT_TONE_PCM_BYTES_PER_MS = 16; // 8 kHz, mono, 16-bit PCM.
+        private const int ALERT_TONE_LEAD_IN_MS = 750;
+        private const int ALERT_TONE_TAIL_MS = 750;
+        private const int TONE_STACK_LEAD_IN_MS = 750;
+        private const int TONE_STACK_TAIL_MS = 750;
+        private const double ALERT_TONE_TARGET_RMS_DBFS = -18.0;
+        private const double ALERT_TONE_PEAK_CEILING_DBFS = -6.0;
+        private const double ALERT_TONE_MIN_RMS = 0.0001;
+        private const double GENERATED_ALERT_TONE_AMPLITUDE = 1845.0 / short.MaxValue;
+        private const double GENERATED_HOLD_TONE_AMPLITUDE = 0.10;
+        private const double LEGACY_ALERT_TONE_FREQUENCY_HZ = 1000.0;
+        private const double LEGACY_ALERT_TONE_ALT_HIGH_HZ = 1500.0;
+        private const double LEGACY_ALERT_TONE_ALT_LOW_HZ = 800.0;
+        private const double LEGACY_ALERT_TONE_DURATION_MS = 5000.0;
+        private const double LEGACY_ALERT_TONE_FAST_STEP_MS = 125.0;
+        private const double LEGACY_ALERT_TONE_FAST_ALT_HIGH_HZ = 1500.0;
+        private const double LEGACY_ALERT_TONE_FAST_ALT_LOW_HZ = 1000.0;
+        private const double LEGACY_ALERT_TONE_EVENT_LOW_HZ = 940.0;
+        private const double LEGACY_ALERT_TONE_EVENT_HIGH_HZ = 1640.0;
+        private const double LEGACY_ALERT_TONE_WARBLE_LOW_HZ = 460.0;
+        private const double LEGACY_ALERT_TONE_WARBLE_HIGH_HZ = 860.0;
+        private const double GENERATED_HOLD_TONE_FREQUENCY_HZ = 650.0;
+        private const double LEGACY_ALERT_TONE_STEP_MS = 250.0;
+        private const int GENERATED_HOLD_TONE_MS = 500;
+        private static readonly TimeSpan WaveInStaleRestartThreshold = TimeSpan.FromSeconds(5);
+        private static readonly TimeSpan WaveInRestartThrottle = TimeSpan.FromSeconds(10);
+        private static readonly TimeSpan WaveInIntentionalStopGrace = TimeSpan.FromSeconds(2);
+        private static readonly TimeSpan KeyboardPttWatchdogInterval = TimeSpan.FromMilliseconds(250);
+
         private bool isShuttingDown = false;
+        private bool shutdownComplete;
+        private bool isReloadingResources;
+        private Task resourceReloadTask = Task.CompletedTask;
+        private bool suppressSelectedResourcePersistence = false;
         private bool globalPttState = false;
 
         private const int GridSize = 5;
@@ -105,42 +141,84 @@ namespace dvmconsole
         private double offsetX;
         private double offsetY;
         private bool isDragging;
-
+        private bool isLayoutSelecting;
+        private bool isLayoutGroupDrag;
+        private Point channelDragStartPoint;
+        private ChannelBox channelDragSource;
+        private bool channelDragMoved;
+        private bool channelDragSuppressSelection;
         private bool windowLoaded = false;
+        private Canvas layoutSelectionCanvas;
+        private System.Windows.Shapes.Rectangle layoutSelectionRectangle;
+        private Point layoutSelectionStartPoint;
+        private Point layoutGroupDragStartPoint;
+        private readonly HashSet<UIElement> layoutSelectedElements = new HashSet<UIElement>();
+        private readonly Dictionary<UIElement, System.Windows.Media.Effects.Effect> layoutSelectionOriginalEffects = new Dictionary<UIElement, System.Windows.Media.Effects.Effect>();
+        private readonly Dictionary<UIElement, Point> layoutDragStartPositions = new Dictionary<UIElement, Point>();
         
         // Tab management
         private Dictionary<TabItem, ScrollViewer> tabScrollViewers = new Dictionary<TabItem, ScrollViewer>();
         private Dictionary<TabItem, Canvas> tabCanvases = new Dictionary<TabItem, Canvas>();
         private Dictionary<UIElement, TabItem> elementToTabMap = new Dictionary<UIElement, TabItem>();
-        private Dictionary<TabItem, StackPanel> tabHeaders = new Dictionary<TabItem, StackPanel>();
+        private Dictionary<TabItem, Grid> tabHeaders = new Dictionary<TabItem, Grid>();
+        private Dictionary<TabItem, string> tabTextColors = new Dictionary<TabItem, string>();
         private bool noSaveSettingsOnClose = false;
         private SettingsManager settingsManager = new SettingsManager();
         private SelectedChannelsManager selectedChannelsManager;
-        private FlashingBackgroundManager flashingManager;
 
-        private Brush btnGlobalPttDefaultBg;
 
         private ChannelBox playbackChannelBox;
 
         private CallHistoryWindow callHistoryWindow;
+        private KeyStatusWindow keyStatusWindow;
+        private AudioSettingsWindow audioSettingsWindow;
+        private PatchGroupsWindow patchGroupsWindow;
 
         public static string PLAYBACKTG = "LOCPLAYBACK";
         public static string PLAYBACKSYS = "Local Playback";
         public static string PLAYBACKCHNAME = "PLAYBACK";
-
-        private readonly WaveInEvent waveIn;
+        private IConsoleAudioInput audioInput;
+        private readonly object waveInSync = new object();
+        private DateTime lastWaveInDataUtc = DateTime.MinValue;
+        private DateTime lastWaveInRestartAttemptUtc = DateTime.MinValue;
+        private DateTime ignoreWaveInStoppedUntilUtc = DateTime.MinValue;
+        private bool waveInRecordingActive = false;
+        private bool waveInRestartInProgress = false;
         private readonly AudioManager audioManager;
+        private readonly TarManager tarManager;
 
-        private static System.Timers.Timer channelHoldTimer;
+        private readonly System.Timers.Timer channelHoldTimer;
+        private bool channelHoldCycleRunning;
 
         private Dictionary<string, SlotStatus> systemStatuses = new Dictionary<string, SlotStatus>();
         private FneSystemManager fneSystemManager = new FneSystemManager();
+        private PatchManager patchManager;
+        private PatchStatusService patchStatusService;
+        private readonly object patchPttSync = new object();
+        private readonly Dictionary<string, PatchPttTargetSession> activePatchPttTargets = new Dictionary<string, PatchPttTargetSession>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, bool> patchGroupModes = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, bool> patchGroupEnabledStates = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> currentPatchMemberships = new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>();
+        private readonly Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> activeAlertToneGroupTargets = new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, ToneTransmitGroupSession> activeToneTransmitGroups = new Dictionary<string, ToneTransmitGroupSession>(StringComparer.OrdinalIgnoreCase);
+        private readonly object toneTransmitSync = new object();
+        private readonly Dictionary<string, CancellationTokenSource> activeToneTransmitCancels = new Dictionary<string, CancellationTokenSource>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<CancellationTokenSource, TaskCompletionSource> toneTransmitCompletions = new();
+        private System.Windows.Threading.DispatcherTimer alertToneScheduleTimer;
+        private bool alertToneScheduleCheckInProgress;
 
         private bool selectAll = false;
+        private const double RESOURCE_TAB_HEIGHT = 36.0;
+        private const double RESOURCE_TAB_HEADER_HEIGHT = 32.0;
+        private const double HIDDEN_ZONES_OVERFLOW_TAB_WIDTH = 92.0;
+        private const string HIDDEN_ZONES_OVERFLOW_TAB_TAG = "__hidden_zones_overflow__";
         private KeyboardManager keyboardManager;
 
         private CancellationTokenSource maintainenceCancelToken = new CancellationTokenSource();
         private Task maintainenceTask = null;
+
+        [DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int vKey);
 
         /*
         ** Properties
@@ -150,6 +228,83 @@ namespace dvmconsole
         /// Codeplug
         /// </summary>
         public Codeplug Codeplug { get; set; }
+
+        private sealed class PatchPttTargetSession
+        {
+            public string Key { get; set; } = string.Empty;
+            public string GroupName { get; set; } = string.Empty;
+            public string SystemName { get; set; } = string.Empty;
+            public string Tgid { get; set; } = string.Empty;
+            public ChannelBox Channel { get; set; }
+            public Codeplug.Channel CodeplugChannel { get; set; }
+            public Codeplug.System CodeplugSystem { get; set; }
+            public PeerSystem Fne { get; set; }
+            public uint SourceId { get; set; }
+            public uint StreamId { get; set; }
+        }
+
+        private sealed class ToneTransmitTarget
+        {
+            public ChannelBox Channel { get; set; }
+            public Codeplug.Channel CodeplugChannel { get; set; }
+            public Codeplug.System CodeplugSystem { get; set; }
+            public PeerSystem Fne { get; set; }
+        }
+
+        private sealed class ToneTransmitGroupSession
+        {
+            public string GroupName { get; set; }
+            public List<SettingsManager.PatchTalkgroupMember> Members { get; set; }
+            public HashSet<ChannelBox> Targets { get; set; }
+            public HashSet<CancellationTokenSource> Cancels { get; } = new HashSet<CancellationTokenSource>();
+        }
+
+        private sealed class GeneratedTonePayload
+        {
+            public byte[] PcmData { get; set; } = Array.Empty<byte>();
+            public ushort?[] P25ToneFrequenciesByFrame { get; set; } = Array.Empty<ushort?>();
+            public bool[] SuppressP25ToneDetectionByFrame { get; set; } = Array.Empty<bool>();
+        }
+
+        private sealed class GeneratedToneStep
+        {
+            public double FrequencyHz { get; set; }
+            public double? SecondaryFrequencyHz { get; set; }
+            public double DurationMs { get; set; }
+            public bool IsSilence { get; set; }
+            public bool IsDualTone => SecondaryFrequencyHz.HasValue;
+
+            public static GeneratedToneStep Tone(double frequencyHz, double durationMs)
+            {
+                return new GeneratedToneStep
+                {
+                    FrequencyHz = frequencyHz,
+                    DurationMs = durationMs,
+                    IsSilence = false
+                };
+            }
+
+            public static GeneratedToneStep DualTone(double lowFrequencyHz, double highFrequencyHz, double durationMs)
+            {
+                return new GeneratedToneStep
+                {
+                    FrequencyHz = lowFrequencyHz,
+                    SecondaryFrequencyHz = highFrequencyHz,
+                    DurationMs = durationMs,
+                    IsSilence = false
+                };
+            }
+
+            public static GeneratedToneStep Silence(double durationMs)
+            {
+                return new GeneratedToneStep
+                {
+                    FrequencyHz = 0,
+                    DurationMs = durationMs,
+                    IsSilence = true
+                };
+            }
+        }
 
         /*
         ** Methods
@@ -168,32 +323,33 @@ namespace dvmconsole
             DisableControls();
 
             settingsManager.LoadSettings();
+            tarManager = new TarManager(settingsManager);
             InitializeKeyboardShortcuts();
-            callHistoryWindow = new CallHistoryWindow(settingsManager, CallHistoryWindow.MAX_CALL_HISTORY);
+            callHistoryWindow = new CallHistoryWindow(settingsManager, CallHistoryWindow.MAX_CALL_HISTORY, eventHistoryMode: true);
+            patchGroupsWindow = new PatchGroupsWindow(settingsManager, ResolvePatchTalkgroupState);
+            patchGroupsWindow.MembershipsCommitted += PatchGroupsWindow_MembershipsCommitted;
+            patchGroupsWindow.GroupModesCommitted += PatchGroupsWindow_GroupModesCommitted;
+            patchGroupsWindow.GroupEnabledStatesCommitted += PatchGroupsWindow_GroupEnabledStatesCommitted;
+            patchGroupsWindow.PatchPttStateChanged += PatchGroupsWindow_PatchPttStateChanged;
+            patchGroupsWindow.AlertToneTargetStateChanged += PatchGroupsWindow_AlertToneTargetStateChanged;
+            patchManager = new PatchManager(
+                BeginPatchForwardOnUiThread,
+                EndPatchForwardOnUiThread,
+                SendPatchForwardAudioOnUiThread,
+                GetPatchFallbackSourceIdOnUiThread);
+            patchStatusService = new PatchStatusService(() => Codeplug);
+            patchStatusService.RegistryUpdated += PatchStatusService_RegistryUpdated;
 
             selectedChannelsManager = new SelectedChannelsManager();
-            flashingManager = new FlashingBackgroundManager(null, channelsCanvas, null, this);
+            AttachLayoutSelectionCanvasEvents(channelsCanvas);
 
             channelHoldTimer = new System.Timers.Timer(10000);
             channelHoldTimer.Elapsed += OnHoldTimerElapsed;
             channelHoldTimer.AutoReset = true;
             channelHoldTimer.Enabled = true;
 
-            waveIn = new WaveInEvent { WaveFormat = new WaveFormat(8000, 16, 1) };
-            waveIn.DataAvailable += WaveIn_DataAvailable;
-            waveIn.RecordingStopped += WaveIn_RecordingStopped;
-
-            try
-            {
-                waveIn.StartRecording();
-            }
-            catch (MmException ex)
-            {
-                MessageBox.Show($"Error initializing audio input device, {ex.Message}. This *will* cause console inconsistency, and inability to transmit audio.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                Log.StackTrace(ex, false);
-            }
-
             audioManager = new AudioManager(settingsManager);
+            RestartConfiguredInputDevice("startup", showError: true, force: true);
 
             btnGlobalPtt.PreviewMouseLeftButtonDown += btnGlobalPtt_MouseLeftButtonDown;
             btnGlobalPtt.PreviewMouseLeftButtonUp += btnGlobalPtt_MouseLeftButtonUp;
@@ -201,16 +357,21 @@ namespace dvmconsole
             
             // Handle tab selection changes to update background
             resourceTabs.SelectionChanged += ResourceTabs_SelectionChanged;
+            resourceTabs.SizeChanged += ResourceTabs_SizeChanged;
 
             selectedChannelsManager.SelectedChannelsChanged += SelectedChannelsChanged;
             selectedChannelsManager.PrimaryChannelChanged += PrimaryChannelChanged;
+            selectedChannelsManager.ChannelSelectionChanged += SelectedChannelsManager_ChannelSelectionChanged;
 
             LocationChanged += MainWindow_LocationChanged;
             SizeChanged += MainWindow_SizeChanged;
             Loaded += MainWindow_Loaded;
+            Closed += MainWindow_Closed;
 
             // Initialize first tab
             InitializeFirstTab();
+            InitializeToolbarClocks();
+            InitializeAlertToneScheduler();
         }
         
         /// <summary>
@@ -221,33 +382,42 @@ namespace dvmconsole
             TabItem firstTab = new TabItem();
             
             // Create a custom header with text and optional audio icon
-            StackPanel headerPanel = new StackPanel
+            Grid headerPanel = new Grid
             {
-                Orientation = System.Windows.Controls.Orientation.Horizontal,
-                Margin = new Thickness(0, 0, 4, 0)
+                Margin = new Thickness(0, 0, 2, 0)
             };
+            headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             
             TextBlock headerText = new TextBlock
             {
                 Text = "Tab 1",
-                VerticalAlignment = VerticalAlignment.Center
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextAlignment = TextAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(4, 0, 16, 0)
             };
+            Grid.SetColumn(headerText, 0);
             headerPanel.Children.Add(headerText);
             
             // Audio icon (initially hidden)
             Image audioIcon = new Image
             {
                 Source = new BitmapImage(new Uri($"{URI_RESOURCE_PATH}/Assets/audio_receive.png")),
-                Width = 16,
-                Height = 16,
-                Margin = new Thickness(6, 0, 0, 0),
+                Width = 14,
+                Height = 14,
+                Margin = new Thickness(0, 0, 1, 0),
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Center,
+                Opacity = 0.9,
                 Visibility = Visibility.Collapsed,
                 Name = "AudioIcon"
             };
+            Grid.SetColumn(audioIcon, 0);
             headerPanel.Children.Add(audioIcon);
             
             firstTab.Header = headerPanel;
+            ApplyCompactResourceTabChrome(firstTab, headerPanel);
             tabHeaders[firstTab] = headerPanel;
             
             // Remove canvasScrollViewer from its parent (Grid) if it exists
@@ -268,6 +438,24 @@ namespace dvmconsole
             tabCanvases[firstTab] = channelsCanvas;
             resourceTabs.Items.Add(firstTab);
             resourceTabs.SelectedItem = firstTab;
+            UpdateResourceTabWidths();
+        }
+
+        private void ApplyCompactResourceTabChrome(TabItem tab, Grid headerPanel)
+        {
+            if (tab == null)
+                return;
+
+            tab.Height = RESOURCE_TAB_HEIGHT;
+            tab.MinHeight = RESOURCE_TAB_HEIGHT;
+            tab.Padding = new Thickness(8, 0, 8, 0);
+
+            if (headerPanel != null)
+            {
+                headerPanel.Height = RESOURCE_TAB_HEADER_HEIGHT;
+                headerPanel.MinHeight = RESOURCE_TAB_HEADER_HEIGHT;
+                headerPanel.VerticalAlignment = VerticalAlignment.Center;
+            }
         }
         
         /// <summary>
@@ -277,16 +465,42 @@ namespace dvmconsole
         {
             // Clear existing tabs
             resourceTabs.Items.Clear();
+            tabScrollViewers.Clear();
             tabCanvases.Clear();
             tabHeaders.Clear();
+            tabTextColors.Clear();
             elementToTabMap.Clear();
             
             // Create tabs from zones
             if (Codeplug.Zones != null && Codeplug.Zones.Count > 0)
             {
-                foreach (var zone in Codeplug.Zones)
-                    CreateNewTab(zone.Name, zone.TabColor);
-                
+                List<Codeplug.Zone> zones = Codeplug.Zones
+                    .Where(zone => !string.IsNullOrWhiteSpace(zone?.Name))
+                    .ToList();
+                settingsManager.PruneHiddenResourceZones(zones.Select(zone => zone.Name));
+
+                HashSet<string> hiddenZoneNames = GetHiddenResourceZoneSet();
+                List<Codeplug.Zone> visibleZones = zones
+                    .Where(zone => !IsZoneHidden(zone, hiddenZoneNames))
+                    .ToList();
+
+                // Never leave the operator with an empty tab strip if an imported profile hid everything.
+                if (visibleZones.Count == 0 && zones.Count > 0)
+                {
+                    hiddenZoneNames.Remove(NormalizeZoneName(zones[0].Name));
+                    settingsManager.SaveHiddenResourceZones(hiddenZoneNames);
+                    visibleZones.Add(zones[0]);
+                }
+
+                foreach (var zone in visibleZones)
+                    CreateNewTab(zone.Name, zone.TabColor, zone.TabTextColor);
+
+                List<Codeplug.Zone> hiddenZones = zones
+                    .Where(zone => IsZoneHidden(zone, hiddenZoneNames))
+                    .ToList();
+                if (hiddenZones.Count > 0)
+                    CreateHiddenZonesOverflowTab(hiddenZones);
+
                 // Apply current background to all newly created tabs
                 ApplyCurrentBackgroundToAllTabs();
                 
@@ -304,34 +518,43 @@ namespace dvmconsole
                     firstTab.Style = tabStyle;
                 
             // Create a custom header with text and optional audio icon
-            StackPanel headerPanel = new StackPanel
+            Grid headerPanel = new Grid
             {
-                Orientation = System.Windows.Controls.Orientation.Horizontal,
-                    Margin = new Thickness(0, 0, 4, 0)
-                };
+                Margin = new Thickness(0, 0, 2, 0)
+            };
+            headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 
                 TextBlock headerText = new TextBlock
                 {
                     Text = "Tab 1",
+                    HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch,
                     VerticalAlignment = VerticalAlignment.Center,
-                    Foreground = settingsManager.DarkMode ? Brushes.White : Brushes.Black
+                    TextAlignment = TextAlignment.Center,
+                    Foreground = settingsManager.DarkMode ? Brushes.White : Brushes.Black,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    Margin = new Thickness(4, 0, 16, 0)
                 };
+                Grid.SetColumn(headerText, 0);
                 headerPanel.Children.Add(headerText);
                 
                 // Audio icon (initially hidden)
                 Image audioIcon = new Image
                 {
                     Source = new BitmapImage(new Uri($"{URI_RESOURCE_PATH}/Assets/audio_receive.png")),
-                    Width = 16,
-                    Height = 16,
-                    Margin = new Thickness(6, 0, 0, 0),
+                    Width = 14,
+                    Height = 14,
+                    Margin = new Thickness(0, 0, 1, 0),
+                    HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
                     VerticalAlignment = VerticalAlignment.Center,
+                    Opacity = 0.9,
                     Visibility = Visibility.Collapsed,
                     Name = "AudioIcon"
                 };
+                Grid.SetColumn(audioIcon, 0);
                 headerPanel.Children.Add(audioIcon);
                 
                 firstTab.Header = headerPanel;
+                ApplyCompactResourceTabChrome(firstTab, headerPanel);
                 tabHeaders[firstTab] = headerPanel;
                 
                 // Remove canvasScrollViewer from its parent if it exists
@@ -350,18 +573,173 @@ namespace dvmconsole
                 tabCanvases[firstTab] = channelsCanvas;
                 resourceTabs.Items.Add(firstTab);
                 resourceTabs.SelectedItem = firstTab;
+                UpdateResourceTabWidths();
                 
                 // Apply current background to the newly created tab
                 ApplyCurrentBackgroundToAllTabs();
             }
+
+            UpdateResourceTabWidths();
         }
-        
+
+        private TabItem CreateHiddenZonesOverflowTab(List<Codeplug.Zone> hiddenZones)
+        {
+            TabItem tab = new TabItem
+            {
+                Tag = HIDDEN_ZONES_OVERFLOW_TAB_TAG
+            };
+
+            if (resourceTabs.Resources["TabItemStyle"] is Style tabStyle)
+                tab.Style = tabStyle;
+
+            Grid headerPanel = new Grid
+            {
+                Margin = new Thickness(0, 0, 2, 0)
+            };
+            headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            TextBlock headerText = new TextBlock
+            {
+                Text = $"More ({hiddenZones.Count})",
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextAlignment = TextAlignment.Center,
+                Foreground = settingsManager.DarkMode ? Brushes.White : Brushes.Black,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(4, 0, 4, 0)
+            };
+            Grid.SetColumn(headerText, 0);
+            headerPanel.Children.Add(headerText);
+
+            tab.Header = headerPanel;
+            ApplyCompactResourceTabChrome(tab, headerPanel);
+            tabHeaders[tab] = headerPanel;
+            tabTextColors[tab] = null;
+
+            ScrollViewer scrollViewer = new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch
+            };
+
+            StackPanel panel = new StackPanel
+            {
+                Margin = new Thickness(24),
+                MaxWidth = 760
+            };
+
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Hidden Zones",
+                FontSize = 20,
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 0, 6)
+            });
+            panel.Children.Add(new TextBlock
+            {
+                Text = "These zones are hidden from the main tab strip and their resources are kept off. Click a zone to show it again, or open the manager for bulk changes.",
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 18)
+            });
+
+            WrapPanel zoneButtons = new WrapPanel
+            {
+                Margin = new Thickness(0, 0, 0, 20)
+            };
+            Style buttonStyle = TryFindResource("MaterialDesignPaperDarkButton") as Style;
+            foreach (Codeplug.Zone hiddenZone in hiddenZones)
+            {
+                int channelCount = hiddenZone.Channels?.Count ?? 0;
+                int streamCount = hiddenZone.WebStreams?.Count ?? 0;
+                string streamText = streamCount == 1 ? "stream" : "streams";
+                string channelText = channelCount == 1 ? "channel" : "channels";
+                Brush zoneBackground = ResolveTabColorBrush(hiddenZone.TabColor, new SolidColorBrush(Color.FromRgb(48, 48, 48)));
+                Brush zoneForeground = ResolveTabColorBrush(hiddenZone.TabTextColor, settingsManager.DarkMode ? Brushes.White : Brushes.Black);
+                System.Windows.Controls.Button showButton = new System.Windows.Controls.Button
+                {
+                    Content = $"{hiddenZone.Name}  ({channelCount} {channelText}, {streamCount} {streamText})",
+                    Tag = hiddenZone.Name,
+                    MinWidth = 190,
+                    Height = 40,
+                    Margin = new Thickness(0, 0, 8, 8),
+                    Padding = new Thickness(12, 0, 12, 0),
+                    Background = zoneBackground,
+                    BorderBrush = zoneBackground,
+                    Foreground = zoneForeground,
+                    Style = buttonStyle
+                };
+                showButton.Click += ShowHiddenZone_Click;
+                zoneButtons.Children.Add(showButton);
+            }
+            panel.Children.Add(zoneButtons);
+
+            System.Windows.Controls.Button managerButton = new System.Windows.Controls.Button
+            {
+                Content = "Open Tab Manager",
+                Width = 180,
+                Height = 38,
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
+                Style = buttonStyle
+            };
+            managerButton.Click += TabManager_Click;
+            panel.Children.Add(managerButton);
+
+            scrollViewer.Content = panel;
+            tab.Content = scrollViewer;
+            tabScrollViewers[tab] = scrollViewer;
+            resourceTabs.Items.Add(tab);
+            UpdateResourceTabWidths();
+            return tab;
+        }
+
+        private HashSet<string> GetHiddenResourceZoneSet()
+        {
+            return new HashSet<string>(
+                settingsManager.GetHiddenResourceZones().Select(NormalizeZoneName),
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static bool IsZoneHidden(Codeplug.Zone zone, HashSet<string> hiddenZoneNames)
+        {
+            if (zone == null || hiddenZoneNames == null || hiddenZoneNames.Count == 0)
+                return false;
+
+            return hiddenZoneNames.Contains(NormalizeZoneName(zone.Name));
+        }
+
+        private static string NormalizeZoneName(string zoneName)
+        {
+            return zoneName?.Trim() ?? string.Empty;
+        }
+
+        private static bool IsHiddenZonesOverflowTab(TabItem tab)
+        {
+            return string.Equals(tab?.Tag as string, HIDDEN_ZONES_OVERFLOW_TAB_TAG, StringComparison.Ordinal);
+        }
+
+        private static Brush ResolveTabColorBrush(string color, Brush fallback)
+        {
+            if (string.IsNullOrWhiteSpace(color))
+                return fallback;
+
+            try
+            {
+                return (Brush)new BrushConverter().ConvertFrom(color.Trim());
+            }
+            catch
+            {
+                return fallback;
+            }
+        }
+
         /// <summary>
         /// Creates a new tab with a ScrollViewer and Canvas
         /// </summary>
         /// <param name="tabName"></param>
         /// <param name="tabColor"></param>
-        private TabItem CreateNewTab(string tabName, string tabColor = null)
+        private TabItem CreateNewTab(string tabName, string tabColor = null, string tabTextColor = null)
         {
             TabItem tab = new TabItem();
             
@@ -378,36 +756,64 @@ namespace dvmconsole
             }
 
             // Create a custom header with text and optional audio icon
-            StackPanel headerPanel = new StackPanel
+            Grid headerPanel = new Grid
             {
-                Orientation = System.Windows.Controls.Orientation.Horizontal,
-                Margin = new Thickness(0, 0, 4, 0)
+                Margin = new Thickness(0, 0, 2, 0)
             };
-            
+            headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            Brush headerForeground;
+
+            if (!string.IsNullOrWhiteSpace(tabTextColor))
+            {
+                try
+                {
+                    headerForeground = (Brush)new BrushConverter().ConvertFrom(tabTextColor);
+                }
+                catch
+                {
+                    headerForeground = settingsManager.DarkMode ? Brushes.White : Brushes.Black;
+                }
+            }
+            else
+            {
+                headerForeground = settingsManager.DarkMode ? Brushes.White : Brushes.Black;
+            }
+
             TextBlock headerText = new TextBlock
             {
                 Text = tabName,
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Center,
-                Foreground = settingsManager.DarkMode ? Brushes.White : Brushes.Black
+                TextAlignment = TextAlignment.Center,
+                Foreground = headerForeground,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(4, 0, 16, 0)
             };
+            Grid.SetColumn(headerText, 0);
             headerPanel.Children.Add(headerText);
-            
+
             // Audio icon (initially hidden)
             Image audioIcon = new Image
             {
                 Source = new BitmapImage(new Uri($"{URI_RESOURCE_PATH}/Assets/audio_receive.png")),
-                Width = 16,
-                Height = 16,
-                Margin = new Thickness(6, 0, 0, 0),
+                Width = 14,
+                Height = 14,
+                Margin = new Thickness(0, 0, 1, 0),
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Center,
+                Opacity = 0.9,
                 Visibility = Visibility.Collapsed,
                 Name = "AudioIcon"
             };
+            Grid.SetColumn(audioIcon, 0);
             headerPanel.Children.Add(audioIcon);
             
             tab.Header = headerPanel;
+            ApplyCompactResourceTabChrome(tab, headerPanel);
             tabHeaders[tab] = headerPanel;
-            
+            tabTextColors[tab] = tabTextColor;
+
             ScrollViewer scrollViewer = new ScrollViewer
             {
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
@@ -420,6 +826,7 @@ namespace dvmconsole
             {
                 VerticalAlignment = VerticalAlignment.Top,
             };
+            AttachLayoutSelectionCanvasEvents(canvas);
             
             // Set background from original canvas or channelsCanvasBg
             // Use the current background from channelsCanvasBg if available, otherwise use default
@@ -454,6 +861,7 @@ namespace dvmconsole
             tab.DataContext = tab;
 
             resourceTabs.Items.Add(tab);
+            UpdateResourceTabWidths();
             return tab;
         }
         
@@ -483,7 +891,7 @@ namespace dvmconsole
                 }
             }
             
-            StackPanel headerPanel = tabHeaders[tab];
+            Grid headerPanel = tabHeaders[tab];
             
             // Find the audio icon
             Image audioIcon = null;
@@ -498,9 +906,6 @@ namespace dvmconsole
             
             if (hasAudio)
             {
-                // Set tab background to green (using the same green as receiving channels)
-                tab.Background = ChannelBox.GREEN_GRADIENT;
-                
                 // Show audio icon
                 if (audioIcon != null)
                 {
@@ -509,9 +914,6 @@ namespace dvmconsole
             }
             else
             {
-                // Reset tab background to default
-                tab.Background = null;
-                
                 // Hide audio icon
                 if (audioIcon != null)
                 {
@@ -520,16 +922,6 @@ namespace dvmconsole
             }
         }
         
-        /// <summary>
-        /// Updates all tab audio indicators
-        /// </summary>
-        private void UpdateAllTabAudioIndicators()
-        {
-            foreach (TabItem tab in resourceTabs.Items)
-            {
-                UpdateTabAudioIndicator(tab);
-            }
-        }
         
         /// <summary>
         /// Updates the tab audio indicator for a specific channel
@@ -621,7 +1013,8 @@ namespace dvmconsole
             menuRadioCheckSubscriber.IsEnabled = true;
             menuInhibitSubscriber.IsEnabled = true;
             menuUninhibitSubscriber.IsEnabled = true;
-            menuQuickCall2.IsEnabled = true;
+            menuTonePresets.IsEnabled = true;
+            menuDtmfPresets.IsEnabled = true;
         }
 
         /// <summary>
@@ -633,10 +1026,18 @@ namespace dvmconsole
             btnAlert1.IsEnabled = true;
             btnAlert2.IsEnabled = true;
             btnAlert3.IsEnabled = true;
+            btnAlert4.IsEnabled = true;
+            btnAlert5.IsEnabled = true;
+            btnAlert6.IsEnabled = true;
             btnPageSub.IsEnabled = true;
             btnSelectAll.IsEnabled = true;
             btnKeyStatus.IsEnabled = true;
             btnCallHistory.IsEnabled = true;
+            bool hasPatchGroups = Codeplug?.Groups?.Any(pg => !string.IsNullOrWhiteSpace(pg?.Name) &&
+                (pg.IsPatchGroup() || pg.IsMultiselectGroup())) == true;
+            btnPatchGroups.IsEnabled = hasPatchGroups;
+            menuPatchGroups.IsEnabled = hasPatchGroups;
+            menuTabManager.IsEnabled = Codeplug?.Zones?.Any(zone => !string.IsNullOrWhiteSpace(zone?.Name)) == true;
         }
 
         /// <summary>
@@ -648,7 +1049,8 @@ namespace dvmconsole
             menuRadioCheckSubscriber.IsEnabled = false;
             menuInhibitSubscriber.IsEnabled = false;
             menuUninhibitSubscriber.IsEnabled = false;
-            menuQuickCall2.IsEnabled = false;
+            menuTonePresets.IsEnabled = false;
+            menuDtmfPresets.IsEnabled = false;
         }
 
         /// <summary>
@@ -656,36 +1058,169 @@ namespace dvmconsole
         /// </summary>
         private void DisableControls()
         {
+            StopAllWebStreams();
+            StopAllPatchPttTargets();
             DisableCommandControls();
 
             btnGlobalPtt.IsEnabled = false;
             btnAlert1.IsEnabled = false;
             btnAlert2.IsEnabled = false;
             btnAlert3.IsEnabled = false;
+            btnAlert4.IsEnabled = false;
+            btnAlert5.IsEnabled = false;
+            btnAlert6.IsEnabled = false;
             btnPageSub.IsEnabled = false;
             btnSelectAll.IsEnabled = false;
             btnKeyStatus.IsEnabled = false;
             btnCallHistory.IsEnabled = false;
+            btnPatchGroups.IsEnabled = false;
+            menuPatchGroups.IsEnabled = false;
+            menuTabManager.IsEnabled = false;
         }
 
         /// <summary>
         /// Helper to load the codeplug.
         /// </summary>
         /// <param name="filePath"></param>
-        private void LoadCodeplug(string filePath)
+        private Task LoadCodeplug(string filePath)
         {
-            DisableControls();
+            return ReloadResourcesAsync((_, _) => LoadCodeplugCore(filePath));
+        }
 
-            // Clear all canvases
-            foreach (var canvas in tabCanvases.Values)
+        /// <summary>Quiesces old resources before replacing their configuration or widgets.</summary>
+        private Task ReloadResourcesAsync(Action<List<string>, List<string>> rebuild)
+        {
+            if (isShuttingDown || isReloadingResources)
+                return resourceReloadTask;
+
+            isReloadingResources = true;
+            resourceReloadTask = ReloadResourcesCoreAsync(rebuild);
+            return resourceReloadTask;
+        }
+
+        private async Task ReloadResourcesCoreAsync(Action<List<string>, List<string>> rebuild)
+        {
+            // Publish the tracked reload before selection callbacks can reenter it.
+            await Task.Yield();
+            List<string> channels = CaptureActiveSelectedChannelKeys();
+            List<string> streams = CaptureActiveWebStreamNames();
+            IsEnabled = false;
+            try
             {
-                canvas.Children.Clear();
+                await StopResourceActivityAsync();
+                await ResetFneConnectionsAsync();
+                ClearResourceWidgets();
+                if (!isShuttingDown)
+                {
+                    tarManager.ResumeRecording();
+                    rebuild(channels, streams);
+                }
             }
+            catch (Exception ex)
+            {
+                Log.StackTrace(ex, false);
+                ClearRuntimeSelectedResourcesForWidgetRebuild();
+                try { await ResetFneConnectionsAsync(); }
+                catch (Exception stopError) { Log.StackTrace(stopError, false); }
+                ClearResourceWidgets();
+                Codeplug = null;
+                DisableControls();
+                if (!isShuttingDown)
+                    MessageBox.Show($"Unable to reload resources: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                isReloadingResources = false;
+                IsEnabled = !isShuttingDown;
+                Cursor = Cursors.Arrow;
+            }
+        }
+
+        private void ClearResourceWidgets()
+        {
+            DisposeResourceWidgets();
+            ClearLayoutSelection();
+            foreach (Canvas canvas in tabCanvases.Values)
+                canvas.Children.Clear();
             channelsCanvas.Children.Clear();
             elementToTabMap.Clear();
             systemStatuses.Clear();
+        }
 
-            fneSystemManager.ClearAll();
+        /// <summary>Releases codec and timer ownership after resource activity has stopped.</summary>
+        private void DisposeResourceWidgets()
+        {
+            foreach (WebStreamChip stream in GetAllWebStreamChips().ToList())
+                TryResourceCleanup(stream.Dispose);
+            foreach (ChannelBox channel in GetAllCanvases().SelectMany(canvas => canvas.Children.OfType<ChannelBox>()).Distinct())
+            {
+                TryResourceCleanup(() => channel.Encoder?.Dispose());
+                TryResourceCleanup(() => channel.Decoder?.Dispose());
+                TryResourceCleanup(() => channel.ExtFullRateVocoder?.Dispose());
+                TryResourceCleanup(() => channel.ExtHalfRateVocoder?.Dispose());
+                channel.Encoder = null;
+                channel.Decoder = null;
+                channel.ExtFullRateVocoder = null;
+                channel.ExtHalfRateVocoder = null;
+            }
+        }
+
+        /// <summary>Joins tone and voice workers while their cards and peers still exist.</summary>
+        private async Task StopResourceActivityAsync()
+        {
+            TryResourceCleanup(() => callHistoryWindow?.ClearPageAlerts());
+            TryResourceCleanup(ReleaseAllOperatorPttInputs);
+            TryResourceCleanup(StopOperatorPttTimers);
+            TryResourceCleanup(StopAllTonePlayback);
+            Task[] tones;
+            lock (toneTransmitSync)
+            {
+                foreach (CancellationTokenSource cancel in activeToneTransmitCancels.Values)
+                    TryResourceCleanup(cancel.Cancel);
+                tones = toneTransmitCompletions.Values.Select(completion => completion.Task).ToArray();
+            }
+            TryResourceCleanup(StopAllPatchPttTargets);
+            Task[] webStreams = GetAllWebStreamChips().Select(stream => stream.StopAsync()).ToArray();
+            List<ChannelBox> channels = GetAllCanvases().SelectMany(canvas => canvas.Children.OfType<ChannelBox>()).ToList();
+            TryResourceCleanup(ClearRuntimeSelectedResourcesForWidgetRebuild);
+            await Task.WhenAll(tones.Concat(webStreams));
+            foreach (ChannelBox channel in channels)
+            {
+                Codeplug.Channel config = channel.ConfiguredChannel;
+                Codeplug.System system = Codeplug?.GetSystemForChannel(config);
+                TryResourceCleanup(() => EndReceiveCall(channel, system, config, FindActiveReceiveStatus(channel, config), DateTime.Now, discardAudio: true));
+                if (system != null && config != null)
+                    TryResourceCleanup(() => EndTarTxRecording(channel, system, config));
+                TryResourceCleanup(() => EndAnalogTransmission(channel, discardPending: true));
+                TryResourceCleanup(() => EndDmrTransmission(channel, discardPending: true));
+                TryResourceCleanup(() => EndNxdnTransmission(channel, discardPending: true));
+                channel.PttState = false;
+                channel.PageState = false;
+                channel.HoldState = false;
+                channel.PatchForwardingTxState = false;
+                TryResourceCleanup(() => ResetChannel(channel));
+            }
+            try
+            {
+                await Task.WhenAll(channels.SelectMany(channel => new[]
+                    { channel.AnalogEndTask, channel.DmrEndTask, channel.NxdnEndTask }).Where(task => task != null));
+            }
+            finally { TryResourceCleanup(tarManager.StopAllSessions); }
+        }
+
+        /// <summary>One failed cleanup step must not strand unrelated resources or workers.</summary>
+        private static void TryResourceCleanup(Action cleanup)
+        {
+            try { cleanup(); }
+            catch (Exception ex) { Log.StackTrace(ex, false); }
+        }
+
+        private void LoadCodeplugCore(string filePath)
+        {
+            ClearNxdnKeys();
+            ClearLocalKeys();
+            DisableControls();
+            StopAllPatchPttTargets();
 
             try
             {
@@ -694,8 +1229,12 @@ namespace dvmconsole
                     .IgnoreUnmatchedProperties()
                     .Build();
 
+                filePath = Path.GetFullPath(filePath);
                 string yaml = File.ReadAllText(filePath);
                 Codeplug = deserializer.Deserialize<Codeplug>(yaml);
+                if (Codeplug != null)
+                    Codeplug.SourcePath = filePath;
+                Codeplug?.NormalizeGroups();
 
                 // perform codeplug validation
                 List<string> errors = new List<string>();
@@ -703,7 +1242,7 @@ namespace dvmconsole
                 // ensure string lengths are acceptable
                 // systems
                 Dictionary<string, string> replacedSystemNames = new Dictionary<string, string>();
-                foreach (Codeplug.System system in Codeplug.Systems)
+                foreach (Codeplug.System system in Codeplug.Systems ?? new List<Codeplug.System>())
                 {
                     // ensure system name is less then or equals to the max
                     if (system.Name.Length > MAX_SYSTEM_NAME_LEN)
@@ -716,13 +1255,16 @@ namespace dvmconsole
                 }
 
                 // zones
-                foreach (Codeplug.Zone zone in Codeplug.Zones)
+                foreach (Codeplug.Zone zone in Codeplug.Zones ?? new List<Codeplug.Zone>())
                 {
                     // channels
-                    foreach (Codeplug.Channel channel in zone.Channels)
+                    foreach (Codeplug.Channel channel in zone.Channels ?? new List<Codeplug.Channel>())
                     {
                         if (Codeplug.Systems.Find((x) => x.Name == channel.System) == null)
                             errors.Add($"{channel.Name} refers to an {INVALID_SYSTEM} {channel.System}.");
+
+                        if (!channel.ValidateP25EncryptionConfig(out string encryptionError))
+                            errors.Add($"{channel.Name}: {encryptionError} TX is blocked until corrected.");
 
                         // because we possibly truncated system names above lets see if we
                         // have to replaced the related system name
@@ -743,7 +1285,34 @@ namespace dvmconsole
                         if (channel.Slot > 2)
                             channel.Slot = 1;
                     }
+
+                    foreach (Codeplug.WebStream stream in zone.WebStreams ?? new List<Codeplug.WebStream>())
+                    {
+                        if (string.IsNullOrWhiteSpace(stream.Name))
+                            errors.Add($"Zone '{zone.Name}' has a web stream missing a name.");
+                        if (string.IsNullOrWhiteSpace(stream.Url))
+                            errors.Add($"Web stream '{stream.Name}' is missing a URL.");
+                    }
                 }
+
+                foreach (Codeplug.Group patchGroup in Codeplug.Groups ?? new List<Codeplug.Group>())
+                {
+                    if (string.IsNullOrWhiteSpace(patchGroup.Name))
+                        errors.Add("A group is missing a name.");
+                    if (!patchGroup.IsPatchGroup() && !patchGroup.IsMultiselectGroup())
+                        errors.Add($"Group '{patchGroup.Name}' has invalid type '{patchGroup.Type}'. Expected 'patch' or 'multiselect'.");
+                }
+
+                patchGroupsWindow.SetMembershipContext(filePath);
+                patchGroupsWindow.SetPatchGroups(Codeplug.Groups, GetConfiguredChannels());
+                PruneSettingsForLoadedCodeplug();
+                patchGroupModes = patchGroupsWindow.GetPatchGroupModes();
+                patchGroupEnabledStates = patchGroupsWindow.GetPatchGroupEnabledStates();
+                patchManager.SetSourceIdPassthrough(Codeplug.PatchSourceIdPassthrough);
+                Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships = patchGroupsWindow.GetCurrentMemberships();
+                currentPatchMemberships = ClonePatchMemberships(memberships);
+                patchManager.ApplyMemberships(FilterPatchMemberships(memberships, patchGroupEnabledStates), patchGroupModes);
+                PublishActiveGroups(publishImmediately: true, reason: "codeplug loaded");
 
                 // compile list of errors and throw up a messagebox of doom
                 if (errors.Count > 0)
@@ -757,57 +1326,79 @@ namespace dvmconsole
                     MessageBox.Show(messageBoxString, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
 
+                LoadConfiguredEkcKeys();
+
                 // generate widgets and enable controls
-                GenerateChannelWidgets();
+                GenerateChannelWidgetsCore(new List<string>(), new List<string>());
+                UpdatePatchMemberIndicators(FilterPatchMemberships(memberships), patchGroupEnabledStates);
+                UpdateMultiSelectIndicators(FilterMultiSelectMemberships(memberships));
+                UpdateTarIndicators();
+                tarManager.RunRetentionMaintenanceAsync();
+                patchGroupsWindow.RefreshMemberStatusIcons();
                 EnableControls();
                 MainWindow_SizeChanged(this, null);
             }
-            catch (Exception ex)
+            catch
             {
-                MessageBox.Show($"Error loading codeplug: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                Log.StackTrace(ex, false);
+                ClearRuntimeSelectedResourcesForWidgetRebuild();
+                ClearResourceWidgets();
+                Codeplug = null;
+                ClearLocalKeys();
+                ClearNxdnKeys();
+                patchGroupsWindow.SetPatchGroups(null, null);
+                patchGroupModes = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                patchGroupEnabledStates = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                currentPatchMemberships = new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>();
+                patchManager.ApplyMemberships(new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>(), patchGroupModes);
+                PublishActiveGroups(publishImmediately: true, reason: "codeplug unloaded");
+                UpdatePatchMemberIndicators(new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>(), new Dictionary<string, bool>());
+                UpdateMultiSelectIndicators(new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>());
+                UpdateTarIndicators();
+                if (patchGroupsWindow.Visibility == Visibility.Visible)
+                    patchGroupsWindow.Hide();
                 DisableControls();
+                throw;
             }
         }
 
         /// <summary>
         /// Helper to initialize and generate channel widgets on the canvas.
         /// </summary>
-        private void GenerateChannelWidgets()
+        private Task GenerateChannelWidgets()
         {
-            // Clear all canvases
-            foreach (var canvas in tabCanvases.Values)
-            {
-                canvas.Children.Clear();
-            }
-            channelsCanvas.Children.Clear();
-            elementToTabMap.Clear();
-            systemStatuses.Clear();
-            
-            // Note: tabHeaders is not cleared here as tabs are recreated in CreateTabsFromCodeplug
+            return ReloadResourcesAsync(GenerateChannelWidgetsCore);
+        }
 
-            fneSystemManager.ClearAll();
-
+        private void GenerateChannelWidgetsCore(List<string> activeChannelKeys, List<string> activeWebStreamNames)
+        {
             Cursor = Cursors.Wait;
 
             // Create tabs from codeplug configuration (if codeplug exists)
             if (Codeplug != null)
                 CreateTabsFromCodeplug();
+
+            HashSet<string> hiddenZoneNames = Codeplug != null
+                ? GetHiddenResourceZoneSet()
+                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            PruneHiddenZoneSelectedResourceState(hiddenZoneNames);
             
             // Create a dictionary to map tab names to TabItems
             Dictionary<string, TabItem> tabNameToTabItem = new Dictionary<string, TabItem>();
             foreach (TabItem tab in resourceTabs.Items)
             {
+                if (IsHiddenZonesOverflowTab(tab))
+                    continue;
+
                 string tabName = null;
                 
-                // Check if header is a string (legacy) or a StackPanel (new custom header)
+                // Check if header is a string (legacy) or a custom panel header
                 if (tab.Header is string name)
                 {
                     tabName = name;
                 }
-                else if (tab.Header is StackPanel headerPanel)
+                else if (tab.Header is System.Windows.Controls.Panel headerPanel)
                 {
-                    // Extract text from the first TextBlock in the StackPanel
+                    // Extract text from the first TextBlock in the header panel
                     foreach (UIElement child in headerPanel.Children)
                     {
                         if (child is TextBlock textBlock)
@@ -837,7 +1428,7 @@ namespace dvmconsole
                 double systemOffsetY = 20;
                 
                 // load and initialize systems
-                foreach (var system in Codeplug.Systems)
+                foreach (var system in Codeplug.Systems ?? new List<Codeplug.System>())
                 {
                     SystemStatusBox systemStatusBox = new SystemStatusBox(system.Name, system.Address, system.Port);
                     if (settingsManager.SystemStatusPositions.TryGetValue(system.Name, out var position))
@@ -868,68 +1459,9 @@ namespace dvmconsole
                     }
 
                     // do we have aliases for this system?
-                    if (File.Exists(system.AliasPath))
-                        system.RidAlias = AliasTools.LoadAliases(system.AliasPath);
+                    LoadSystemAliases(system);
 
-                    fneSystemManager.AddFneSystem(system.Name, system, this);
-                    PeerSystem peer = fneSystemManager.GetFneSystem(system.Name);
-
-                    // hook FNE events
-                    peer.peer.PeerConnected += (sender, response) =>
-                    {
-                        Log.WriteLine("FNE Peer connected");
-                        Dispatcher.Invoke(() =>
-                        {
-                            EnableCommandControls();
-                            systemStatusBox.Background = ChannelBox.GREEN_GRADIENT;
-                            systemStatusBox.ConnectionState = "Connected";
-                        });
-                    };
-
-                    peer.peer.PeerDisconnected += (response) =>
-                    {
-                        Log.WriteLine("FNE Peer disconnected");
-                        Dispatcher.Invoke(() =>
-                        {
-                            DisableCommandControls();
-                            systemStatusBox.Background = ChannelBox.RED_GRADIENT;
-                            systemStatusBox.ConnectionState = "Disconnected";
-
-                            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
-                            {
-                                if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
-                                    continue;
-
-                                if (channel.IsReceiving || channel.IsReceivingEncrypted)
-                                {
-                                    channel.IsReceiving = false;
-                                    channel.PeerId = 0;
-                                    channel.RxStreamId = 0;
-
-                                    channel.IsReceivingEncrypted = false;
-                                    channel.Background = ChannelBox.BLUE_GRADIENT;
-                                    channel.VolumeMeterLevel = 0;
-                                    
-                                    // Update tab audio indicator
-                                    UpdateTabAudioIndicatorForChannel(channel);
-                                }
-                            }
-                        });
-                    };
-
-                    // start peer
-                    Task.Run(() =>
-                    {
-                        try
-                        {
-                            peer.Start();
-                        }
-                        catch (Exception ex)
-                        {
-                            MessageBox.Show($"Fatal error while connecting to server. {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                            Log.StackTrace(ex, false);
-                        }
-                    });
+                    RegisterFneConnection(system, systemStatusBox, autoStart: true);
 
                     if (!settingsManager.ShowSystemStatus)
                         systemStatusBox.Visibility = Visibility.Collapsed;
@@ -941,10 +1473,14 @@ namespace dvmconsole
             {
                 // Track offset per tab
                 Dictionary<TabItem, Point> tabOffsets = new Dictionary<TabItem, Point>();
+                Dictionary<TabItem, double> tabRowHeights = new Dictionary<TabItem, double>();
                 
                 // iterate through the codeplug zones and begin building channel widgets
-                foreach (var zone in Codeplug.Zones)
+                foreach (var zone in Codeplug.Zones ?? new List<Codeplug.Zone>())
                 {
+                    if (IsZoneHidden(zone, hiddenZoneNames))
+                        continue;
+
                     // Get the tab for this zone (zone name = tab name)
                     TabItem targetTab = defaultTab;
                     if (tabNameToTabItem.TryGetValue(zone.Name, out TabItem zoneTab))
@@ -953,108 +1489,205 @@ namespace dvmconsole
                     }
                     
                     // iterate through zone channels
-                    foreach (var channel in zone.Channels)
+                    foreach (var channel in zone.Channels ?? new List<Codeplug.Channel>())
                     {
                         // Get or create offset for this tab
                         if (!tabOffsets.ContainsKey(targetTab))
                         {
-                            tabOffsets[targetTab] = new Point(20, 20);
+                            tabOffsets[targetTab] = new Point(20, 140);
+                            tabRowHeights[targetTab] = 0;
                         }
                         Point tabOffset = tabOffsets[targetTab];
+                        double tabRowHeight = tabRowHeights.TryGetValue(targetTab, out double currentRowHeight) ? currentRowHeight : 0;
                         
                         // Get the canvas for this tab
                         Canvas targetCanvas = targetTab != null && tabCanvases.ContainsKey(targetTab) 
                             ? tabCanvases[targetTab] 
                             : channelsCanvas;
-                        
-                        ChannelBox channelBox = new ChannelBox(selectedChannelsManager, audioManager, channel.Name, channel.System, channel.Tgid, settingsManager.TogglePTTMode);
+
+                        ChannelBox channelBox = new ChannelBox(selectedChannelsManager, audioManager, channel, settingsManager.TogglePTTMode);
+                        channelBox.CardSize = ChannelBox.ParseCardSize(channel.CardSize);
                         channelBox.ChannelMode = channel.Mode.ToUpperInvariant();
-                        if (channel.GetAlgoId() != P25Defines.P25_ALGO_UNENCRYPT && channel.GetKeyId() > 0)
-                            channelBox.IsTxEncrypted = true;
+                        channelBox.IsRxOnly = channel.RxOnly;
+                        ApplyP25TransmitKey(channelBox, channel);
+                        channelBox.CanStartPtt = CanStartChannelPtt;
+                        channelBox.HasTransmitKey = () => channel.GetChannelMode() switch
+                        {
+                            Codeplug.ChannelMode.NXDN => HasNxdnKey(channel),
+                            Codeplug.ChannelMode.DMR => false,
+                            Codeplug.ChannelMode.Analog => true,
+                            _ => channelBox.Crypter.HasKey()
+                        };
 
-                        systemStatuses.Add(channel.Name, new SlotStatus());
+                        bool hasSelectableTxProtection = channel.HasSelectableTxProtection();
+                        channelBox.IsEncryptionSelectable = channel.SelectableEncryption && hasSelectableTxProtection;
+                        channelBox.IsTxEncrypted = hasSelectableTxProtection &&
+                            (!channelBox.IsEncryptionSelectable ||
+                             settingsManager.GetSelectableEncryptionState(
+                                 BuildSelectableEncryptionStateKey(channel.System, channel.Tgid),
+                                 defaultValue: true));
 
-                        if (settingsManager.ChannelPositions.TryGetValue(channel.Name, out var position))
+                        if (!string.IsNullOrWhiteSpace(channel.ResourceColor))
+                        {
+                            try
+                            {
+                                channelBox.ConfiguredIdleBackground =
+                                    (Brush)new BrushConverter().ConvertFrom(channel.ResourceColor);
+                            }
+                            catch
+                            {
+                                Log.WriteLine($"Invalid resourceColor '{channel.ResourceColor}' for channel {channel.Name}, using default color.");
+                            }
+                        }
+
+                        string statusKey = ResourceIdentity.Build(channel.System, channel.Tgid);
+                        if (!systemStatuses.ContainsKey(statusKey))
+                            systemStatuses.Add(statusKey, new SlotStatus());
+
+                        string channelResourceKey = ResourceIdentity.Build(channel.System, channel.Tgid);
+                        if (settingsManager.TryGetChannelPosition(channelResourceKey, channel.Name, out var position))
                         {
                             Canvas.SetLeft(channelBox, position.X);
                             Canvas.SetTop(channelBox, position.Y);
                         }
                         else
                         {
-                            Canvas.SetLeft(channelBox, tabOffset.X);
-                            Canvas.SetTop(channelBox, tabOffset.Y);
+                            double safeLeft = Math.Max(20, tabOffset.X);
+                            double safeTop = Math.Max(20, tabOffset.Y);
+
+                            Canvas.SetLeft(channelBox, safeLeft);
+                            Canvas.SetTop(channelBox, safeTop);
                         }
 
                         channelBox.PTTButtonClicked += ChannelBox_PTTButtonClicked;
-                        channelBox.PTTButtonPressed += ChannelBox_PTTButtonPressed;
-                        channelBox.PTTButtonReleased += ChannelBox_PTTButtonReleased;
                         channelBox.PageButtonClicked += ChannelBox_PageButtonClicked;
                         channelBox.HoldChannelButtonClicked += ChannelBox_HoldChannelButtonClicked;
+                        channelBox.SelectableEncryptionClicked += ChannelBox_SelectableEncryptionClicked;
 
                         // widget placement
                         channelBox.MouseRightButtonDown += ChannelBox_MouseRightButtonDown;
                         channelBox.MouseRightButtonUp += ChannelBox_MouseRightButtonUp;
                         channelBox.MouseMove += ChannelBox_MouseMove;
+                        channelBox.PreviewMouseLeftButtonDown += ChannelBox_PreviewMouseLeftButtonDown;
+                        channelBox.PreviewMouseMove += ChannelBox_PreviewMouseMove;
+                        channelBox.PreviewMouseLeftButtonUp += ChannelBox_PreviewMouseLeftButtonUp;
 
                         targetCanvas.Children.Add(channelBox);
                         if (targetTab != null)
                             elementToTabMap[channelBox] = targetTab;
 
                         // Update offset for next channel in this tab
-                        tabOffset.X += 269;
-                        if (tabOffset.X + 264 > targetCanvas.ActualWidth)
+                        double layoutWidth = 0;
+
+                        if (targetTab != null && tabScrollViewers.TryGetValue(targetTab, out ScrollViewer sv))
+                            layoutWidth = sv.ViewportWidth;
+
+                        if (layoutWidth < 200)
+                            layoutWidth = ActualWidth;
+
+                        if (layoutWidth < 200)
+                            layoutWidth = settingsManager.WindowWidth;
+
+                        if (layoutWidth < 200)
+                            layoutWidth = settingsManager.CanvasWidth;
+
+                        if (layoutWidth < 200)
+                            layoutWidth = 1200; // final fallback
+
+                        double channelWidth = channelBox.Width > 0 ? channelBox.Width : ChannelBox.NORMAL_CARD_WIDTH;
+                        double channelHeight = channelBox.Height > 0 ? channelBox.Height : ChannelBox.NORMAL_CARD_HEIGHT;
+                        tabRowHeight = Math.Max(tabRowHeight, channelHeight);
+
+                        tabOffset.X += channelWidth + 5;
+                        if (tabOffset.X + channelWidth > layoutWidth - 20)
                         {
                             tabOffset.X = 20;
-                            tabOffset.Y += 116;
+                            tabOffset.Y += tabRowHeight + 10;
+                            tabRowHeight = 0;
                         }
                         tabOffsets[targetTab] = tabOffset;
+                        tabRowHeights[targetTab] = tabRowHeight;
+                    }
+
+                    foreach (var stream in zone.WebStreams ?? new List<Codeplug.WebStream>())
+                    {
+                        if (string.IsNullOrWhiteSpace(stream.Name) || string.IsNullOrWhiteSpace(stream.Url))
+                            continue;
+
+                        if (!tabOffsets.ContainsKey(targetTab))
+                        {
+                            tabOffsets[targetTab] = new Point(20, 140);
+                            tabRowHeights[targetTab] = 0;
+                        }
+                        Point tabOffset = tabOffsets[targetTab];
+                        double tabRowHeight = tabRowHeights.TryGetValue(targetTab, out double currentRowHeight) ? currentRowHeight : 0;
+
+                        Canvas targetCanvas = targetTab != null && tabCanvases.ContainsKey(targetTab)
+                            ? tabCanvases[targetTab]
+                            : channelsCanvas;
+
+                        WebStreamChip streamChip = CreateWebStreamChip(stream);
+                        if (settingsManager.WebStreamPositions.TryGetValue(stream.Name, out var streamPosition))
+                        {
+                            Canvas.SetLeft(streamChip, streamPosition.X);
+                            Canvas.SetTop(streamChip, streamPosition.Y);
+                        }
+                        else
+                        {
+                            double safeLeft = Math.Max(20, tabOffset.X);
+                            double safeTop = Math.Max(20, tabOffset.Y);
+
+                            Canvas.SetLeft(streamChip, safeLeft);
+                            Canvas.SetTop(streamChip, safeTop);
+                        }
+
+                        streamChip.MouseRightButtonDown += ChannelBox_MouseRightButtonDown;
+                        streamChip.MouseRightButtonUp += ChannelBox_MouseRightButtonUp;
+                        streamChip.MouseMove += ChannelBox_MouseMove;
+                        streamChip.VolumeChanged += WebStreamChip_VolumeChanged;
+
+                        targetCanvas.Children.Add(streamChip);
+                        if (targetTab != null)
+                            elementToTabMap[streamChip] = targetTab;
+
+                        double layoutWidth = 0;
+                        if (targetTab != null && tabScrollViewers.TryGetValue(targetTab, out ScrollViewer sv))
+                            layoutWidth = sv.ViewportWidth;
+
+                        if (layoutWidth < 200)
+                            layoutWidth = ActualWidth;
+
+                        if (layoutWidth < 200)
+                            layoutWidth = settingsManager.WindowWidth;
+
+                        if (layoutWidth < 200)
+                            layoutWidth = settingsManager.CanvasWidth;
+
+                        if (layoutWidth < 200)
+                            layoutWidth = 1200;
+
+                        tabOffset.X += 188;
+                        tabRowHeight = Math.Max(tabRowHeight, 90);
+                        if (tabOffset.X + 178 > layoutWidth - 20)
+                        {
+                            tabOffset.X = 20;
+                            tabOffset.Y += tabRowHeight + 10;
+                            tabRowHeight = 0;
+                        }
+                        tabOffsets[targetTab] = tabOffset;
+                        tabRowHeights[targetTab] = tabRowHeight;
                     }
                 }
             }
 
-            // are we showing user configured alert tones?
-            if (settingsManager.ShowAlertTones && Codeplug != null)
-            {
-                // Add alert tones to the default/first tab
-                Canvas alertCanvas = defaultTab != null && tabCanvases.ContainsKey(defaultTab) 
-                    ? tabCanvases[defaultTab] 
-                    : channelsCanvas;
-                    
-                // iterate through the alert tones and begin building alert tone widges
-                foreach (var alertPath in settingsManager.AlertToneFilePaths)
-                {
-                    AlertTone alertTone = new AlertTone(alertPath);
-
-                    alertTone.OnAlertTone += SendAlertTone;
-
-                    // widget placement
-                    alertTone.MouseRightButtonDown += AlertTone_MouseRightButtonDown;
-                    alertTone.MouseRightButtonUp += AlertTone_MouseRightButtonUp;
-                    alertTone.MouseMove += AlertTone_MouseMove;
-
-                    if (settingsManager.AlertTonePositions.TryGetValue(alertPath, out var position))
-                    {
-                        Canvas.SetLeft(alertTone, position.X);
-                        Canvas.SetTop(alertTone, position.Y);
-                    }
-                    else
-                    {
-                        Canvas.SetLeft(alertTone, 20);
-                        Canvas.SetTop(alertTone, 20);
-                    }
-
-                    alertCanvas.Children.Add(alertTone);
-                    if (defaultTab != null)
-                        elementToTabMap[alertTone] = defaultTab;
-                }
-            }
+            LoadAlertToneWidgets(defaultTab);
 
             // initialize the playback channel - add to default tab
             Canvas playbackCanvas = defaultTab != null && tabCanvases.ContainsKey(defaultTab) 
                 ? tabCanvases[defaultTab] 
                 : channelsCanvas;
                 
-            playbackChannelBox = new ChannelBox(selectedChannelsManager, audioManager, PLAYBACKCHNAME, PLAYBACKSYS, PLAYBACKTG);
+            playbackChannelBox = new ChannelBox(selectedChannelsManager, audioManager);
             playbackChannelBox.ChannelMode = "Local";
             playbackChannelBox.HidePTTButton(); // playback box shouldn't have PTT
 
@@ -1081,7 +1714,343 @@ namespace dvmconsole
             if (defaultTab != null)
                 elementToTabMap[playbackChannelBox] = defaultTab;
 
+            UpdatePatchMemberIndicators(FilterPatchMemberships(currentPatchMemberships), patchGroupEnabledStates);
+            UpdateMultiSelectIndicators(FilterMultiSelectMemberships(currentPatchMemberships));
+            UpdateTarIndicators();
+            RefreshAllChannelConnectionVisuals();
+
+            RestoreSelectedChannels();
+            InitializeKeyboardShortcuts();
+            RestoreSelectedWebStreams();
+            RestoreRuntimeSelectedResourceSnapshot(activeChannelKeys, activeWebStreamNames, hiddenZoneNames);
             Cursor = Cursors.Arrow;
+        }
+
+        private WebStreamChip CreateWebStreamChip(Codeplug.WebStream stream)
+        {
+            WebStreamChip streamChip = new WebStreamChip
+            {
+                DisplayName = stream.Name?.Trim() ?? string.Empty,
+                StreamUrl = stream.Url?.Trim() ?? string.Empty,
+                AudioOutputKey = stream.Name?.Trim() ?? string.Empty,
+                AudioManager = audioManager,
+                AuthUsername = stream.AuthUsername?.Trim() ?? string.Empty,
+                AuthPassword = stream.AuthPassword ?? string.Empty,
+                IdleBackground = ParseWebStreamIdleBrush(stream.IdleColor)
+            };
+
+            bool hasSavedVolume = settingsManager.WebStreamVolumes.TryGetValue(streamChip.DisplayName, out double savedVolume);
+            streamChip.SetInitialVolume(hasSavedVolume ? savedVolume : 1.0);
+            streamChip.ApplyCurrentVolume();
+
+            return streamChip;
+        }
+
+        private static Brush ParseWebStreamIdleBrush(string color)
+        {
+            if (string.IsNullOrWhiteSpace(color))
+                return ChannelBox.BLUE_GRADIENT;
+
+            try
+            {
+                return (Brush)new BrushConverter().ConvertFrom(color.Trim());
+            }
+            catch
+            {
+                Log.WriteLine($"Invalid web stream idleColor '{color}', using default stream color.");
+                return ChannelBox.BLUE_GRADIENT;
+            }
+        }
+
+        private void StopAllWebStreams()
+        {
+            foreach (WebStreamChip streamChip in GetAllWebStreamChips().ToList())
+                streamChip.Stop();
+        }
+
+        private void StopAllTonePlayback()
+        {
+            foreach (ChannelBox channel in GetAllCanvases()
+                .SelectMany(canvas => canvas.Children.OfType<ChannelBox>())
+                .ToList())
+            {
+                StopTonePlaybackForChannel(channel, sendFallbackEndSignal: channel.PageState || channel.HoldState);
+            }
+        }
+
+        private void ClearRuntimeSelectedResourcesForWidgetRebuild()
+        {
+            bool previousSuppressPersistence = suppressSelectedResourcePersistence;
+            suppressSelectedResourcePersistence = true;
+            try
+            {
+                selectedChannelsManager.ClearSelections();
+            }
+            finally
+            {
+                suppressSelectedResourcePersistence = previousSuppressPersistence;
+            }
+        }
+
+        private IEnumerable<WebStreamChip> GetAllWebStreamChips()
+        {
+            return GetAllCanvases()
+                .SelectMany(canvas => canvas.Children.OfType<WebStreamChip>());
+        }
+
+        private void WebStreamChip_VolumeChanged(object sender, double volume)
+        {
+            if (sender is WebStreamChip streamChip)
+                settingsManager.UpdateWebStreamVolume(streamChip.DisplayName, volume);
+        }
+
+        private void RestoreSelectedWebStreams()
+        {
+            if (!settingsManager.RestoreSelectedChannelsOnStartup)
+                return;
+
+            if (settingsManager.SelectedWebStreams == null || settingsManager.SelectedWebStreams.Count == 0)
+                return;
+
+            HashSet<string> selectedStreams = new HashSet<string>(settingsManager.SelectedWebStreams, StringComparer.OrdinalIgnoreCase);
+            foreach (WebStreamChip streamChip in GetAllWebStreamChips())
+            {
+                if (!selectedStreams.Contains(streamChip.DisplayName))
+                    continue;
+
+                if (settingsManager.WebStreamVolumes.TryGetValue(streamChip.DisplayName, out double savedVolume))
+                    streamChip.SetInitialVolume(savedVolume);
+
+                streamChip.ApplyCurrentVolume();
+                streamChip.StartPlayback();
+            }
+        }
+
+        private List<string> CaptureActiveSelectedChannelKeys()
+        {
+            return GetSelectedChannelsForPersistence()
+                .Where(channel => !channel.IsLocalPlayback)
+                .Select(BuildChannelSelectionKey)
+                .Where(key => !string.IsNullOrWhiteSpace(key))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private List<string> CaptureActiveWebStreamNames()
+        {
+            return GetAllWebStreamChips()
+                .Where(stream => stream.IsActive)
+                .Select(stream => stream.DisplayName)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private void RestoreRuntimeSelectedResourceSnapshot(
+            IEnumerable<string> activeChannelKeys,
+            IEnumerable<string> activeWebStreamNames,
+            HashSet<string> hiddenZoneNames)
+        {
+            HashSet<string> hiddenChannelKeys = GetHiddenZoneChannelKeys(hiddenZoneNames);
+            HashSet<string> visibleActiveChannelKeys = new HashSet<string>(
+                (activeChannelKeys ?? Enumerable.Empty<string>())
+                    .Where(key => !string.IsNullOrWhiteSpace(key) && !hiddenChannelKeys.Contains(key.Trim()))
+                    .Select(key => key.Trim()),
+                StringComparer.OrdinalIgnoreCase);
+
+            if (visibleActiveChannelKeys.Count > 0)
+            {
+                bool previousSuppressPersistence = suppressSelectedResourcePersistence;
+                suppressSelectedResourcePersistence = true;
+                try
+                {
+                    foreach (ChannelBox channel in GetAllCanvases().SelectMany(canvas => canvas.Children.OfType<ChannelBox>()))
+                    {
+                        if (!visibleActiveChannelKeys.Contains(BuildChannelSelectionKey(channel)))
+                            continue;
+                        if (channel.IsSelected)
+                            continue;
+
+                        channel.IsSelected = true;
+                        selectedChannelsManager.AddSelectedChannel(channel);
+                        channel.ApplyCurrentVolume();
+                    }
+                }
+                finally
+                {
+                    suppressSelectedResourcePersistence = previousSuppressPersistence;
+                }
+            }
+
+            HashSet<string> hiddenWebStreamNames = GetHiddenZoneWebStreamNames(hiddenZoneNames);
+            HashSet<string> visibleActiveWebStreamNames = new HashSet<string>(
+                (activeWebStreamNames ?? Enumerable.Empty<string>())
+                    .Where(name => !string.IsNullOrWhiteSpace(name) && !hiddenWebStreamNames.Contains(name.Trim()))
+                    .Select(name => name.Trim()),
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (WebStreamChip streamChip in GetAllWebStreamChips())
+            {
+                if (!visibleActiveWebStreamNames.Contains(streamChip.DisplayName) || streamChip.IsActive)
+                    continue;
+
+                if (settingsManager.WebStreamVolumes.TryGetValue(streamChip.DisplayName, out double savedVolume))
+                    streamChip.SetInitialVolume(savedVolume);
+
+                streamChip.ApplyCurrentVolume();
+                streamChip.StartPlayback();
+            }
+        }
+
+        private string GetTabDisplayName(TabItem tab)
+        {
+            if (tab == null)
+                return "Tab 1";
+
+            if (tab.Header is string name && !string.IsNullOrWhiteSpace(name))
+                return name;
+
+            string headerText = GetHeaderText(tab.Header as DependencyObject);
+            if (!string.IsNullOrWhiteSpace(headerText))
+                return headerText;
+
+            return "Tab 1";
+        }
+
+        private string GetHeaderText(DependencyObject element)
+        {
+            if (element == null)
+                return null;
+
+            if (element is TextBlock textBlock && !string.IsNullOrWhiteSpace(textBlock.Text))
+                return textBlock.Text;
+
+            if (element is ContentControl contentControl)
+            {
+                if (contentControl.Content is string contentText && !string.IsNullOrWhiteSpace(contentText))
+                    return contentText;
+
+                if (contentControl.Content is DependencyObject contentElement)
+                {
+                    string text = GetHeaderText(contentElement);
+                    if (!string.IsNullOrWhiteSpace(text))
+                        return text;
+                }
+            }
+
+            if (element is System.Windows.Controls.Panel panel)
+            {
+                foreach (UIElement child in panel.Children)
+                {
+                    string text = GetHeaderText(child);
+                    if (!string.IsNullOrWhiteSpace(text))
+                        return text;
+                }
+            }
+
+            int childCount = VisualTreeHelper.GetChildrenCount(element);
+            for (int i = 0; i < childCount; i++)
+            {
+                string text = GetHeaderText(VisualTreeHelper.GetChild(element, i));
+                if (!string.IsNullOrWhiteSpace(text))
+                    return text;
+            }
+
+            return null;
+        }
+
+        private List<string> GetAlertToneTabNames()
+        {
+            List<string> tabNames = resourceTabs.Items
+                .OfType<TabItem>()
+                .Where(tab => !IsHiddenZonesOverflowTab(tab))
+                .Select(GetTabDisplayName)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (tabNames.Count == 0)
+                tabNames.Add("Tab 1");
+
+            return tabNames;
+        }
+
+        private Dictionary<string, TabItem> GetTabLookup()
+        {
+            return resourceTabs.Items
+                .OfType<TabItem>()
+                .Where(tab => !IsHiddenZonesOverflowTab(tab))
+                .GroupBy(GetTabDisplayName, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        }
+
+        private void LoadAlertToneWidgets(TabItem defaultTab = null)
+        {
+            if (!settingsManager.ShowAlertTones || Codeplug == null)
+                return;
+
+            Dictionary<string, TabItem> tabLookup = GetTabLookup();
+            TabItem fallbackTab = defaultTab ?? resourceTabs.Items.OfType<TabItem>().FirstOrDefault();
+
+            foreach (SettingsManager.AlertToneConfig alertToneConfig in settingsManager.GetAlertToneConfigs())
+            {
+                if (string.IsNullOrWhiteSpace(alertToneConfig?.FilePath))
+                    continue;
+                if (!string.IsNullOrWhiteSpace(alertToneConfig.TabName) &&
+                    settingsManager.IsResourceZoneHidden(alertToneConfig.TabName))
+                    continue;
+
+                AlertTone alertTone = new AlertTone(alertToneConfig.Id, alertToneConfig.FilePath, alertToneConfig.DisplayName);
+                alertTone.OnAlertTone += SendAlertTone;
+                alertTone.MouseRightButtonDown += AlertTone_MouseRightButtonDown;
+                alertTone.MouseRightButtonUp += AlertTone_MouseRightButtonUp;
+                alertTone.MouseMove += AlertTone_MouseMove;
+
+                if (alertToneConfig.Position != null)
+                {
+                    Canvas.SetLeft(alertTone, alertToneConfig.Position.X);
+                    Canvas.SetTop(alertTone, alertToneConfig.Position.Y);
+                }
+                else
+                {
+                    Canvas.SetLeft(alertTone, 20);
+                    Canvas.SetTop(alertTone, 20);
+                }
+
+                TabItem targetTab = fallbackTab;
+                if (!string.IsNullOrWhiteSpace(alertToneConfig.TabName) &&
+                    tabLookup.TryGetValue(alertToneConfig.TabName, out TabItem assignedTab))
+                {
+                    targetTab = assignedTab;
+                }
+
+                Canvas targetCanvas = targetTab != null && tabCanvases.ContainsKey(targetTab)
+                    ? tabCanvases[targetTab]
+                    : channelsCanvas;
+
+                targetCanvas.Children.Add(alertTone);
+                if (targetTab != null)
+                    elementToTabMap[alertTone] = targetTab;
+            }
+        }
+
+        private void ClearAlertToneWidgets()
+        {
+            foreach (Canvas canvas in GetAllCanvases())
+            {
+                List<AlertTone> tones = canvas.Children.OfType<AlertTone>().ToList();
+                foreach (AlertTone tone in tones)
+                {
+                    canvas.Children.Remove(tone);
+                    elementToTabMap.Remove(tone);
+                }
+            }
+        }
+
+        private void RefreshAlertToneWidgets()
+        {
+            ClearAlertToneWidgets();
+            LoadAlertToneWidgets(resourceTabs.Items.OfType<TabItem>().FirstOrDefault());
         }
 
         /// <summary>
@@ -1089,12 +2058,12 @@ namespace dvmconsole
         /// </summary>
         private void SelectedChannelsChanged()
         {
-            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
+            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels().ToList())
             {
-                if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                if (channel.IsLocalPlayback)
                     continue;
 
-                Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
+                Codeplug.System system = Codeplug.GetSystemForChannel(channel.ConfiguredChannel);
                 if (system == null)
                 {
                     MessageBox.Show($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -1103,7 +2072,7 @@ namespace dvmconsole
                     continue;
                 }
 
-                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
+                Codeplug.Channel cpgChannel = channel.ConfiguredChannel;
                 if (cpgChannel == null)
                 {
                     // bryanb: this should actually never happen...
@@ -1116,6 +2085,12 @@ namespace dvmconsole
                 PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
                 if (fne == null)
                 {
+                    if (TryHandleDisconnectedFneEndpoint(channel, system, $"Selected channel {channel.ChannelName}"))
+                    {
+                        channel.ApplyCurrentVolume();
+                        continue;
+                    }
+
                     MessageBox.Show($"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {PLEASE_RESTART_CONSOLE}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                     channel.IsSelected = false;
                     selectedChannelsManager.RemoveSelectedChannel(channel);
@@ -1123,87 +2098,891 @@ namespace dvmconsole
                 }
 
                 // is the channel selected?
-                if (channel.IsSelected)
+                  if (channel.IsSelected)
+                  {
+                      channel.ApplyCurrentVolume();
+
+                      // if the channel is configured for encryption request the key from the FNE
+                      if (cpgChannel.HasEncryptionConfig() && cpgChannel.GetKeyId() != 0)
+                      {
+                          if (ApplyP25TransmitKey(channel, cpgChannel))
+                              continue;
+
+                          // DMR and NXDN use protocol-specific keyrings but share the FNE key service.
+                          if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN &&
+                              (cpgChannel.GetKeyRequestAlgoId() == 0 || HasNxdnKey(cpgChannel)))
+                              continue;
+                          if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                              continue;
+
+                          if (isRestoringSelectedChannelsOnStartup)
+                          {
+                              QueueStartupKeyRequest(system.Name, cpgChannel.GetKeyRequestAlgoId(), cpgChannel.GetKeyId());
+                          }
+                          else if (GetFneConnectionEntry(system.Name)?.IsConnected == true)
+                          {
+                              TrySendMasterKeyRequest(fne, system, cpgChannel.GetKeyRequestAlgoId(), cpgChannel.GetKeyId());
+                          }
+                          else
+                          {
+                              Log.WriteWarning($"({system.Name}) Deferring key request for {channel.ChannelName} until FNE is connected.");
+                              QueueStartupKeyRequest(system.Name, cpgChannel.GetKeyRequestAlgoId(), cpgChannel.GetKeyId());
+                          }
+                      }
+                  }
+            }
+
+            if (!isRestoringSelectedChannelsOnStartup && !suppressSelectedResourcePersistence)
+                PersistSelectedResourceState();
+        }
+
+        private void RestoreSelectedChannels()
+        {
+            if (!settingsManager.RestoreSelectedChannelsOnStartup)
+                return;
+
+            if (settingsManager.SelectedChannels == null || settingsManager.SelectedChannels.Count == 0)
+                return;
+
+            isRestoringSelectedChannelsOnStartup = true;
+            try
+            {
+                foreach (var canvas in GetAllCanvases())
                 {
-                    // if the channel is configured for encryption request the key from the FNE
-                    uint newTgid = uint.Parse(cpgChannel.Tgid);
-                    if (cpgChannel.GetAlgoId() != 0 && cpgChannel.GetKeyId() != 0)
+                    foreach (ChannelBox channel in canvas.Children.OfType<ChannelBox>())
                     {
-                        fne.peer.SendMasterKeyRequest(cpgChannel.GetAlgoId(), cpgChannel.GetKeyId());
-                        if (Codeplug.KeyFile != null)
+                        if (channel.IsLocalPlayback)
+                            continue;
+
+                        string resourceKey = BuildChannelSelectionKey(channel);
+                        if (settingsManager.SelectedChannels.Contains(resourceKey, StringComparer.OrdinalIgnoreCase) ||
+                            settingsManager.SelectedChannels.Contains(channel.ChannelName, StringComparer.OrdinalIgnoreCase))
                         {
-                            if (!File.Exists(Codeplug.KeyFile))
-                            {
-                                MessageBox.Show($"Key file {Codeplug.KeyFile} not found. {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                            }
-                            else
-                            {
-                                var deserializer = new DeserializerBuilder()
-                                    .WithNamingConvention(CamelCaseNamingConvention.Instance)
-                                    .IgnoreUnmatchedProperties()
-                                    .Build();
-                                var keys = deserializer.Deserialize<KeyContainer>(File.ReadAllText(Codeplug.KeyFile));
-                                var KeysetItems = new Dictionary<int, KeysetItem>();
+                            if (settingsManager.TryGetChannelVolume(channel.ChannelSettingsKey, channel.ChannelName, out double savedChannelVolume))
+                                channel.SetInitialVolume(savedChannelVolume);
 
-                                foreach (var keyEntry in keys.Keys)
-                                {
-                                    var keyItem = new KeyItem();
-                                    keyItem.KeyId = keyEntry.KeyId;
-                                    var keyBytes = keyEntry.KeyBytes;
-                                    keyItem.SetKey(keyBytes,(uint)keyBytes.Length);
-                                    if (!KeysetItems.ContainsKey(keyEntry.AlgId))
-                                    {
-                                        var asByte = (byte)keyEntry.AlgId;
-                                        KeysetItems.Add(keyEntry.AlgId, new KeysetItem() { AlgId = asByte });
-                                    }
-
-
-                                    KeysetItems[keyEntry.AlgId].AddKey(keyItem);
-                                }
-
-                                foreach (var eventData in KeysetItems.Select(keyValuePair => keyValuePair.Value).Select(keysetItem => new KeyResponseEvent(0, new KmmModifyKey
-                                         {
-                                             AlgId = 0,
-                                             KeyId = 0,
-                                             MessageId = 0,
-                                             MessageLength = 0,
-                                             KeysetItem = keysetItem
-                                         }, [])))
-                                {
-                                    KeyResponseReceived(eventData);
-                                }
-                            }
+                            channel.IsSelected = true;
+                            selectedChannelsManager.AddSelectedChannel(channel);
+                            channel.ApplyCurrentVolume();
                         }
                     }
                 }
             }
+            finally
+            {
+                isRestoringSelectedChannelsOnStartup = false;
+            }
         }
-
         /// <summary>
         /// Helper to reset channel states.
         /// </summary>
         /// <param name="e"></param>
         private void ResetChannel(ChannelBox e)
         {
-            // reset values
-            e.p25SeqNo = 0;
-            e.p25N = 0;
+            StopOperatorPtt(e);
+            e.PatchForwardStreamId = 0;
+            lock (e.P25Sync)
+            {
+                if (e.TxStreamId != 0)
+                    e.P25EndedStreamId = e.TxStreamId;
+                e.P25FailedStreamId = 0;
+                e.P25CryptoStreamId = 0;
+                Array.Clear(e.P25TxMi);
+                e.p25SeqNo = 0;
+                e.p25N = 0;
+                e.pktSeq = 0;
+                e.ToneDetector.Reset();
+            }
+            lock (e.AnalogSync)
+            {
+                EndAnalogTransmission(e);
+                e.AnalogFailedStreamId = 0;
+                e.TxStreamId = 0;
+            }
+            lock (e.DmrSync)
+            {
+                EndDmrTransmission(e);
+                e.DmrFailedStreamId = 0;
+            }
+            lock (e.NxdnSync)
+            {
+                EndNxdnTransmission(e);
+                e.TxStreamId = 0;
+                e.NxdnFailedStreamId = 0;
+            }
+        }
 
-            e.dmrSeqNo = 0;
-            e.dmrN = 0;
+        private static GeneratedTonePayload BuildLegacyAlertTonePayload(int alertNumber)
+        {
+            List<GeneratedToneStep> steps = new List<GeneratedToneStep>();
 
-            e.pktSeq = 0;
+            switch (alertNumber)
+            {
+                case 1:
+                    steps.Add(GeneratedToneStep.Tone(LEGACY_ALERT_TONE_FREQUENCY_HZ, LEGACY_ALERT_TONE_DURATION_MS));
+                    break;
 
-            e.TxStreamId = 0;
+                case 2:
+                    AddAlternatingToneSteps(
+                        steps,
+                        LEGACY_ALERT_TONE_ALT_HIGH_HZ,
+                        LEGACY_ALERT_TONE_ALT_LOW_HZ,
+                        LEGACY_ALERT_TONE_STEP_MS,
+                        LEGACY_ALERT_TONE_DURATION_MS);
+                    break;
+
+                case 3:
+                    AddPulsedToneSteps(
+                        steps,
+                        LEGACY_ALERT_TONE_FREQUENCY_HZ,
+                        LEGACY_ALERT_TONE_STEP_MS,
+                        LEGACY_ALERT_TONE_STEP_MS,
+                        LEGACY_ALERT_TONE_DURATION_MS);
+                    break;
+
+                case 4:
+                    AddAlternatingToneSteps(
+                        steps,
+                        LEGACY_ALERT_TONE_FAST_ALT_HIGH_HZ,
+                        LEGACY_ALERT_TONE_FAST_ALT_LOW_HZ,
+                        LEGACY_ALERT_TONE_FAST_STEP_MS,
+                        LEGACY_ALERT_TONE_DURATION_MS);
+                    break;
+
+                case 5:
+                    AddAlternatingToneSteps(
+                        steps,
+                        LEGACY_ALERT_TONE_EVENT_LOW_HZ,
+                        LEGACY_ALERT_TONE_EVENT_HIGH_HZ,
+                        LEGACY_ALERT_TONE_STEP_MS,
+                        LEGACY_ALERT_TONE_DURATION_MS);
+                    break;
+
+                case 6:
+                    AddAlternatingToneSteps(
+                        steps,
+                        LEGACY_ALERT_TONE_WARBLE_LOW_HZ,
+                        LEGACY_ALERT_TONE_WARBLE_HIGH_HZ,
+                        LEGACY_ALERT_TONE_FAST_STEP_MS,
+                        LEGACY_ALERT_TONE_DURATION_MS);
+                    break;
+
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(alertNumber), "Unsupported built-in alert tone.");
+            }
+
+            return BuildGeneratedTonePayload(steps, GENERATED_ALERT_TONE_AMPLITUDE, ALERT_TONE_LEAD_IN_MS, ALERT_TONE_TAIL_MS);
+        }
+
+        private static void AddAlternatingToneSteps(
+            IList<GeneratedToneStep> steps,
+            double firstFrequencyHz,
+            double secondFrequencyHz,
+            double stepMs,
+            double durationMs)
+        {
+            double remainingMs = durationMs;
+            bool useFirstFrequency = true;
+
+            while (remainingMs > 0)
+            {
+                double currentStepMs = Math.Min(stepMs, remainingMs);
+                steps.Add(GeneratedToneStep.Tone(
+                    useFirstFrequency ? firstFrequencyHz : secondFrequencyHz,
+                    currentStepMs));
+                remainingMs -= currentStepMs;
+                useFirstFrequency = !useFirstFrequency;
+            }
+        }
+
+        private static void AddPulsedToneSteps(
+            IList<GeneratedToneStep> steps,
+            double frequencyHz,
+            double toneMs,
+            double silenceMs,
+            double durationMs)
+        {
+            double remainingMs = durationMs;
+
+            while (remainingMs > 0)
+            {
+                double currentToneMs = Math.Min(toneMs, remainingMs);
+                steps.Add(GeneratedToneStep.Tone(frequencyHz, currentToneMs));
+                remainingMs -= currentToneMs;
+
+                if (remainingMs <= 0)
+                    break;
+
+                double currentSilenceMs = Math.Min(silenceMs, remainingMs);
+                steps.Add(GeneratedToneStep.Silence(currentSilenceMs));
+                remainingMs -= currentSilenceMs;
+            }
+        }
+
+        private static GeneratedTonePayload BuildChannelHoldTonePayload()
+        {
+            return BuildGeneratedTonePayload(
+                new[] { GeneratedToneStep.Tone(GENERATED_HOLD_TONE_FREQUENCY_HZ, GENERATED_HOLD_TONE_MS) },
+                GENERATED_HOLD_TONE_AMPLITUDE,
+                ALERT_TONE_LEAD_IN_MS,
+                ALERT_TONE_TAIL_MS);
+        }
+
+        private static GeneratedTonePayload BuildGeneratedTonePayload(
+            IEnumerable<GeneratedToneStep> contentSteps,
+            double amplitude,
+            int leadInMs,
+            int tailMs)
+        {
+            List<GeneratedToneStep> steps = new List<GeneratedToneStep>();
+
+            if (leadInMs > 0)
+                steps.Add(GeneratedToneStep.Silence(leadInMs));
+
+            steps.AddRange((contentSteps ?? Enumerable.Empty<GeneratedToneStep>())
+                .Where(step => step != null && step.DurationMs > 0));
+
+            if (tailMs > 0)
+                steps.Add(GeneratedToneStep.Silence(tailMs));
+
+            if (steps.Count == 0)
+                return new GeneratedTonePayload();
+
+            ToneGenerator generator = new ToneGenerator();
+            try
+            {
+                List<byte[]> buffers = new List<byte[]>();
+                List<GeneratedToneStep> resolvedSteps = new List<GeneratedToneStep>();
+
+                foreach (GeneratedToneStep step in steps)
+                {
+                    int byteCount = GetAlertToneByteCount(step.DurationMs);
+                    byte[] stepPcm = BuildGeneratedToneStepPcm(generator, step, amplitude, byteCount);
+                    buffers.Add(stepPcm);
+                    resolvedSteps.Add(step);
+                }
+
+                byte[] pcmData = new byte[buffers.Sum(buffer => buffer.Length)];
+                int offset = 0;
+                foreach (byte[] buffer in buffers)
+                {
+                    Buffer.BlockCopy(buffer, 0, pcmData, offset, buffer.Length);
+                    offset += buffer.Length;
+                }
+
+                if (pcmData.Length % PCM_SAMPLES_LENGTH != 0)
+                {
+                    int paddedLength = ((pcmData.Length + PCM_SAMPLES_LENGTH - 1) / PCM_SAMPLES_LENGTH) * PCM_SAMPLES_LENGTH;
+                    Array.Resize(ref pcmData, paddedLength);
+                }
+
+                return new GeneratedTonePayload
+                {
+                    PcmData = pcmData,
+                    P25ToneFrequenciesByFrame = BuildP25ToneFrequenciesByFrame(resolvedSteps, pcmData.Length),
+                    SuppressP25ToneDetectionByFrame = BuildSuppressP25ToneDetectionByFrame(resolvedSteps, pcmData.Length)
+                };
+            }
+            finally
+            {
+                generator.Dispose();
+            }
+        }
+
+        private static byte[] BuildGeneratedToneStepPcm(
+            ToneGenerator generator,
+            GeneratedToneStep step,
+            double amplitude,
+            int byteCount)
+        {
+            if (step.IsSilence)
+                return new byte[byteCount];
+
+            double durationSeconds = byteCount / (double)ALERT_TONE_PCM_BYTES_PER_MS / 1000.0;
+            byte[] pcmData = step.IsDualTone
+                ? generator.GenerateDualTone(step.FrequencyHz, step.SecondaryFrequencyHz.Value, durationSeconds, amplitude)
+                : generator.GenerateTone(step.FrequencyHz, durationSeconds, amplitude);
+            if (pcmData.Length == byteCount)
+                return pcmData;
+
+            byte[] alignedData = new byte[byteCount];
+            Buffer.BlockCopy(pcmData, 0, alignedData, 0, Math.Min(pcmData.Length, alignedData.Length));
+            return alignedData;
+        }
+
+        private static ushort?[] BuildP25ToneFrequenciesByFrame(IReadOnlyList<GeneratedToneStep> steps, int pcmByteCount)
+        {
+            int frameCount = pcmByteCount / PCM_SAMPLES_LENGTH;
+            ushort?[] frequencies = new ushort?[frameCount];
+
+            for (int frame = 0; frame < frameCount; frame++)
+            {
+                GeneratedToneStep step = GetGeneratedToneStepForFrame(steps, frame);
+                frequencies[frame] = step == null || step.IsSilence || step.IsDualTone
+                    ? null
+                    : (ushort)Math.Clamp((int)Math.Round(step.FrequencyHz), 1, 4000);
+            }
+
+            return frequencies;
+        }
+
+        private static bool[] BuildSuppressP25ToneDetectionByFrame(IReadOnlyList<GeneratedToneStep> steps, int pcmByteCount)
+        {
+            int frameCount = pcmByteCount / PCM_SAMPLES_LENGTH;
+            bool[] suppress = new bool[frameCount];
+
+            for (int frame = 0; frame < frameCount; frame++)
+            {
+                GeneratedToneStep step = GetGeneratedToneStepForFrame(steps, frame);
+                suppress[frame] = step?.IsDualTone == true;
+            }
+
+            return suppress;
+        }
+
+        private static GeneratedToneStep GetGeneratedToneStepForFrame(IReadOnlyList<GeneratedToneStep> steps, int frameIndex)
+        {
+            if (steps == null || steps.Count == 0)
+                return null;
+
+            double frameCenterMs = ((frameIndex * PCM_SAMPLES_LENGTH) + (PCM_SAMPLES_LENGTH / 2.0)) / ALERT_TONE_PCM_BYTES_PER_MS;
+            double elapsedMs = 0;
+
+            foreach (GeneratedToneStep step in steps)
+            {
+                elapsedMs += step.DurationMs;
+                if (frameCenterMs < elapsedMs)
+                    return step;
+            }
+
+            return steps.LastOrDefault();
+        }
+
+        private static byte[] AddAlertToneTransmitPadding(byte[] pcmData)
+        {
+            if (pcmData == null || pcmData.Length == 0)
+                return pcmData;
+
+            // Keep padding aligned to the 20 ms vocoder frame size so silence does not split a frame with tone audio.
+            int leadInBytes = GetAlertToneFrameAlignedByteCount(ALERT_TONE_LEAD_IN_MS);
+            int tailBytes = GetAlertToneFrameAlignedByteCount(ALERT_TONE_TAIL_MS);
+            byte[] paddedData = new byte[leadInBytes + pcmData.Length + tailBytes];
+            Buffer.BlockCopy(pcmData, 0, paddedData, leadInBytes, pcmData.Length);
+            return paddedData;
+        }
+
+        private static byte[] AddToneStackTransmitPadding(byte[] pcmData)
+        {
+            if (pcmData == null || pcmData.Length == 0)
+                return pcmData;
+
+            int leadInBytes = GetAlertToneFrameAlignedByteCount(TONE_STACK_LEAD_IN_MS);
+            int tailBytes = GetAlertToneFrameAlignedByteCount(TONE_STACK_TAIL_MS);
+            byte[] paddedData = new byte[leadInBytes + pcmData.Length + tailBytes];
+            Buffer.BlockCopy(pcmData, 0, paddedData, leadInBytes, pcmData.Length);
+            return paddedData;
+        }
+
+        private static int GetAlertToneFrameAlignedByteCount(int durationMs)
+        {
+            int byteCount = durationMs * ALERT_TONE_PCM_BYTES_PER_MS;
+            return ((byteCount + PCM_SAMPLES_LENGTH - 1) / PCM_SAMPLES_LENGTH) * PCM_SAMPLES_LENGTH;
+        }
+
+        private static int GetAlertToneByteCount(double durationMs)
+        {
+            return Math.Max(0, (int)Math.Round(durationMs * ALERT_TONE_PCM_BYTES_PER_MS));
+        }
+
+        private static byte[] NormalizeAlertTonePcm(byte[] pcmData)
+        {
+            if (pcmData == null || pcmData.Length < 2)
+                return pcmData;
+
+            const double maxPcmAmplitude = 32768.0;
+            int sampleCount = pcmData.Length / 2;
+            double sumSquares = 0;
+            int peak = 0;
+
+            for (int i = 0; i + 1 < pcmData.Length; i += 2)
+            {
+                short sample = (short)(pcmData[i] | (pcmData[i + 1] << 8));
+                int absSample = Math.Abs((int)sample);
+
+                if (absSample > peak)
+                    peak = absSample;
+
+                double normalizedSample = sample / maxPcmAmplitude;
+                sumSquares += normalizedSample * normalizedSample;
+            }
+
+            double rms = Math.Sqrt(sumSquares / sampleCount);
+            if (rms < ALERT_TONE_MIN_RMS || peak == 0)
+                return pcmData;
+
+            double targetRms = DecibelsToLinear(ALERT_TONE_TARGET_RMS_DBFS);
+            double peakCeiling = DecibelsToLinear(ALERT_TONE_PEAK_CEILING_DBFS);
+            double peakLevel = peak / maxPcmAmplitude;
+
+            // Use one transparent gain stage: raise quiet tones toward target RMS, but never above the peak ceiling.
+            double gain = Math.Min(targetRms / rms, peakCeiling / peakLevel);
+            if (Math.Abs(gain - 1.0) < 0.001)
+                return pcmData;
+
+            byte[] normalizedData = new byte[pcmData.Length];
+            for (int i = 0; i + 1 < pcmData.Length; i += 2)
+            {
+                short sample = (short)(pcmData[i] | (pcmData[i + 1] << 8));
+                double scaled = Math.Round(sample * gain);
+                short normalizedSample = (short)Math.Max(short.MinValue, Math.Min(short.MaxValue, scaled));
+
+                normalizedData[i] = (byte)(normalizedSample & 0xFF);
+                normalizedData[i + 1] = (byte)((normalizedSample >> 8) & 0xFF);
+            }
+
+            if (pcmData.Length % 2 != 0)
+                normalizedData[pcmData.Length - 1] = pcmData[pcmData.Length - 1];
+
+            return normalizedData;
+        }
+
+        private static double DecibelsToLinear(double db)
+        {
+            return Math.Pow(10.0, db / 20.0);
+        }
+
+        private static byte[] PadPcmToFrameBoundary(byte[] pcmData)
+        {
+            if (pcmData == null || pcmData.Length == 0 || pcmData.Length % PCM_SAMPLES_LENGTH == 0)
+                return pcmData;
+
+            int totalChunks = (pcmData.Length + PCM_SAMPLES_LENGTH - 1) / PCM_SAMPLES_LENGTH;
+            byte[] paddedData = new byte[totalChunks * PCM_SAMPLES_LENGTH];
+            Buffer.BlockCopy(pcmData, 0, paddedData, 0, pcmData.Length);
+            return paddedData;
+        }
+
+        private string GetToneTransmitKey(ChannelBox channel)
+        {
+            if (!string.IsNullOrWhiteSpace(channel?.AudioOutputKey))
+                return channel.AudioOutputKey;
+
+            return BuildChannelSelectionKey(channel);
+        }
+
+        private CancellationTokenSource TryStartToneTransmitSession(ChannelBox channel)
+        {
+            if (isReloadingResources || isShuttingDown)
+                return null;
+            string key = GetToneTransmitKey(channel);
+            if (string.IsNullOrWhiteSpace(key))
+                return null;
+
+            lock (toneTransmitSync)
+            {
+                if (activeToneTransmitCancels.ContainsKey(key))
+                    return null;
+
+                CancellationTokenSource cancelSource = new CancellationTokenSource();
+                activeToneTransmitCancels[key] = cancelSource;
+                toneTransmitCompletions[cancelSource] = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                return cancelSource;
+            }
+        }
+
+        private void CompleteToneTransmitSession(ChannelBox channel, CancellationTokenSource cancelSource)
+        {
+            string key = GetToneTransmitKey(channel);
+            lock (toneTransmitSync)
+            {
+                if (!string.IsNullOrWhiteSpace(key) &&
+                    activeToneTransmitCancels.TryGetValue(key, out CancellationTokenSource currentCancelSource) &&
+                    ReferenceEquals(currentCancelSource, cancelSource))
+                {
+                    activeToneTransmitCancels.Remove(key);
+                }
+                if (cancelSource != null && toneTransmitCompletions.Remove(cancelSource, out TaskCompletionSource completion))
+                    completion.TrySetResult();
+            }
+
+            cancelSource?.Dispose();
+        }
+
+        private bool StopTonePlaybackForChannel(ChannelBox channel, bool sendFallbackEndSignal)
+        {
+            if (channel == null)
+                return false;
+
+            bool cancelledActiveTone = false;
+            string key = GetToneTransmitKey(channel);
+
+            lock (toneTransmitSync)
+            {
+                if (!string.IsNullOrWhiteSpace(key) &&
+                    activeToneTransmitCancels.TryGetValue(key, out CancellationTokenSource cancelSource))
+                {
+                    cancelledActiveTone = true;
+                    cancelSource.Cancel();
+                }
+            }
+
+            audioManager.StopOneShot(key);
+            channel.VolumeMeterLevel = 0;
+
+            if (!cancelledActiveTone && sendFallbackEndSignal)
+                TrySendToneEndSignal(channel);
+
+            return cancelledActiveTone;
+        }
+
+        private void TrySendToneEndSignal(ChannelBox channel)
+        {
+            if (channel == null)
+                return;
+
+            if (!TryResolveChannelEndpoint(channel, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne, out string endpointError))
+            {
+                Log.WriteWarning($"{endpointError} Tone stop end signal skipped.");
+                return;
+            }
+
+            if (!IsFneSystemConnected(system.Name))
+            {
+                Log.WriteWarning($"Tone stop end signal skipped for {channel.ChannelName}; FNE system '{system.Name}' is disconnected.");
+                return;
+            }
+
+            uint srcId = uint.Parse(cpgChannel.GetSourceRid(system));
+            if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                EndP25Transmission(channel, fne, cpgChannel, system, srcId, channel.TxStreamId, discardPending: true);
+            else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                EndDmrTransmission(channel);
+
+            ResetChannel(channel);
+        }
+
+        /// <summary>
+        /// Clears the UI-facing receive state for a channel and optionally resets the tracked slot status.
+        /// </summary>
+        private void ClearReceiveState(ChannelBox channel, SlotStatus slotStatus = null)
+        {
+            channel.RxHistory?.End(settingsManager.DarkMode);
+            channel.RxCall.End();
+            channel.ReceiveCrypto.Reset();
+            channel.DmrRx?.Dispose();
+            channel.DmrRx = null;
+            channel.NxdnRx?.Dispose();
+            channel.NxdnRx = null;
+            channel.IsReceiving = false;
+            channel.IsReceivingEncrypted = false;
+            channel.PeerId = 0;
+            channel.RxStreamId = 0;
+            channel.RxHistory = null;
+            channel.AnalogRxInverter = null;
+            channel.VolumeMeterLevel = 0;
+
+            if (slotStatus != null)
+            {
+                slotStatus.RxRFS = 0;
+                slotStatus.RxTGId = 0;
+                slotStatus.RxStreamId = 0;
+                slotStatus.RxType = FrameType.TERMINATOR;
+                slotStatus.DMR_RxLC = null;
+                slotStatus.DMR_RxPILC = null;
+                slotStatus.RxTime = DateTime.Now;
+            }
+        }
+
+        /// <summary>Closes the old call before its source, decoder or stream is replaced.</summary>
+        private void EndReceiveCall(ChannelBox channel, Codeplug.System system, Codeplug.Channel config,
+            SlotStatus status, DateTime endTime, bool discardAudio = false)
+        {
+            if (channel.RxStreamId != 0 && system != null && config != null)
+            {
+                EndTarRxRecordingFromChannelState(system, config, channel, status, endTime);
+                patchManager.HandleCallEnd(system.Name, config.Tgid, channel.RxStreamId);
+            }
+            ClearReceiveState(channel, status);
+            if (discardAudio)
+                audioManager.StopTalkgroupStream(channel.AudioOutputKey);
+            else
+                audioManager.ReleaseTalkgroupStream(channel.AudioOutputKey);
+            UpdateTabAudioIndicatorForChannel(channel);
+        }
+
+        /// <summary>
+        /// Stops local monitoring state for a deselected channel immediately.
+        /// </summary>
+        private void StopChannelMonitoring(ChannelBox channel)
+        {
+            if (channel == null)
+                return;
+            channel.ReleaseAllPttInputs();
+
+            Codeplug.Channel cpgChannel = channel.ConfiguredChannel;
+            Codeplug.System system = cpgChannel == null ? null : Codeplug?.GetSystemForChannel(channel.ConfiguredChannel);
+            SlotStatus slotStatus = FindActiveReceiveStatus(channel, cpgChannel);
+
+            StopGroupTransmissionsForChannel(channel);
+            StopTonePlaybackForChannel(channel, sendFallbackEndSignal: channel.PageState || channel.HoldState);
+            EndTarRxRecordingFromChannelState(system, cpgChannel, channel, slotStatus, DateTime.Now);
+            ClearReceiveState(channel, slotStatus);
+            audioManager.StopTalkgroupStream(channel.AudioOutputKey);
+            UpdateTabAudioIndicatorForChannel(channel);
+        }
+
+        private void SelectedChannelsManager_ChannelSelectionChanged(ChannelBox channel, bool isSelected)
+        {
+            if (channel == null)
+                return;
+
+            bool isPlaybackChannel = channel.IsLocalPlayback;
+            if (isPlaybackChannel)
+                return;
+
+            if (!isSelected)
+                StopChannelMonitoring(channel);
+
+            if (!isRestoringSelectedChannelsOnStartup && !suppressSelectedResourcePersistence)
+                PersistSelectedResourceState();
+        }
+
+        /// <summary>
+        /// Finds the active receive slot status that matches a channel's current receive stream.
+        /// </summary>
+        private SlotStatus FindActiveReceiveStatus(ChannelBox channel, Codeplug.Channel cpgChannel)
+        {
+            if (channel == null || cpgChannel == null)
+                return null;
+
+            string exactStatusKey = ResourceIdentity.Build(cpgChannel.System, cpgChannel.Tgid) +
+                (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN ? "|nxdn" :
+                 cpgChannel.GetChannelMode() == Codeplug.ChannelMode.Analog ? "|analog" : string.Empty);
+            if (systemStatuses.TryGetValue(exactStatusKey, out SlotStatus exactStatus) &&
+                (channel.RxStreamId == 0 || exactStatus.RxStreamId == channel.RxStreamId))
+            {
+                return exactStatus;
+            }
+
+            if (channel.RxStreamId == 0)
+                return null;
+
+            uint.TryParse(cpgChannel.Tgid, out uint talkgroupId);
+
+            string resourcePrefix = ResourceIdentity.Build(cpgChannel.System, cpgChannel.Tgid);
+            return systemStatuses.FirstOrDefault(kvp =>
+                (string.Equals(kvp.Key, resourcePrefix, StringComparison.OrdinalIgnoreCase) ||
+                 kvp.Key.StartsWith(resourcePrefix + "|slot:", StringComparison.OrdinalIgnoreCase)) &&
+                kvp.Value.RxStreamId == channel.RxStreamId &&
+                (talkgroupId == 0 || kvp.Value.RxTGId == talkgroupId)).Value;
         }
 
         /// <summary>
         /// 
         /// </summary>
         /// <param name="e"></param>
-        private void SendAlertTone(AlertTone e)
+        private async void SendAlertTone(AlertTone e)
         {
-            Task.Run(() => SendAlertTone(e.AlertFilePath));
+            await SendAlertToneAsync(e.AlertFilePath);
+        }
+
+        private void InitializeAlertToneScheduler()
+        {
+            alertToneScheduleTimer = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background)
+            {
+                Interval = TimeSpan.FromSeconds(15)
+            };
+            alertToneScheduleTimer.Tick += AlertToneScheduleTimer_Tick;
+            alertToneScheduleTimer.Start();
+        }
+
+        private void ShutdownAlertToneScheduler()
+        {
+            if (alertToneScheduleTimer == null)
+                return;
+
+            alertToneScheduleTimer.Stop();
+            alertToneScheduleTimer.Tick -= AlertToneScheduleTimer_Tick;
+            alertToneScheduleTimer = null;
+        }
+
+        private async void AlertToneScheduleTimer_Tick(object sender, EventArgs e)
+        {
+            if (alertToneScheduleCheckInProgress || isShuttingDown || isReloadingResources)
+                return;
+
+            alertToneScheduleCheckInProgress = true;
+            try
+            {
+                await ProcessDueAlertToneSchedulesAsync();
+            }
+            finally
+            {
+                alertToneScheduleCheckInProgress = false;
+            }
+        }
+
+        private async Task ProcessDueAlertToneSchedulesAsync()
+        {
+            if (Codeplug == null)
+                return;
+
+            List<SettingsManager.AlertToneScheduleConfig> schedules = settingsManager.GetAlertToneScheduleConfigs();
+            if (schedules.Count == 0)
+                return;
+
+            DateTime nowLocal = DateTime.Now;
+            foreach (string scheduleId in schedules
+                .Where(schedule => schedule.Enabled && schedule.NextRunLocal <= nowLocal)
+                .OrderBy(schedule => schedule.NextRunLocal).Select(schedule => schedule.Id).ToList())
+            {
+                if (isShuttingDown || isReloadingResources)
+                    break;
+
+                // A send yields to the editor. Re-read each entry rather than saving an old list.
+                schedules = settingsManager.GetAlertToneScheduleConfigs();
+                SettingsManager.AlertToneScheduleConfig schedule = schedules.FirstOrDefault(item => item.Id == scheduleId);
+                if (schedule == null || !schedule.Enabled || schedule.NextRunLocal > nowLocal)
+                    continue;
+
+                Dictionary<string, SettingsManager.AlertToneConfig> alertTones = settingsManager.GetAlertToneConfigs()
+                    .Where(tone => !string.IsNullOrWhiteSpace(tone.Id))
+                    .ToDictionary(tone => tone.Id, StringComparer.OrdinalIgnoreCase);
+                if (!alertTones.TryGetValue(schedule.AlertToneId, out SettingsManager.AlertToneConfig alertTone) ||
+                    string.IsNullOrWhiteSpace(alertTone.FilePath) ||
+                    !File.Exists(alertTone.FilePath))
+                {
+                    schedule.Enabled = false;
+                    settingsManager.SaveAlertToneScheduleConfigs(schedules);
+                    Log.WriteWarning($"Timed announcement '{schedule.DisplayName}' disabled because its alert tone file is missing.");
+                    continue;
+                }
+
+                if (IsHiddenResourceTarget(schedule.TargetResourceKey))
+                {
+                    AdvanceAlertToneSchedule(schedule, nowLocal);
+                    settingsManager.SaveAlertToneScheduleConfigs(schedules);
+                    Log.WriteWarning($"Timed announcement '{schedule.DisplayName}' skipped because its target resource is in a hidden zone.");
+                    continue;
+                }
+
+                ChannelBox targetChannel = FindAlertToneScheduleTarget(schedule.TargetResourceKey);
+                if (targetChannel == null)
+                {
+                    schedule.Enabled = false;
+                    settingsManager.SaveAlertToneScheduleConfigs(schedules);
+                    Log.WriteWarning($"Timed announcement '{schedule.DisplayName}' disabled because its target resource was not found.");
+                    continue;
+                }
+
+                // Consume this occurrence before awaiting audio so editor saves cannot rearm it.
+                schedule.LastRunUtc = DateTime.UtcNow;
+                AdvanceAlertToneSchedule(schedule, nowLocal);
+                settingsManager.SaveAlertToneScheduleConfigs(schedules);
+                bool sent = await SendAlertToneAsync(alertTone.FilePath, forHold: false, targetChannel);
+                if (sent)
+                {
+                    Log.WriteLine($"Timed announcement '{schedule.DisplayName}' sent to {targetChannel.ChannelName}.");
+                }
+                else
+                {
+                    // Preserve edits/deletions made while sending; only disable the claimed occurrence.
+                    schedules = settingsManager.GetAlertToneScheduleConfigs();
+                    SettingsManager.AlertToneScheduleConfig current = schedules.FirstOrDefault(item => item.Id == scheduleId);
+                    if (current != null && current.LastRunUtc == schedule.LastRunUtc &&
+                        current.NextRunLocal == schedule.NextRunLocal && current.Enabled == schedule.Enabled &&
+                        current.Mode == schedule.Mode && current.RepeatMinutes == schedule.RepeatMinutes &&
+                        current.AlertToneId == schedule.AlertToneId && current.TargetResourceKey == schedule.TargetResourceKey)
+                    {
+                        current.Enabled = false;
+                        settingsManager.SaveAlertToneScheduleConfigs(schedules);
+                    }
+                    Log.WriteWarning($"Timed announcement '{schedule.DisplayName}' was not sent: no eligible resource completed the transmission. Check the target and schedule before retrying.");
+                }
+            }
+        }
+
+        private bool IsHiddenResourceTarget(string targetResourceKey)
+        {
+            if (string.IsNullOrWhiteSpace(targetResourceKey) || Codeplug?.Zones == null)
+                return false;
+
+            HashSet<string> hiddenZoneNames = GetHiddenResourceZoneSet();
+            return GetHiddenZoneChannelKeys(hiddenZoneNames).Contains(targetResourceKey.Trim());
+        }
+
+        private ChannelBox FindAlertToneScheduleTarget(string targetResourceKey)
+        {
+            if (string.IsNullOrWhiteSpace(targetResourceKey))
+                return null;
+
+            return GetAllCanvases()
+                .SelectMany(canvas => canvas.Children.OfType<ChannelBox>())
+                .FirstOrDefault(channel =>
+                    IsAlertToneScheduleTargetEligible(channel) &&
+                    string.Equals(BuildChannelSelectionKey(channel), targetResourceKey, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static void AdvanceAlertToneSchedule(SettingsManager.AlertToneScheduleConfig schedule, DateTime nowLocal)
+        {
+            if (!string.Equals(schedule.Mode, SettingsManager.ALERT_TONE_SCHEDULE_MODE_RECURRING, StringComparison.OrdinalIgnoreCase))
+            {
+                schedule.Enabled = false;
+                return;
+            }
+
+            double repeatMinutes = Math.Max(SettingsManager.ALERT_TONE_SCHEDULE_MIN_REPEAT_MINUTES, schedule.RepeatMinutes);
+            DateTime nextRun = schedule.NextRunLocal;
+            do
+            {
+                nextRun = nextRun.AddMinutes(repeatMinutes);
+            }
+            while (nextRun <= nowLocal);
+
+            schedule.NextRunLocal = nextRun;
+            schedule.RepeatMinutes = repeatMinutes;
+        }
+
+        private async Task SendBuiltInAlertToneAsync(int alertNumber)
+        {
+            try
+            {
+                GeneratedTonePayload payload = BuildLegacyAlertTonePayload(alertNumber);
+                await SendGeneratedTonePayloadAsync(
+                    payload,
+                    GetAlertToneRequestedChannels(forHold: false, targetChannel: null),
+                    $"ALRT {alertNumber}",
+                    clearPageStateAfterSend: true,
+                    sendStartSignal: true,
+                    $"Alert Tone {alertNumber}",
+                    includeArmedGroups: true);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to generate alert tone: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                Log.StackTrace(ex, false);
+            }
+        }
+
+        private async Task SendGeneratedHoldToneAsync(IEnumerable<ChannelBox> channels)
+        {
+            try
+            {
+                GeneratedTonePayload payload = BuildChannelHoldTonePayload();
+                await SendGeneratedTonePayloadAsync(
+                    payload,
+                    channels,
+                    "HOLD TONE",
+                    clearPageStateAfterSend: false,
+                    sendStartSignal: true,
+                    "Channel Hold",
+                    forHold: true);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to generate channel hold tone: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                Log.StackTrace(ex, false);
+            }
         }
 
         /// <summary>
@@ -1211,162 +2990,812 @@ namespace dvmconsole
         /// </summary>
         /// <param name="filePath"></param>
         /// <param name="forHold"></param>
-        private void SendAlertTone(string filePath, bool forHold = false)
+        /// <param name="targetChannel"></param>
+        private void SendAlertTone(string filePath, bool forHold = false, ChannelBox targetChannel = null)
         {
-            if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
+            _ = SendAlertToneAsync(filePath, forHold, targetChannel);
+        }
+
+        private async Task<bool> SendAlertToneAsync(string filePath, bool forHold = false, ChannelBox targetChannel = null)
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                return await await Dispatcher.InvokeAsync(() => SendAlertToneAsync(filePath, forHold, targetChannel));
+            }
+
+            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+            {
+                MessageBox.Show("Alert file not set or file not found.", "Alert", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return false;
+            }
+
+            try
+            {
+                byte[] pcmData = LoadCustomAlertTonePcm(filePath);
+                return await SendGeneratedTonePcmAsync(
+                    pcmData,
+                    GetAlertToneRequestedChannels(forHold, targetChannel),
+                    "ALRT TONE",
+                    clearPageStateAfterSend: !forHold,
+                    sendStartSignal: !forHold,
+                    "Alert Tone",
+                    includeArmedGroups: !forHold && targetChannel == null);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to process alert tone: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                Log.StackTrace(ex, false);
+                return false;
+            }
+        }
+
+        private static byte[] LoadCustomAlertTonePcm(string filePath)
+        {
+            byte[] pcmData;
+
+            using (var waveReader = new WaveFileReader(filePath))
+            {
+                if (waveReader.WaveFormat.Encoding != WaveFormatEncoding.Pcm ||
+                    waveReader.WaveFormat.SampleRate != 8000 ||
+                    waveReader.WaveFormat.BitsPerSample != 16 ||
+                    waveReader.WaveFormat.Channels != 1)
+                {
+                    throw new InvalidOperationException("The alert tone must be PCM 16-bit, Mono, 8000Hz format.");
+                }
+
+                using (MemoryStream ms = new MemoryStream())
+                {
+                    waveReader.CopyTo(ms);
+                    pcmData = ms.ToArray();
+                }
+            }
+
+            pcmData = NormalizeAlertTonePcm(pcmData);
+            pcmData = AddAlertToneTransmitPadding(pcmData);
+            return PadPcmToFrameBoundary(pcmData);
+        }
+
+        private List<ChannelBox> GetAlertToneRequestedChannels(bool forHold, ChannelBox targetChannel = null)
+        {
+            ChannelBox primaryChannel = selectedChannelsManager.PrimaryChannel;
+
+            if (targetChannel != null)
+                return new List<ChannelBox> { targetChannel };
+
+            if (forHold)
+            {
+                return selectedChannelsManager.GetSelectedChannels()
+                    .Where(channel => channel.HoldState)
+                    .ToList();
+            }
+
+            List<ChannelBox> requestedChannels = selectedChannelsManager.GetSelectedChannels()
+                .Where(channel => channel.PageState)
+                .ToList();
+
+            requestedChannels.AddRange(GetActiveAlertToneGroupTargetChannels());
+
+            if (requestedChannels.Count == 0 && primaryChannel != null)
+                requestedChannels = new List<ChannelBox> { primaryChannel };
+
+            return requestedChannels;
+        }
+
+        private List<ChannelBox> ResolveAlertToneTransmitTargets(IEnumerable<ChannelBox> requestedChannels)
+        {
+            Dictionary<string, ChannelBox> targets = new Dictionary<string, ChannelBox>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (ChannelBox sourceChannel in requestedChannels ?? Enumerable.Empty<ChannelBox>())
+            {
+                if (sourceChannel == null)
+                    continue;
+                if (sourceChannel.IsLocalPlayback)
+                    continue;
+
+                AddAlertToneTarget(targets, sourceChannel);
+            }
+
+            return targets.Values.ToList();
+        }
+
+        private List<ChannelBox> GetActiveAlertToneGroupTargetChannels()
+        {
+            Dictionary<string, ChannelBox> targets = new Dictionary<string, ChannelBox>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (SettingsManager.PatchTalkgroupMember member in activeAlertToneGroupTargets.Values
+                .SelectMany(members => members ?? new List<SettingsManager.PatchTalkgroupMember>()))
+            {
+                if (string.IsNullOrWhiteSpace(member?.SystemName) || string.IsNullOrWhiteSpace(member?.Tgid))
+                    continue;
+                if (!TryResolvePatchEndpoint(member.SystemName, member.Tgid, out ChannelBox channelBox, out _, out _, out _))
+                    continue;
+
+                AddAlertToneTarget(targets, channelBox);
+            }
+
+            return targets.Values.ToList();
+        }
+
+        private bool IsAlertToneGroupTargetStillActive(SettingsManager.PatchTalkgroupMember member)
+        {
+            if (member == null)
+                return false;
+
+            string memberKey = BuildPatchTargetKey(member.SystemName, member.Tgid);
+            return activeAlertToneGroupTargets.Values
+                .SelectMany(members => members ?? new List<SettingsManager.PatchTalkgroupMember>())
+                .Any(activeMember => BuildPatchTargetKey(activeMember.SystemName, activeMember.Tgid)
+                    .Equals(memberKey, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private void AddAlertToneTarget(Dictionary<string, ChannelBox> targets, ChannelBox channel)
+        {
+            if (!IsGroupTransmitAllowed(channel))
+                return;
+
+            string key = BuildPatchTargetKey(channel.ResourceSystemName, channel.DstId);
+            if (!targets.ContainsKey(key))
+                targets[key] = channel;
+        }
+
+        private static bool IsGroupTransmitAllowed(ChannelBox channel)
+        {
+            return channel != null && channel.IsSelected && channel.IsEnabledForTransmit && !channel.IsLocalPlayback &&
+                !channel.IsRxOnly && channel.ConfiguredChannel?.RxOnly != true;
+        }
+
+        private async Task<bool> SendToneStackAsync(
+            IEnumerable<SettingsManager.TonePresetStep> steps,
+            IEnumerable<ChannelBox> requestedChannels,
+            string logLabel,
+            bool clearPageStateAfterSend,
+            bool sendStartSignal)
+        {
+            List<SettingsManager.TonePresetStep> toneSteps = NormalizeToneStackSteps(steps);
+            if (toneSteps.Count == 0)
+            {
+                MessageBox.Show("Tone preset has no valid steps.", "Tone Presets", MessageBoxButton.OK, MessageBoxImage.Information);
+                return false;
+            }
+
+            byte[] pcmData = BuildToneStackPcm(toneSteps);
+            return await SendGeneratedTonePcmAsync(
+                pcmData,
+                requestedChannels,
+                logLabel,
+                clearPageStateAfterSend,
+                sendStartSignal,
+                "Tone Presets",
+                includeArmedGroups: clearPageStateAfterSend);
+        }
+
+        private async Task<bool> SendGeneratedTonePcmAsync(
+            byte[] pcmData,
+            IEnumerable<ChannelBox> requestedChannels,
+            string logLabel,
+            bool clearPageStateAfterSend,
+            bool sendStartSignal,
+            string messageTitle,
+            bool includeArmedGroups = false)
+        {
+            return await SendGeneratedTonePayloadAsync(
+                new GeneratedTonePayload { PcmData = pcmData },
+                requestedChannels,
+                logLabel,
+                clearPageStateAfterSend,
+                sendStartSignal,
+                messageTitle,
+                includeArmedGroups: includeArmedGroups);
+        }
+
+        private async Task<bool> SendGeneratedTonePayloadAsync(
+            GeneratedTonePayload payload,
+            IEnumerable<ChannelBox> requestedChannels,
+            string logLabel,
+            bool clearPageStateAfterSend,
+            bool sendStartSignal,
+            string messageTitle,
+            bool forHold = false,
+            bool includeArmedGroups = false)
+        {
+            if (payload?.PcmData == null || payload.PcmData.Length == 0)
+                return false;
+
+            List<ChannelBox> requested = (requestedChannels ?? Enumerable.Empty<ChannelBox>())
+                .Where(channel => channel != null)
+                .ToList();
+            if (includeArmedGroups)
+                requested.AddRange(GetActiveAlertToneGroupTargetChannels());
+
+            if (requested.Count == 0)
+            {
+                MessageBox.Show("Select a resource before sending tones.", messageTitle, MessageBoxButton.OK, MessageBoxImage.Information);
+                return false;
+            }
+
+            List<ChannelBox> channelsToProcess = ResolveAlertToneTransmitTargets(requested);
+
+            List<ToneTransmitTarget> targets = new List<ToneTransmitTarget>();
+            foreach (ChannelBox channel in channelsToProcess)
+            {
+                if (channel.IsLocalPlayback)
+                    continue;
+                if (forHold && (!channel.IsEnabled || channel.IsReceiving || channel.PttState || channel.PageState))
+                    continue;
+
+                if (!TryResolveChannelEndpoint(channel, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne, out string endpointError))
+                {
+                    Log.WriteLine($"{endpointError} {ERR_SKIPPING_AUDIO}.");
+                    if (TryHandleDisconnectedFneEndpoint(channel, system, $"Tone target {channel.ChannelName}"))
+                    {
+                        channel.PageState = false;
+                        continue;
+                    }
+
+                    channel.IsSelected = false;
+                    selectedChannelsManager.RemoveSelectedChannel(channel);
+                    continue;
+                }
+
+                Action<ChannelBox> rollback = forHold
+                    ? current => current.HoldState = false
+                    : current => current.PageState = false;
+                if (!ValidateFneConnectionAvailable(system.Name, channel, rollback))
+                    continue;
+
+                if (!ValidateTalkgroupAvailability(fne, cpgChannel, channel, rollback))
+                    continue;
+
+                if (!ValidateP25Transmit(cpgChannel, channel))
+                {
+                    rollback(channel);
+                    continue;
+                }
+
+                if (channel.TxStreamId != 0)
+                {
+                    Log.WriteWarning($"{channel.ChannelName} CHANNEL already has active stream {channel.TxStreamId}; skipping tone stack.");
+                    continue;
+                }
+
+                targets.Add(new ToneTransmitTarget
+                {
+                    Channel = channel,
+                    CodeplugChannel = cpgChannel,
+                    CodeplugSystem = system,
+                    Fne = fne
+                });
+            }
+
+            List<ToneTransmitGroupSession> groups = includeArmedGroups
+                ? BeginToneTransmitGroups(channelsToProcess)
+                : new List<ToneTransmitGroupSession>();
+            try
+            {
+                if (targets.Count == 0)
+                {
+                    Log.WriteWarning($"{logLabel} skipped: no eligible transmit resources.");
+                    return false;
+                }
+
+                ApplyRxPlaybackMuteForTransmitStart();
+                bool[] results = await Task.WhenAll(targets.Select(target => TransmitTonePayloadToTargetAsync(payload, target, logLabel, clearPageStateAfterSend, sendStartSignal, groups)));
+                return results.Any(sent => sent);
+            }
+            finally
+            {
+                CompleteToneTransmitGroups(groups);
+            }
+        }
+
+        private List<ToneTransmitGroupSession> BeginToneTransmitGroups(IEnumerable<ChannelBox> channels)
+        {
+            List<ToneTransmitGroupSession> sessions = new List<ToneTransmitGroupSession>();
+            foreach (var group in activeAlertToneGroupTargets)
+            {
+                if (activeToneTransmitGroups.ContainsKey(group.Key))
+                    continue;
+
+                HashSet<string> memberKeys = group.Value.Select(member => BuildPatchTargetKey(member.SystemName, member.Tgid))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                HashSet<ChannelBox> targets = channels.Where(channel => memberKeys.Contains(
+                    BuildPatchTargetKey(channel.ResourceSystemName, channel.DstId))).ToHashSet();
+                if (targets.Count == 0)
+                    continue;
+
+                ToneTransmitGroupSession session = new ToneTransmitGroupSession
+                {
+                    GroupName = group.Key, Members = group.Value, Targets = targets
+                };
+                sessions.Add(session);
+                activeToneTransmitGroups[group.Key] = session;
+                patchGroupsWindow.SetAlertToneTransmitting(group.Key, true);
+            }
+            return sessions;
+        }
+
+        private void CompleteToneTransmitGroups(IEnumerable<ToneTransmitGroupSession> groups)
+        {
+            foreach (ToneTransmitGroupSession group in groups)
+            {
+                if (activeToneTransmitGroups.TryGetValue(group.GroupName, out var current) && ReferenceEquals(current, group))
+                    activeToneTransmitGroups.Remove(group.GroupName);
+
+                // An operator may have rearmed the group while the previous tone was stopping.
+                if (activeAlertToneGroupTargets.TryGetValue(group.GroupName, out var members) && ReferenceEquals(members, group.Members))
+                {
+                    activeAlertToneGroupTargets.Remove(group.GroupName);
+                    patchGroupsWindow.SetAlertToneTransmitting(group.GroupName, false);
+                }
+            }
+        }
+
+        private static List<SettingsManager.TonePresetStep> NormalizeToneStackSteps(IEnumerable<SettingsManager.TonePresetStep> steps)
+        {
+            return (steps ?? Enumerable.Empty<SettingsManager.TonePresetStep>())
+                .Where(step => step != null)
+                .Select(step =>
+                {
+                    bool isHold = IsTonePresetHoldStep(step);
+                    return new SettingsManager.TonePresetStep
+                    {
+                        Kind = isHold ? SettingsManager.TONE_PRESET_STEP_KIND_HOLD : SettingsManager.TONE_PRESET_STEP_KIND_TONE,
+                        FrequencyHz = isHold ? 0 : Math.Clamp(step.FrequencyHz, 1, 4000),
+                        DurationSeconds = Math.Clamp(
+                            step.DurationSeconds,
+                            SettingsManager.TONE_PRESET_MIN_DURATION_SECONDS,
+                            SettingsManager.TONE_PRESET_MAX_DURATION_SECONDS)
+                    };
+                })
+                .ToList();
+        }
+
+        private static bool IsTonePresetHoldStep(SettingsManager.TonePresetStep step)
+        {
+            return string.Equals(step?.Kind, SettingsManager.TONE_PRESET_STEP_KIND_HOLD, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static byte[] BuildToneStackPcm(IEnumerable<SettingsManager.TonePresetStep> steps)
+        {
+            ToneGenerator generator = new ToneGenerator();
+            try
+            {
+                List<byte[]> toneBuffers = steps
+                    .Select(step => BuildToneStackStepPcm(generator, step))
+                    .Where(buffer => buffer?.Length > 0)
+                    .ToList();
+
+                if (toneBuffers.Count == 0)
+                    return Array.Empty<byte>();
+
+                int totalLength = toneBuffers.Sum(buffer => buffer.Length);
+                byte[] combinedAudio = new byte[totalLength];
+                int offset = 0;
+                foreach (byte[] toneBuffer in toneBuffers)
+                {
+                    Buffer.BlockCopy(toneBuffer, 0, combinedAudio, offset, toneBuffer.Length);
+                    offset += toneBuffer.Length;
+                }
+
+                combinedAudio = NormalizeAlertTonePcm(combinedAudio);
+                combinedAudio = AddToneStackTransmitPadding(combinedAudio);
+
+                int totalChunks = (combinedAudio.Length + PCM_SAMPLES_LENGTH - 1) / PCM_SAMPLES_LENGTH;
+                if (combinedAudio.Length % PCM_SAMPLES_LENGTH == 0)
+                    return combinedAudio;
+
+                byte[] paddedAudio = new byte[totalChunks * PCM_SAMPLES_LENGTH];
+                Buffer.BlockCopy(combinedAudio, 0, paddedAudio, 0, combinedAudio.Length);
+                return paddedAudio;
+            }
+            finally
+            {
+                generator.Dispose();
+            }
+        }
+
+        private static byte[] BuildToneStackStepPcm(ToneGenerator generator, SettingsManager.TonePresetStep step)
+        {
+            if (step == null)
+                return Array.Empty<byte>();
+
+            if (!IsTonePresetHoldStep(step))
+                return generator.GenerateTone(step.FrequencyHz, step.DurationSeconds);
+
+            int durationMs = Math.Max(1, (int)Math.Round(step.DurationSeconds * 1000));
+            return new byte[GetAlertToneFrameAlignedByteCount(durationMs)];
+        }
+
+        private async Task<bool> SendDtmfStackAsync(
+            IEnumerable<SettingsManager.DtmfPresetStep> steps,
+            IEnumerable<ChannelBox> requestedChannels,
+            string logLabel,
+            bool clearPageStateAfterSend,
+            bool sendStartSignal)
+        {
+            List<SettingsManager.DtmfPresetStep> dtmfSteps = NormalizeDtmfStackSteps(steps);
+            if (dtmfSteps.Count == 0)
+            {
+                MessageBox.Show("DTMF preset has no valid steps.", "DTMF Presets", MessageBoxButton.OK, MessageBoxImage.Information);
+                return false;
+            }
+
+            byte[] pcmData = BuildDtmfStackPcm(dtmfSteps);
+            return await SendGeneratedTonePcmAsync(
+                pcmData,
+                requestedChannels,
+                logLabel,
+                clearPageStateAfterSend,
+                sendStartSignal,
+                "DTMF Presets",
+                includeArmedGroups: clearPageStateAfterSend);
+        }
+
+        private static List<SettingsManager.DtmfPresetStep> NormalizeDtmfStackSteps(IEnumerable<SettingsManager.DtmfPresetStep> steps)
+        {
+            return (steps ?? Enumerable.Empty<SettingsManager.DtmfPresetStep>())
+                .Where(step => step != null)
+                .Select(step =>
+                {
+                    bool isHold = IsDtmfHoldStep(step);
+                    return new SettingsManager.DtmfPresetStep
+                    {
+                        Kind = isHold ? SettingsManager.TONE_PRESET_STEP_KIND_HOLD : SettingsManager.DTMF_PRESET_STEP_KIND_DIGIT,
+                        Digit = isHold ? string.Empty : NormalizeDtmfDigit(step.Digit),
+                        DurationSeconds = Math.Clamp(
+                            step.DurationSeconds,
+                            SettingsManager.TONE_PRESET_MIN_DURATION_SECONDS,
+                            SettingsManager.TONE_PRESET_MAX_DURATION_SECONDS)
+                    };
+                })
+                .ToList();
+        }
+
+        private static bool IsDtmfHoldStep(SettingsManager.DtmfPresetStep step)
+        {
+            return string.Equals(step?.Kind, SettingsManager.TONE_PRESET_STEP_KIND_HOLD, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static byte[] BuildDtmfStackPcm(IEnumerable<SettingsManager.DtmfPresetStep> steps)
+        {
+            ToneGenerator generator = new ToneGenerator();
+            try
+            {
+                List<byte[]> toneBuffers = steps
+                    .Select(step => BuildDtmfStackStepPcm(generator, step))
+                    .Where(buffer => buffer?.Length > 0)
+                    .ToList();
+
+                if (toneBuffers.Count == 0)
+                    return Array.Empty<byte>();
+
+                int totalLength = toneBuffers.Sum(buffer => buffer.Length);
+                byte[] combinedAudio = new byte[totalLength];
+                int offset = 0;
+                foreach (byte[] toneBuffer in toneBuffers)
+                {
+                    Buffer.BlockCopy(toneBuffer, 0, combinedAudio, offset, toneBuffer.Length);
+                    offset += toneBuffer.Length;
+                }
+
+                combinedAudio = NormalizeAlertTonePcm(combinedAudio);
+                combinedAudio = AddToneStackTransmitPadding(combinedAudio);
+
+                int totalChunks = (combinedAudio.Length + PCM_SAMPLES_LENGTH - 1) / PCM_SAMPLES_LENGTH;
+                if (combinedAudio.Length % PCM_SAMPLES_LENGTH == 0)
+                    return combinedAudio;
+
+                byte[] paddedAudio = new byte[totalChunks * PCM_SAMPLES_LENGTH];
+                Buffer.BlockCopy(combinedAudio, 0, paddedAudio, 0, combinedAudio.Length);
+                return paddedAudio;
+            }
+            finally
+            {
+                generator.Dispose();
+            }
+        }
+
+        private static byte[] BuildDtmfStackStepPcm(ToneGenerator generator, SettingsManager.DtmfPresetStep step)
+        {
+            if (step == null)
+                return Array.Empty<byte>();
+
+            if (IsDtmfHoldStep(step))
+            {
+                int durationMs = Math.Max(1, (int)Math.Round(step.DurationSeconds * 1000));
+                return new byte[GetAlertToneFrameAlignedByteCount(durationMs)];
+            }
+
+            if (!TryGetDtmfFrequencies(NormalizeDtmfDigit(step.Digit), out double lowFrequency, out double highFrequency))
+                return Array.Empty<byte>();
+
+            return generator.GenerateDualTone(lowFrequency, highFrequency, step.DurationSeconds);
+        }
+
+        private static string NormalizeDtmfDigit(string digit)
+        {
+            string normalizedDigit = (digit ?? string.Empty).Trim().ToUpperInvariant();
+            if (normalizedDigit.Length > 1)
+                normalizedDigit = normalizedDigit.Substring(0, 1);
+
+            return normalizedDigit.Length == 1 && "0123456789*#ABCD".Contains(normalizedDigit)
+                ? normalizedDigit
+                : "1";
+        }
+
+        private static bool TryGetDtmfFrequencies(string digit, out double lowFrequency, out double highFrequency)
+        {
+            lowFrequency = 0;
+            highFrequency = 0;
+
+            switch (digit)
+            {
+                case "1": lowFrequency = 697; highFrequency = 1209; return true;
+                case "2": lowFrequency = 697; highFrequency = 1336; return true;
+                case "3": lowFrequency = 697; highFrequency = 1477; return true;
+                case "A": lowFrequency = 697; highFrequency = 1633; return true;
+                case "4": lowFrequency = 770; highFrequency = 1209; return true;
+                case "5": lowFrequency = 770; highFrequency = 1336; return true;
+                case "6": lowFrequency = 770; highFrequency = 1477; return true;
+                case "B": lowFrequency = 770; highFrequency = 1633; return true;
+                case "7": lowFrequency = 852; highFrequency = 1209; return true;
+                case "8": lowFrequency = 852; highFrequency = 1336; return true;
+                case "9": lowFrequency = 852; highFrequency = 1477; return true;
+                case "C": lowFrequency = 852; highFrequency = 1633; return true;
+                case "*": lowFrequency = 941; highFrequency = 1209; return true;
+                case "0": lowFrequency = 941; highFrequency = 1336; return true;
+                case "#": lowFrequency = 941; highFrequency = 1477; return true;
+                case "D": lowFrequency = 941; highFrequency = 1633; return true;
+                default: return false;
+            }
+        }
+
+        private async Task<bool> TransmitTonePayloadToTargetAsync(
+            GeneratedTonePayload payload,
+            ToneTransmitTarget target,
+            string logLabel,
+            bool clearPageStateAfterSend,
+            bool sendStartSignal,
+            IReadOnlyList<ToneTransmitGroupSession> groups)
+        {
+            ChannelBox channel = target.Channel;
+            Codeplug.Channel cpgChannel = target.CodeplugChannel;
+            Codeplug.System system = target.CodeplugSystem;
+            PeerSystem fne = target.Fne;
+            byte[] pcmData = payload?.PcmData;
+            ushort?[] p25ToneFrequenciesByFrame = payload?.P25ToneFrequenciesByFrame;
+            bool[] suppressP25ToneDetectionByFrame = payload?.SuppressP25ToneDetectionByFrame;
+
+            if (!IsGroupTransmitAllowed(channel) || cpgChannel == null || system == null || fne == null || pcmData == null || pcmData.Length == 0)
+                return false;
+
+            if (!ValidateNxdnTransmit(cpgChannel, channel))
+                return false;
+
+            if (!ValidateP25Transmit(cpgChannel, channel))
+                return false;
+
+            if (!ValidateFneConnectionAvailable(system.Name, channel, clearPageStateAfterSend ? current => current.PageState = false : null))
+                return false;
+
+            CancellationTokenSource toneCancelSource = TryStartToneTransmitSession(channel);
+            if (toneCancelSource == null)
+            {
+                Log.WriteWarning($"{channel.ChannelName} already has an active tone transmit session; skipping duplicate tone start.");
+                return false;
+            }
+
+            CancellationToken cancellationToken = toneCancelSource.Token;
+            uint srcId = 0;
+            uint dstId = 0;
+            bool txStarted = false;
+            uint toneStreamId = 0;
+
+            foreach (ToneTransmitGroupSession group in groups.Where(group => group.Targets.Contains(channel)))
+                group.Cancels.Add(toneCancelSource);
+
+            try
+            {
+                srcId = uint.Parse(cpgChannel.GetSourceRid(system));
+                dstId = uint.Parse(cpgChannel.Tgid);
+                if (sendStartSignal && cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                    fne.SendP25TDU(srcId, dstId, true);
+
+                audioManager.PlayOneShot(channel.AudioOutputKey, pcmData, cancellationToken);
+
+                channel.TxStreamId = fne.NewStreamId();
+                toneStreamId = channel.TxStreamId;
+                txStarted = true;
+                Log.WriteLine($"({system.Name}) {channel.ChannelMode.ToUpperInvariant()} Traffic *{logLabel,-14}* TGID {channel.DstId} [STREAM ID {channel.TxStreamId}]");
+                channel.VolumeMeterLevel = 0;
+
+                int totalChunks = pcmData.Length / PCM_SAMPLES_LENGTH;
+                DateTime startTime = DateTime.UtcNow;
+
+                await Task.Run(async () =>
+                {
+                    for (int i = 0; i < totalChunks; i++)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        int offset = i * PCM_SAMPLES_LENGTH;
+
+                        byte[] chunk = new byte[PCM_SAMPLES_LENGTH];
+                        Buffer.BlockCopy(pcmData, offset, chunk, 0, PCM_SAMPLES_LENGTH);
+
+                        if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                        {
+                            ushort? p25ToneFrequency = p25ToneFrequenciesByFrame != null && i < p25ToneFrequenciesByFrame.Length
+                                ? p25ToneFrequenciesByFrame[i]
+                                : null;
+                            bool suppressToneDetection = suppressP25ToneDetectionByFrame != null &&
+                                i < suppressP25ToneDetectionByFrame.Length &&
+                                suppressP25ToneDetectionByFrame[i];
+                            P25EncodeAudioFrame(chunk, fne, channel, cpgChannel, system, generatedToneFrequencyHz: p25ToneFrequency, suppressToneDetection: suppressToneDetection);
+                        }
+                        else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                            DMREncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
+                        else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN)
+                            NXDNEncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
+                        else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.Analog)
+                            AnalogEncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
+
+                        DateTime nextPacketTime = startTime.AddMilliseconds((i + 1) * 20);
+                        TimeSpan waitTime = nextPacketTime - DateTime.UtcNow;
+
+                        if (waitTime.TotalMilliseconds > 0)
+                            await Task.Delay(waitTime, cancellationToken);
+                    }
+                }, cancellationToken);
+                return totalChunks > 0;
+            }
+            catch (OperationCanceledException)
+            {
+                Log.WriteLine($"({system.Name}) {channel.ChannelMode.ToUpperInvariant()} Traffic *{logLabel,-14}* TGID {channel.DstId} cancelled by operator.");
+                return false;
+            }
+            finally
             {
                 try
                 {
-                    ChannelBox primaryChannel = selectedChannelsManager.PrimaryChannel;
-                    List<ChannelBox> channelsToProcess = primaryChannel != null
-                        ? new List<ChannelBox> { primaryChannel }
-                        : selectedChannelsManager.GetSelectedChannels().ToList();
-
-                    foreach (ChannelBox channel in channelsToProcess)
+                    TryResourceCleanup(() => audioManager.StopOneShot(channel.AudioOutputKey));
+                    if (cancellationToken.IsCancellationRequested)
                     {
+                        EndAnalogTransmission(channel, discardPending: true);
+                        EndNxdnTransmission(channel, discardPending: true);
+                    }
 
-                        if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
-                            return;
+                    if (txStarted)
+                    {
+                        if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                            EndP25Transmission(channel, fne, cpgChannel, system, srcId, toneStreamId,
+                                discardPending: cancellationToken.IsCancellationRequested);
+                        else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                            EndDmrTransmission(channel, discardPending: cancellationToken.IsCancellationRequested);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.WriteWarning($"Tone release failed for {channel.ChannelName}: {ex.Message}");
+                }
+                finally
+                {
+                    try
+                    {
+                        if (txStarted && channel.TxStreamId == toneStreamId)
+                            TryResourceCleanup(() => ResetChannel(channel));
+                        channel.VolumeMeterLevel = 0;
+                        if (clearPageStateAfterSend || cancellationToken.IsCancellationRequested)
+                            channel.PageState = false;
+                    }
+                    finally
+                    {
+                        foreach (ToneTransmitGroupSession group in groups)
+                            group.Cancels.Remove(toneCancelSource);
+                        CompleteToneTransmitSession(channel, toneCancelSource);
+                    }
+                }
+            }
+        }
 
-                        Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
-                        if (system == null)
+        private void PlayTalkPermitTone()
+        {
+            if (!settingsManager.TalkPermitTone)
+                return;
+
+            Task.Run(() =>
+            {
+                try
+                {
+                    const int sampleRate = 8000;
+                    const double frequency = 1200.0;
+                    const int durationMs = 50;
+                    const double amplitude = 0.20;
+
+                    int sampleCount = sampleRate * durationMs / 1000;
+                    short[] samples = new short[sampleCount];
+
+                    int fadeSamples = sampleRate * 10 / 1000;
+
+                    for (int i = 0; i < sampleCount; i++)
+                    {
+                        double envelope = 1.0;
+
+                        if (i < fadeSamples)
+                            envelope = (double)i / fadeSamples;
+                        else if (i >= sampleCount - fadeSamples)
+                            envelope = (double)(sampleCount - i - 1) / fadeSamples;
+
+                        double sample =
+                            Math.Sin(2.0 * Math.PI * frequency * i / sampleRate) *
+                            amplitude *
+                            envelope;
+
+                        samples[i] = (short)(sample * short.MaxValue);
+                    }
+
+                    using (MemoryStream ms = new MemoryStream())
+                    using (BinaryWriter writer = new BinaryWriter(ms))
+                    {
+                        int dataLength = samples.Length * sizeof(short);
+
+                        writer.Write(new[] { 'R', 'I', 'F', 'F' });
+                        writer.Write(36 + dataLength);
+                        writer.Write(new[] { 'W', 'A', 'V', 'E' });
+
+                        writer.Write(new[] { 'f', 'm', 't', ' ' });
+                        writer.Write(16);
+                        writer.Write((short)1);
+                        writer.Write((short)1);
+                        writer.Write(sampleRate);
+                        writer.Write(sampleRate * sizeof(short));
+                        writer.Write((short)sizeof(short));
+                        writer.Write((short)16);
+
+                        writer.Write(new[] { 'd', 'a', 't', 'a' });
+                        writer.Write(dataLength);
+
+                        foreach (short s in samples)
+                            writer.Write(s);
+
+                        ms.Position = 0;
+
+                        using (SoundPlayer player = new SoundPlayer(ms))
                         {
-                            Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
-                            channel.IsSelected = false;
-                            selectedChannelsManager.RemoveSelectedChannel(channel);
-                            return;
-                        }
-
-                        Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                        if (cpgChannel == null)
-                        {
-                            Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
-                            channel.IsSelected = false;
-                            selectedChannelsManager.RemoveSelectedChannel(channel);
-                            return;
-                        }
-
-                        PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
-                        if (fne == null)
-                        {
-                            Log.WriteLine($"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
-                            channel.IsSelected = false;
-                            selectedChannelsManager.RemoveSelectedChannel(channel);
-                            return;
-                        }
-
-                        if (channel.PageState || (forHold && channel.HoldState) || primaryChannel != null)
-                        {
-                            byte[] pcmData;
-
-                            Task.Run(async () =>
-                            {
-                                using (var waveReader = new WaveFileReader(filePath))
-                                {
-                                    if (waveReader.WaveFormat.Encoding != WaveFormatEncoding.Pcm ||
-                                        waveReader.WaveFormat.SampleRate != 8000 ||
-                                        waveReader.WaveFormat.BitsPerSample != 16 ||
-                                        waveReader.WaveFormat.Channels != 1)
-                                    {
-                                        MessageBox.Show("The alert tone must be PCM 16-bit, Mono, 8000Hz format.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                                        return;
-                                    }
-
-                                    using (MemoryStream ms = new MemoryStream())
-                                    {
-                                        waveReader.CopyTo(ms);
-                                        pcmData = ms.ToArray();
-                                    }
-                                }
-
-                                int chunkSize = 1600;
-                                int totalChunks = (pcmData.Length + chunkSize - 1) / chunkSize;
-
-                                if (pcmData.Length % chunkSize != 0)
-                                {
-                                    byte[] paddedData = new byte[totalChunks * chunkSize];
-                                    Buffer.BlockCopy(pcmData, 0, paddedData, 0, pcmData.Length);
-                                    pcmData = paddedData;
-                                }
-
-                                Task.Run(() =>
-                                {
-                                    audioManager.AddTalkgroupStream(cpgChannel.Tgid, pcmData);
-                                });
-
-                                DateTime startTime = DateTime.UtcNow;
-
-                                if (channel.TxStreamId != 0)
-                                    Log.WriteWarning($"{channel.ChannelName} CHANNEL still had a TxStreamId? This shouldn't happen.");
-
-                                channel.TxStreamId = fne.NewStreamId();
-                                Log.WriteLine($"({system.Name}) {channel.ChannelMode.ToUpperInvariant()} Traffic *ALRT TONE      * TGID {channel.DstId} [STREAM ID {channel.TxStreamId}]");
-                                channel.VolumeMeterLevel = 0;
-
-                                for (int i = 0; i < totalChunks; i++)
-                                {
-                                    int offset = i * chunkSize;
-                                    byte[] chunk = new byte[chunkSize];
-                                    Buffer.BlockCopy(pcmData, offset, chunk, 0, chunkSize);
-
-                                    channel.chunkedPCM = AudioConverter.SplitToChunks(chunk);
-
-                                    foreach (byte[] audioChunk in channel.chunkedPCM)
-                                    {
-                                        if (audioChunk.Length == PCM_SAMPLES_LENGTH)
-                                        {
-                                            if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                                                P25EncodeAudioFrame(audioChunk, fne, channel, cpgChannel, system);
-                                            else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                                                DMREncodeAudioFrame(audioChunk, fne, channel, cpgChannel, system);
-                                        }
-                                    }
-
-                                    DateTime nextPacketTime = startTime.AddMilliseconds((i + 1) * 100);
-                                    TimeSpan waitTime = nextPacketTime - DateTime.UtcNow;
-
-                                    if (waitTime.TotalMilliseconds > 0)
-                                        await Task.Delay(waitTime);
-                                }
-
-                                double totalDurationMs = ((double)pcmData.Length / 16000) + 250;
-                                await Task.Delay((int)totalDurationMs + 3000);
-
-                                fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
-
-                                ResetChannel(channel);
-
-                                Dispatcher.Invoke(() =>
-                                {
-                                    if (forHold)
-                                        channel.PttButton.Background = ChannelBox.GRAY_GRADIENT;
-                                    else
-                                        channel.PageState = false;
-                                });
-                            });
+                            player.PlaySync();
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"Failed to process alert tone: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    Log.StackTrace(ex, false);
+                    Log.WriteLine($"Failed to play talk permit tone: {ex.Message}");
                 }
-            }
-            else
-                MessageBox.Show("Alert file not set or file not found.", "Alert", MessageBoxButton.OK, MessageBoxImage.Warning);
+            });
         }
-
         /// <summary>
         /// Updates the text color of all tab headers based on dark mode setting
         /// </summary>
         private void UpdateTabTextColors()
         {
-            Brush textColor = settingsManager.DarkMode ? Brushes.White : Brushes.Black;
-            
             foreach (var kvp in tabHeaders)
             {
-                StackPanel headerPanel = kvp.Value;
+                TabItem tab = kvp.Key;
+                Grid headerPanel = kvp.Value;
+
+                Brush textColor = settingsManager.DarkMode ? Brushes.White : Brushes.Black;
+
+                if (tabTextColors.TryGetValue(tab, out string tabTextColor) && !string.IsNullOrWhiteSpace(tabTextColor))
+                {
+                    try
+                    {
+                        textColor = (Brush)new BrushConverter().ConvertFrom(tabTextColor);
+                    }
+                    catch
+                    {
+                        textColor = settingsManager.DarkMode ? Brushes.White : Brushes.Black;
+                    }
+                }
+
                 foreach (UIElement child in headerPanel.Children)
                 {
                     if (child is TextBlock textBlock)
@@ -1383,6 +3812,79 @@ namespace dvmconsole
         private void ResourceTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             UpdateTabSelectedBackground();
+        }
+
+        private void ResourceTabs_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            UpdateResourceTabWidths();
+        }
+
+        /// <summary>
+        /// Sizes resource tabs to the current window width while keeping the overflow tab compact.
+        /// </summary>
+        private void UpdateResourceTabWidths()
+        {
+            if (resourceTabs == null)
+                return;
+
+            List<TabItem> tabs = resourceTabs.Items.OfType<TabItem>().ToList();
+            if (tabs.Count == 0)
+                return;
+            List<TabItem> overflowTabs = tabs.Where(IsHiddenZonesOverflowTab).ToList();
+            List<TabItem> visibleZoneTabs = tabs.Where(tab => !IsHiddenZonesOverflowTab(tab)).ToList();
+
+            double availableWidth = resourceTabs.ActualWidth;
+            if (availableWidth < 200)
+                availableWidth = ActualWidth - 40;
+
+            if (availableWidth < 200)
+                return;
+
+            double computedWidth = Math.Floor((availableWidth - 8) / tabs.Count);
+            computedWidth = Math.Max(72, computedWidth);
+
+            foreach (TabItem tab in visibleZoneTabs)
+            {
+                tab.Width = computedWidth;
+                tab.MinWidth = 72;
+                tab.ClearValue(FrameworkElement.MaxWidthProperty);
+            }
+
+            foreach (TabItem tab in overflowTabs)
+            {
+                tab.Width = Math.Min(HIDDEN_ZONES_OVERFLOW_TAB_WIDTH, computedWidth);
+                tab.MinWidth = 78;
+                tab.ClearValue(FrameworkElement.MaxWidthProperty);
+            }
+        }
+
+        private void ApplyRxPlaybackMuteForTransmitStart()
+        {
+            if (settingsManager.MuteRxAudioWhileTransmitting)
+                audioManager.ClearAllTalkgroupBuffers();
+        }
+
+        private bool ShouldMuteRxPlayback()
+        {
+            if (!settingsManager.MuteRxAudioWhileTransmitting)
+                return false;
+
+            lock (patchPttSync)
+            {
+                if (activePatchPttTargets.Values.Any(s => s.Channel.TxStreamId != 0 && !s.Channel.PttTimedOut))
+                    return true;
+            }
+
+            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
+            {
+                if (channel.IsLocalPlayback)
+                    continue;
+
+                if (channel.IsOperatorTransmitting || channel.TxStreamId != 0 || channel.PatchForwardingTxState)
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -1465,6 +3967,7 @@ namespace dvmconsole
                 theme.SetBaseTheme(BaseTheme.Light);
 
             paletteHelper.SetTheme(theme);
+            ConsoleTheme.Apply(settingsManager.DarkMode);
 
             // Update tab text colors and selected background based on dark mode
             UpdateTabTextColors();
@@ -1533,123 +4036,169 @@ namespace dvmconsole
         /// <param name="e"></param>
         private async void OnHoldTimerElapsed(object sender, ElapsedEventArgs e)
         {
-            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
+            try
             {
-                if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
-                    continue;
-
-                Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
-                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
-
-                if (channel.HoldState && !channel.IsReceiving && !channel.PttState && !channel.PageState)
-                {
-                    handler.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
-                    await Task.Delay(1000);
-
-                    SendAlertTone(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/hold.wav"), true);
-                }
+                if (!Dispatcher.HasShutdownStarted)
+                    await await Dispatcher.InvokeAsync(RunChannelHoldCycleAsync);
             }
+            catch (TaskCanceledException) when (isShuttingDown) { }
+            catch (Exception ex) { Log.WriteWarning($"Channel hold cycle failed: {ex.Message}"); }
+        }
+
+        private async Task RunChannelHoldCycleAsync()
+        {
+            if (isShuttingDown || isReloadingResources || channelHoldCycleRunning)
+                return;
+
+            // Snapshot UI-owned selections once, then send all held resources in the same cycle.
+            channelHoldCycleRunning = true;
+            try
+            {
+                List<ChannelBox> channels = selectedChannelsManager.GetSelectedChannels()
+                    .Where(channel => channel.HoldState && channel.IsSelected && channel.IsEnabled &&
+                        !channel.IsRxOnly && !channel.IsReceiving && !channel.PttState && !channel.PageState &&
+                        channel.TxStreamId == 0 && !channel.IsLocalPlayback)
+                    .ToList();
+                if (channels.Count > 0)
+                    await SendGeneratedHoldToneAsync(channels);
+            }
+            finally { channelHoldCycleRunning = false; }
         }
 
         /// <summary>
         /// 
         /// </summary>
         /// <param name="e"></param>
-        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        protected override async void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
-            isShuttingDown = true;
-
-            // stop maintainence task
-            if (maintainenceTask != null)
+            if (shutdownComplete)
             {
-                maintainenceCancelToken.Cancel();
-
-                try
-                {
-                    maintainenceTask.GetAwaiter().GetResult();
-                }
-                catch (OperationCanceledException) { /* stub */ }
-                finally
-                {
-                    maintainenceCancelToken.Dispose();
-                }
+                base.OnClosing(e);
+                return;
             }
+            e.Cancel = true;
+            base.OnClosing(e);
+            if (isShuttingDown)
+                return;
 
-            waveIn.StopRecording();
-
-            fneSystemManager.ClearAll();
+            AddConsoleEventHistoryEntry("Console stopped");
 
             if (!noSaveSettingsOnClose)
+                PersistSelectedResourceState(saveSettings: false);
+
+            isShuttingDown = true;
+            IsEnabled = false;
+            channelHoldTimer.Stop();
+            channelHoldTimer.Elapsed -= OnHoldTimerElapsed;
+            channelHoldTimer.Dispose();
+            ShutdownAlertToneScheduler();
+            CancelKeyboardPttWatchdog();
+            maintainenceCancelToken.Cancel();
+            try
             {
-                if (WindowState == WindowState.Maximized)
-                {
-                    settingsManager.Maximized = true;
-                    if (settingsManager.SnapCallHistoryToWindow)
-                        menuSnapCallHistory.IsChecked = false;
-                }
-
-                settingsManager.SaveSettings();
+                // Keep the Dispatcher running while workers finish their UI cleanup.
+                if (maintainenceTask != null)
+                    await maintainenceTask;
+                await resourceReloadTask;
+                await StopResourceActivityAsync();
             }
+            catch (Exception ex) { Log.StackTrace(ex, false); }
+            finally
+            {
+                try
+                {
+                    TryResourceCleanup(StopAndDisposeAudioInput);
+                    await ResetFneConnectionsAsync();
+                    if (!noSaveSettingsOnClose)
+                    {
+                        if (WindowState == WindowState.Maximized)
+                        {
+                            settingsManager.Maximized = true;
+                            if (settingsManager.SnapCallHistoryToWindow)
+                                menuSnapCallHistory.IsChecked = false;
+                        }
+                        settingsManager.SaveSettings();
+                    }
+                }
+                catch (Exception ex) { Log.StackTrace(ex, false); }
+                finally
+                {
+                    TryResourceCleanup(DisposeResourceWidgets);
+                    maintainenceCancelToken.Dispose();
+                    shutdownComplete = true;
+                    Close();
+                    Application.Current.Shutdown();
+                }
+            }
+        }
 
-            base.OnClosing(e);
-            Application.Current.Shutdown();
+        private void AddConsoleEventHistoryEntry(string message)
+        {
+            callHistoryWindow?.AddEvent(
+                "Console",
+                message,
+                GetConfiguredPeerIdSummary(),
+                string.Empty,
+                Brushes.LightSkyBlue);
+        }
+
+        private string GetConfiguredPeerIdSummary()
+        {
+            List<string> peerIds = Codeplug?.Systems?
+                .Where(system => system != null && system.PeerId > 0)
+                .Select(system => system.PeerId.ToString())
+                .Distinct()
+                .ToList() ?? new List<string>();
+
+            return peerIds.Count switch
+            {
+                0 => string.Empty,
+                1 => peerIds[0],
+                _ => string.Join(", ", peerIds)
+            };
         }
 
         /// <summary>
         /// Internal maintainence routine.
         /// </summary>
-        private async void Maintainence()
+        private async Task Maintainence()
         {
             CancellationToken ct = maintainenceCancelToken.Token;
-            while (!isShuttingDown)
+            while (!ct.IsCancellationRequested)
             {
-                foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
-                {
-                    if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
-                        continue;
-
-                    Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
-                    if (system == null)
-                        continue;
-
-                    Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                    if (cpgChannel == null)
-                        continue;
-
-                    PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
-                    if (fne == null)
-                        continue;
-
-                    // check if the channel is stuck reporting Rx
-                    if (channel.IsReceiving)
-                    {
-                        DateTime now = DateTime.Now;
-                        TimeSpan dt = now - channel.LastPktTime;
-                        if (dt.TotalMilliseconds > 2000) // 2 seconds is more then enough time -- the interpacket time for P25 is ~180ms and DMR is ~60ms
-                        {
-                            Log.WriteLine($"({system.Name}) P25D: Traffic *CALL TIMEOUT   * TGID {channel.DstId} ALGID {channel.algId} KID {channel.kId}");
-                            Dispatcher.Invoke(() =>
-                            {
-                                channel.IsReceiving = false;
-                                channel.PeerId = 0;
-                                channel.RxStreamId = 0;
-
-                                channel.Background = ChannelBox.BLUE_GRADIENT;
-                                channel.VolumeMeterLevel = 0;
-                                
-                                // Update tab audio indicator
-                                UpdateTabAudioIndicatorForChannel(channel);
-                            });
-                        }
-                    }
-                }
-
                 try
                 {
                     await Task.Delay(1000, ct);
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        if (ct.IsCancellationRequested || isShuttingDown || isReloadingResources)
+                            return;
+                        EnsureAudioInputCaptureHealthy("maintenance watchdog");
+                        CheckFneConnectionHealth();
+                        patchManager.CleanupStaleSources();
+                        foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
+                        {
+                            if (channel.IsLocalPlayback)
+                                continue;
+                            Codeplug.Channel cpgChannel = channel.ConfiguredChannel;
+                            Codeplug.System system = Codeplug?.GetSystemForChannel(cpgChannel);
+                            if (system == null || cpgChannel == null || fneSystemManager.GetFneSystem(system.Name) == null)
+                                continue;
+                            DateTime now = DateTime.Now;
+                            if (!channel.IsReceiving || (now - channel.LastPktTime).TotalMilliseconds <= 2000)
+                                continue;
+                            SlotStatus slotStatus = FindActiveReceiveStatus(channel, cpgChannel);
+                            Log.WriteLine($"({system.Name}) {channel.ChannelMode.ToUpperInvariant()}: Traffic *CALL TIMEOUT   * TGID {channel.DstId}");
+                            EndReceiveCall(channel, system, cpgChannel, slotStatus, now);
+                        }
+                        patchGroupsWindow.RefreshMemberStatusIcons();
+                    });
                 }
-                catch (TaskCanceledException) { /* stub */ }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
+                catch (Exception ex)
+                {
+                    Log.StackTrace(ex, false);
+                }
             }
         }
 
@@ -1660,9 +4209,162 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void WaveIn_RecordingStopped(object sender, EventArgs e)
+        private void AudioInput_RecordingStopped(object sender, StoppedEventArgs e)
         {
-            /* stub */
+            lock (waveInSync)
+                waveInRecordingActive = false;
+
+            if (isShuttingDown || DateTime.UtcNow <= ignoreWaveInStoppedUntilUtc)
+                return;
+
+            string reason = e?.Exception != null
+                ? $"recording stopped: {e.Exception.Message}"
+                : "recording stopped unexpectedly";
+
+            IConsoleAudioInput stoppedInput = sender as IConsoleAudioInput;
+            bool forceLegacyMme = stoppedInput?.Backend == AudioBackendKind.Wasapi;
+            int? legacyFallbackDeviceNumber = forceLegacyMme ? stoppedInput.LegacyFallbackDeviceNumber : null;
+            Log.WriteWarning($"Audio input capture {reason}; attempting restart.");
+            Dispatcher.BeginInvoke(new Action(() => RestartConfiguredInputDevice(reason, force: true, forceLegacyMme: forceLegacyMme, legacyInputDeviceOverride: legacyFallbackDeviceNumber)));
+        }
+
+        private void ApplyConfiguredInputDevice()
+        {
+            RestartConfiguredInputDevice("audio settings", force: true);
+        }
+
+        private void EnsureAudioInputCaptureHealthy(string reason)
+        {
+            if (isShuttingDown)
+                return;
+
+            bool shouldRestart;
+            bool forceLegacyMme;
+            int? legacyFallbackDeviceNumber;
+            lock (waveInSync)
+            {
+                if (waveInRestartInProgress)
+                    return;
+
+                DateTime now = DateTime.UtcNow;
+                bool stale = waveInRecordingActive && lastWaveInDataUtc != DateTime.MinValue && now - lastWaveInDataUtc > WaveInStaleRestartThreshold;
+                bool stopped = !waveInRecordingActive;
+                bool throttled = stale && now - lastWaveInRestartAttemptUtc < WaveInRestartThrottle;
+                shouldRestart = stopped || (stale && !throttled);
+                forceLegacyMme = stale && audioInput?.Backend == AudioBackendKind.Wasapi;
+                legacyFallbackDeviceNumber = forceLegacyMme ? audioInput.LegacyFallbackDeviceNumber : null;
+            }
+
+            if (shouldRestart)
+                RestartConfiguredInputDevice(reason, force: true, forceLegacyMme: forceLegacyMme, legacyInputDeviceOverride: legacyFallbackDeviceNumber);
+        }
+
+        private void RestartConfiguredInputDevice(string reason, bool showError = false, bool force = false, bool forceLegacyMme = false, int? legacyInputDeviceOverride = null)
+        {
+            if (isShuttingDown)
+                return;
+
+            lock (waveInSync)
+            {
+                if (waveInRestartInProgress)
+                    return;
+
+                DateTime now = DateTime.UtcNow;
+                if (!force && now - lastWaveInRestartAttemptUtc < WaveInRestartThrottle)
+                    return;
+
+                waveInRestartInProgress = true;
+                lastWaveInRestartAttemptUtc = now;
+                ignoreWaveInStoppedUntilUtc = now + WaveInIntentionalStopGrace;
+            }
+
+            try
+            {
+                try
+                {
+                    StopAndDisposeAudioInput();
+                }
+                catch
+                {
+                    // The input may already be stopped while settings are being applied or recovered.
+                }
+
+                try
+                {
+                    StartConfiguredAudioInput(reason, forceLegacyMme, legacyInputDeviceOverride);
+                }
+                catch (Exception ex) when (!forceLegacyMme && IsWasapiInputPreferred())
+                {
+                    int? legacyFallbackDeviceNumber = audioInput?.Backend == AudioBackendKind.Wasapi
+                        ? audioInput.LegacyFallbackDeviceNumber
+                        : legacyInputDeviceOverride;
+                    Log.WriteWarning($"WASAPI input failed to start for {reason}; falling back to legacy MME input. {ex.Message}");
+                    StopAndDisposeAudioInput();
+                    StartConfiguredAudioInput(reason, forceLegacyMme: true, legacyFallbackDeviceNumber);
+                }
+            }
+            catch (Exception ex)
+            {
+                lock (waveInSync)
+                    waveInRecordingActive = false;
+
+                if (showError)
+                    MessageBox.Show($"Error initializing audio input device, {ex.Message}. This *will* cause console inconsistency, and inability to transmit audio.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+
+                Log.StackTrace(ex, false);
+            }
+            finally
+            {
+                lock (waveInSync)
+                    waveInRestartInProgress = false;
+            }
+        }
+
+        private void StartConfiguredAudioInput(string reason, bool forceLegacyMme, int? legacyInputDeviceOverride = null)
+        {
+            if (forceLegacyMme)
+                Log.WriteWarning($"WASAPI input did not provide usable audio for {reason}; falling back to legacy MME input.");
+
+            int legacyInputDevice = legacyInputDeviceOverride ?? settingsManager.AudioInputDevice;
+            audioInput = ConsoleAudioInputFactory.CreatePreferred(settingsManager.AudioInputDeviceKey, legacyInputDevice, forceLegacyMme);
+            audioInput.DataAvailable += AudioInput_DataAvailable;
+            audioInput.RecordingStopped += AudioInput_RecordingStopped;
+            audioInput.StartRecording();
+
+            lock (waveInSync)
+            {
+                waveInRecordingActive = true;
+                lastWaveInDataUtc = DateTime.UtcNow;
+            }
+
+            Log.WriteLine($"Audio input capture started ({reason}) using {audioInput.Backend}: {audioInput.DeviceDescription}.");
+        }
+
+        private bool IsWasapiInputPreferred()
+        {
+            return AudioDeviceResolver.IsWindowsDefault(settingsManager.AudioInputDeviceKey) ||
+                AudioDeviceResolver.IsWasapiInputDeviceKey(settingsManager.AudioInputDeviceKey);
+        }
+
+        private void StopAndDisposeAudioInput()
+        {
+            if (audioInput == null)
+                return;
+
+            audioInput.DataAvailable -= AudioInput_DataAvailable;
+            audioInput.RecordingStopped -= AudioInput_RecordingStopped;
+
+            try
+            {
+                audioInput.StopRecording();
+            }
+            catch
+            {
+                // The backend may already be stopped during shutdown or device recovery.
+            }
+
+            audioInput.Dispose();
+            audioInput = null;
         }
 
         /// <summary>
@@ -1670,18 +4372,55 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void WaveIn_DataAvailable(object sender, WaveInEventArgs e)
+        private void AudioInput_DataAvailable(object sender, ConsoleAudioDataAvailableEventArgs e)
         {
             bool isAnyTgOn = false;
-            if (isShuttingDown)
+            HashSet<string> transmittedTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (isShuttingDown || isReloadingResources)
                 return;
 
-            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
+            lock (waveInSync)
             {
-                if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                waveInRecordingActive = true;
+                lastWaveInDataUtc = DateTime.UtcNow;
+            }
+
+            byte[] micBuffer = new byte[e.BytesRecorded];
+            Buffer.BlockCopy(e.Buffer, 0, micBuffer, 0, e.BytesRecorded);
+
+            List<ChannelBox> selectedChannels = selectedChannelsManager.GetSelectedChannels().ToList();
+            bool patchPttActive;
+            lock (patchPttSync)
+                patchPttActive = activePatchPttTargets.Values.Any(s => s.Channel.TxStreamId == s.StreamId &&
+                    CanSendOperatorPttAudio(s.Channel, s.StreamId));
+
+            bool micTransmitActive = patchPttActive || selectedChannels.Any(channel =>
+                channel.IsSelected &&
+                channel.PttState && CanSendOperatorPttAudio(channel, channel.TxStreamId) &&
+                !channel.IsLocalPlayback);
+
+            // Keep a frame's EQ and AGC on the same settings/history snapshot.
+            lock (micProcessingSettingsSync)
+            {
+                // Idle speaker playback must not train the microphone filters.
+                if (micTransmitActive)
+                {
+                    ApplyMicrophoneProcessing(micBuffer);
+                    ApplyInputAgc(micBuffer);
+                }
+                else
+                {
+                    ResetMicrophoneProcessingState();
+                    ResetInputAgcGain();
+                }
+            }
+
+              foreach (ChannelBox channel in selectedChannels)
+              {
+                if (channel.IsLocalPlayback)
                     continue;
 
-                Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
+                Codeplug.System system = Codeplug.GetSystemForChannel(channel.ConfiguredChannel);
                 if (system == null)
                 {
                     Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
@@ -1690,7 +4429,7 @@ namespace dvmconsole
                     continue;
                 }
 
-                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
+                Codeplug.Channel cpgChannel = channel.ConfiguredChannel;
                 if (cpgChannel == null)
                 {
                     Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
@@ -1702,6 +4441,12 @@ namespace dvmconsole
                 PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
                 if (fne == null)
                 {
+                    if (TryHandleDisconnectedFneEndpoint(channel, system, $"TX audio {channel.ChannelName}"))
+                    {
+                        UpdateChannelConnectionVisual(channel);
+                        continue;
+                    }
+
                     Log.WriteLine($"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {ERR_INVALID_CODEPLUG}. {ERR_SKIPPING_AUDIO}.");
                     channel.IsSelected = false;
                     selectedChannelsManager.RemoveSelectedChannel(channel);
@@ -1709,20 +4454,55 @@ namespace dvmconsole
                 }
 
                 // is the channel selected and in a PTT state?
-                if (channel.IsSelected && channel.PttState)
-                {
-                    isAnyTgOn = true;
-                    Task.Run(() =>
-                    {
-                        channel.chunkedPCM = AudioConverter.SplitToChunks(e.Buffer);
-                        foreach (byte[] chunk in channel.chunkedPCM)
-                        {
-                            if (chunk.Length == PCM_SAMPLES_LENGTH)
-                            {
-                                if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                                    P25EncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
-                                else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                                    DMREncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
+                  if (channel.IsSelected && channel.PttState && CanSendOperatorPttAudio(channel, channel.TxStreamId))
+                  {
+                      if (!IsFneSystemConnected(system.Name))
+                      {
+                          Log.WriteWarning($"Skipping TX audio for {channel.ChannelName}; FNE system '{system.Name}' is disconnected.");
+                          Dispatcher.BeginInvoke(new Action(() =>
+                          {
+                              EndTarTxRecording(channel, system, cpgChannel);
+                              channel.PttState = false;
+                              channel.VolumeMeterLevel = 0;
+                              ResetChannel(channel);
+                              UpdateChannelConnectionVisual(channel);
+                          }));
+                          continue;
+                      }
+
+                      isAnyTgOn = true;
+                      transmittedTargets.Add(BuildPatchTargetKey(system.Name, cpgChannel.Tgid));
+                      AppendTarTxAudio(system.Name, channel.DstId, channel.TxStreamId, micBuffer);
+                      uint operatorStream = channel.TxStreamId;
+                      if (cpgChannel.GetChannelMode() is Codeplug.ChannelMode.NXDN or Codeplug.ChannelMode.Analog)
+                      {
+                          uint stream = channel.TxStreamId;
+                          foreach (byte[] chunk in AudioConverter.SplitToChunks(micBuffer))
+                          {
+                              SendOperatorPttFrame(channel, stream, () =>
+                              {
+                                  if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN)
+                                      NXDNEncodeAudioFrame(chunk, fne, channel, cpgChannel, system, expectedStreamId: stream);
+                                  else if (chunk.Length == PCM_SAMPLES_LENGTH)
+                                      AnalogEncodeAudioFrame(chunk, fne, channel, cpgChannel, system, expectedStreamId: stream);
+                              });
+                          }
+                          continue;
+                      }
+                      Task.Run(() =>
+                      {
+                          List<byte[]> chunks = AudioConverter.SplitToChunks(micBuffer);
+                          foreach (byte[] chunk in chunks)
+                          {
+                              if (chunk.Length == PCM_SAMPLES_LENGTH)
+                              {
+                                  SendOperatorPttFrame(channel, operatorStream, () =>
+                                  {
+                                      if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                                          P25EncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
+                                      else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                                          DMREncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
+                                  });
                             }
                             else
                                 Log.WriteLine("bad sample length: " + chunk.Length);
@@ -1731,9 +4511,15 @@ namespace dvmconsole
                 }
             }
 
-            if (playbackChannelBox != null && isAnyTgOn && playbackChannelBox.IsSelected)
-                audioManager.AddTalkgroupStream(PLAYBACKTG, e.Buffer);
-        }
+              if (patchPttActive)
+              {
+                  isAnyTgOn = true;
+                  SendPatchPttMicAudio(micBuffer, transmittedTargets);
+              }
+  
+              if (playbackChannelBox != null && isAnyTgOn && playbackChannelBox.IsSelected)
+                  audioManager.AddLiveMonitorStream(playbackChannelBox.AudioOutputKey, micBuffer, TimeSpan.FromMilliseconds(250));
+          }
 
         /** WPF Window Events */
 
@@ -1823,6 +4609,8 @@ namespace dvmconsole
 
             settingsManager.WindowWidth = ActualWidth;
             settingsManager.WindowHeight = ActualHeight;
+
+            UpdateResourceTabWidths();
         }
 
         /// <summary>
@@ -1830,7 +4618,7 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
             const double widthOffset = 16;
             const double heightOffset = 115;
@@ -1839,21 +4627,28 @@ namespace dvmconsole
             menuToggleLockWidgets.IsChecked = settingsManager.LockWidgets;
             menuSnapCallHistory.IsChecked = settingsManager.SnapCallHistoryToWindow;
             menuTogglePTTMode.IsChecked = settingsManager.TogglePTTMode;
-            menuToggleGlobalPTTMode.IsChecked = settingsManager.GlobalPTTKeysAllChannels;
+            menuTalkPermitTone.IsChecked = settingsManager.TalkPermitTone;
+            menuMuteRxAudioWhileTransmitting.IsChecked = settingsManager.MuteRxAudioWhileTransmitting;
+            menuRetainPatchStateOnStartup.IsChecked = settingsManager.RetainPatchStateOnStartup;
+            menuRestoreSelectedChannels.IsChecked = settingsManager.RestoreSelectedChannelsOnStartup;
             menuKeepWindowOnTop.IsChecked = settingsManager.KeepWindowOnTop;
 
             if (!string.IsNullOrEmpty(settingsManager.LastCodeplugPath) && File.Exists(settingsManager.LastCodeplugPath))
-                LoadCodeplug(settingsManager.LastCodeplugPath);
+                await LoadCodeplug(settingsManager.LastCodeplugPath);
             else
-                GenerateChannelWidgets();
+                await GenerateChannelWidgets();
+
+            if (isShuttingDown)
+                return;
+
+            AddConsoleEventHistoryEntry("Console started");
 
             // set background configuration
             menuDarkMode.IsChecked = settingsManager.DarkMode;
             UpdateBackground();
 
-            btnGlobalPttDefaultBg = btnGlobalPtt.Background;
 
-            maintainenceTask = Task.Factory.StartNew(Maintainence, maintainenceCancelToken.Token);
+            maintainenceTask = Maintainence();
 
             // set window configuration
             if (settingsManager.Maximized)
@@ -1899,6 +4694,21 @@ namespace dvmconsole
 
                 windowLoaded = true;
             }
+
+            Dispatcher.BeginInvoke(new Action(UpdateResourceTabWidths));
+        }
+
+        private void MainWindow_Closed(object sender, EventArgs e)
+        {
+            patchStatusService?.Dispose();
+            StopDmrChannels();
+            StopNxdnChannels();
+            StopAnalogChannels();
+            ClearNxdnKeys();
+            ClearLocalKeys();
+            StopAllWebStreams();
+            ShutdownAlertToneScheduler();
+            ShutdownToolbarClocks();
         }
 
         /// <summary>
@@ -1906,7 +4716,7 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void OpenCodeplug_Click(object sender, RoutedEventArgs e)
+        private async void OpenCodeplug_Click(object sender, RoutedEventArgs e)
         {
             OpenFileDialog openFileDialog = new OpenFileDialog
             {
@@ -1916,11 +4726,14 @@ namespace dvmconsole
 
             if (openFileDialog.ShowDialog() == true)
             {
-                LoadCodeplug(openFileDialog.FileName);
+                await LoadCodeplug(openFileDialog.FileName);
 
-                settingsManager.LastCodeplugPath = openFileDialog.FileName;
-                noSaveSettingsOnClose = false;
-                settingsManager.SaveSettings();
+                if (Codeplug != null && !isShuttingDown)
+                {
+                    settingsManager.LastCodeplugPath = openFileDialog.FileName;
+                    noSaveSettingsOnClose = false;
+                    settingsManager.SaveSettings();
+                }
             }
         }
 
@@ -1931,36 +4744,88 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void Exit_Click(object sender, RoutedEventArgs e)
         {
-            Application.Current.Shutdown();
+            Close();
+        }
+        private void About_Click(object sender, RoutedEventArgs e)
+        {
+            AboutWindow aboutWindow = new AboutWindow();
+            aboutWindow.Owner = this;
+            aboutWindow.ShowDialog();
+        }
+
+        private void DebugLogs_Click(object sender, RoutedEventArgs e)
+        {
+            DebugLogWindow debugLogWindow = new DebugLogWindow
+            {
+                Owner = this
+            };
+
+            debugLogWindow.Show();
+            debugLogWindow.Activate();
+        }
+
+        private void Documentation_Click(object sender, RoutedEventArgs e)
+        {
+            DocumentationWindow documentationWindow = new DocumentationWindow();
+            documentationWindow.Owner = this;
+            documentationWindow.Show();
+        }
+        /// <summary>
+        /// Revalidates modal paging input against the current codeplug and connection.
+        /// </summary>
+        private bool TryResolvePagingTarget(DigitalPageWindow window, out PeerSystem fne, out uint sourceId, out uint destinationId)
+        {
+            fne = null;
+            sourceId = destinationId = 0;
+            if (isShuttingDown || isReloadingResources)
+                return false;
+            if (Codeplug?.Systems?.Contains(window?.RadioSystem) != true)
+            {
+                MessageBox.Show("Select a system from the current codeplug.", "Paging", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return false;
+            }
+            if (!DigitalPageWindow.TryValidateRequest(window.RadioSystem, window.DstId, out sourceId, out destinationId, out string error))
+            {
+                MessageBox.Show(error, "Paging", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return false;
+            }
+            fne = fneSystemManager.GetFneSystem(window.RadioSystem.Name);
+            return ValidateFneConnectionAvailable(window.RadioSystem.Name) && fne != null;
         }
 
         /// <summary>
-        /// 
+        /// Contains a disconnect during a subscriber command without crashing the UI event handler.
         /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
+        private void SendPagingCommand(PeerSystem fne, RemoteCallData callData, byte[] tsbk)
+        {
+            try
+            {
+                fne.SendP25TSBK(callData, tsbk);
+            }
+            catch (Exception ex)
+            {
+                Log.WriteWarning($"Subscriber command failed for RID {callData.DstId}: {ex.Message}");
+                MessageBox.Show("The subscriber command could not be sent. Check the system connection.", "Paging", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
         private void PageRID_Click(object sender, RoutedEventArgs e)
         {
-            DigitalPageWindow pageWindow = new DigitalPageWindow(Codeplug.Systems);
+            DigitalPageWindow pageWindow = new DigitalPageWindow(Codeplug?.Systems);
             pageWindow.Owner = this;
             pageWindow.Title = "Page Subscriber";
 
             if (pageWindow.ShowDialog() == true)
             {
-                // throw an error if the user does the dumb...
-                if (pageWindow.DstId == string.Empty)
-                {
-                    MessageBox.Show($"Must supply a destination ID.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                if (!TryResolvePagingTarget(pageWindow, out PeerSystem fne, out uint sourceId, out uint destinationId))
                     return;
-                }
 
-                PeerSystem fne = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
-                IOSP_CALL_ALRT callAlert = new IOSP_CALL_ALRT(uint.Parse(pageWindow.DstId), uint.Parse(pageWindow.RadioSystem.Rid));
+                IOSP_CALL_ALRT callAlert = new IOSP_CALL_ALRT(destinationId, sourceId);
 
                 RemoteCallData callData = new RemoteCallData
                 {
-                    SrcId = uint.Parse(pageWindow.RadioSystem.Rid),
-                    DstId = uint.Parse(pageWindow.DstId),
+                    SrcId = sourceId,
+                    DstId = destinationId,
                     LCO = P25Defines.TSBK_IOSP_CALL_ALRT
                 };
 
@@ -1968,7 +4833,7 @@ namespace dvmconsole
 
                 callAlert.Encode(ref tsbk);
 
-                fne.SendP25TSBK(callData, tsbk);
+                SendPagingCommand(fne, callData, tsbk);
             }
         }
 
@@ -1979,26 +4844,21 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void RadioCheckRID_Click(object sender, RoutedEventArgs e)
         {
-            DigitalPageWindow pageWindow = new DigitalPageWindow(Codeplug.Systems);
+            DigitalPageWindow pageWindow = new DigitalPageWindow(Codeplug?.Systems);
             pageWindow.Owner = this;
             pageWindow.Title = "Radio Check Subscriber";
 
             if (pageWindow.ShowDialog() == true)
             {
-                // throw an error if the user does the dumb...
-                if (pageWindow.DstId == string.Empty)
-                {
-                    MessageBox.Show($"Must supply a destination ID.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                if (!TryResolvePagingTarget(pageWindow, out PeerSystem fne, out uint sourceId, out uint destinationId))
                     return;
-                }
 
-                PeerSystem fne = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
-                IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.CHECK, uint.Parse(pageWindow.RadioSystem.Rid), uint.Parse(pageWindow.DstId));
+                IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.CHECK, sourceId, destinationId);
 
                 RemoteCallData callData = new RemoteCallData
                 {
-                    SrcId = uint.Parse(pageWindow.RadioSystem.Rid),
-                    DstId = uint.Parse(pageWindow.DstId),
+                    SrcId = sourceId,
+                    DstId = destinationId,
                     LCO = P25Defines.TSBK_IOSP_EXT_FNCT
                 };
 
@@ -2006,7 +4866,7 @@ namespace dvmconsole
 
                 extFunc.Encode(ref tsbk);
 
-                fne.SendP25TSBK(callData, tsbk);
+                SendPagingCommand(fne, callData, tsbk);
             }
         }
 
@@ -2017,26 +4877,21 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void InhibitRID_Click(object sender, RoutedEventArgs e)
         {
-            DigitalPageWindow pageWindow = new DigitalPageWindow(Codeplug.Systems);
+            DigitalPageWindow pageWindow = new DigitalPageWindow(Codeplug?.Systems);
             pageWindow.Owner = this;
             pageWindow.Title = "Inhibit Subscriber";
 
             if (pageWindow.ShowDialog() == true)
             {
-                // throw an error if the user does the dumb...
-                if (pageWindow.DstId == string.Empty)
-                {
-                    MessageBox.Show($"Must supply a destination ID.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                if (!TryResolvePagingTarget(pageWindow, out PeerSystem fne, out uint sourceId, out uint destinationId))
                     return;
-                }
 
-                PeerSystem fne = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
-                IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.INHIBIT, P25Defines.WUID_FNE, uint.Parse(pageWindow.DstId));
+                IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.INHIBIT, P25Defines.WUID_FNE, destinationId);
 
                 RemoteCallData callData = new RemoteCallData
                 {
-                    SrcId = uint.Parse(pageWindow.RadioSystem.Rid),
-                    DstId = uint.Parse(pageWindow.DstId),
+                    SrcId = sourceId,
+                    DstId = destinationId,
                     LCO = P25Defines.TSBK_IOSP_EXT_FNCT
                 };
 
@@ -2044,7 +4899,7 @@ namespace dvmconsole
 
                 extFunc.Encode(ref tsbk);
 
-                fne.SendP25TSBK(callData, tsbk);
+                SendPagingCommand(fne, callData, tsbk);
             }
         }
 
@@ -2055,26 +4910,21 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void UninhibitRID_Click(object sender, RoutedEventArgs e)
         {
-            DigitalPageWindow pageWindow = new DigitalPageWindow(Codeplug.Systems);
+            DigitalPageWindow pageWindow = new DigitalPageWindow(Codeplug?.Systems);
             pageWindow.Owner = this;
             pageWindow.Title = "Uninhibit Subscriber";
 
             if (pageWindow.ShowDialog() == true)
             {
-                // throw an error if the user does the dumb...
-                if (pageWindow.DstId == string.Empty)
-                {
-                    MessageBox.Show($"Must supply a destination ID.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                if (!TryResolvePagingTarget(pageWindow, out PeerSystem fne, out uint sourceId, out uint destinationId))
                     return;
-                }
 
-                PeerSystem fne = fneSystemManager.GetFneSystem(pageWindow.RadioSystem.Name);
-                IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.UNINHIBIT, P25Defines.WUID_FNE, uint.Parse(pageWindow.DstId));
+                IOSP_EXT_FNCT extFunc = new IOSP_EXT_FNCT((ushort)ExtendedFunction.UNINHIBIT, P25Defines.WUID_FNE, destinationId);
 
                 RemoteCallData callData = new RemoteCallData
                 {
-                    SrcId = uint.Parse(pageWindow.RadioSystem.Rid),
-                    DstId = uint.Parse(pageWindow.DstId),
+                    SrcId = sourceId,
+                    DstId = destinationId,
                     LCO = P25Defines.TSBK_IOSP_EXT_FNCT
                 };
 
@@ -2082,109 +4932,10 @@ namespace dvmconsole
 
                 extFunc.Encode(ref tsbk);
 
-                fne.SendP25TSBK(callData, tsbk);
+                SendPagingCommand(fne, callData, tsbk);
             }
         }
 
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private async void ManualPage_Click(object sender, RoutedEventArgs e)
-        {
-            QuickCallPage pageWindow = new QuickCallPage();
-            pageWindow.Owner = this;
-
-            if (pageWindow.ShowDialog() == true)
-            {
-                foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
-                {
-                    Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
-                    if (system == null)
-                    {
-                        Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}.");
-                        channel.IsSelected = false;
-                        selectedChannelsManager.RemoveSelectedChannel(channel);
-                        continue;
-                    }
-
-                    Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                    if (cpgChannel == null)
-                    {
-                        Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.");
-                        channel.IsSelected = false;
-                        selectedChannelsManager.RemoveSelectedChannel(channel);
-                        continue;
-                    }
-
-                    PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
-                    if (fne == null)
-                    {
-                        MessageBox.Show($"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {PLEASE_RESTART_CONSOLE}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                        channel.IsSelected = false;
-                        selectedChannelsManager.RemoveSelectedChannel(channel);
-                        continue;
-                    }
-
-                    // 
-                    if (channel.PageState)
-                    {
-                        ToneGenerator generator = new ToneGenerator();
-
-                        double toneADuration = 1.0;
-                        double toneBDuration = 3.0;
-
-                        byte[] toneA = generator.GenerateTone(Double.Parse(pageWindow.ToneA), toneADuration);
-                        byte[] toneB = generator.GenerateTone(Double.Parse(pageWindow.ToneB), toneBDuration);
-
-                        byte[] combinedAudio = new byte[toneA.Length + toneB.Length];
-                        Buffer.BlockCopy(toneA, 0, combinedAudio, 0, toneA.Length);
-                        Buffer.BlockCopy(toneB, 0, combinedAudio, toneA.Length, toneB.Length);
-
-                        int chunkSize = PCM_SAMPLES_LENGTH;
-                        int totalChunks = (combinedAudio.Length + chunkSize - 1) / chunkSize;
-
-                        Task.Run(() =>
-                        {
-                            //_waveProvider.ClearBuffer();
-                            audioManager.AddTalkgroupStream(cpgChannel.Tgid, combinedAudio);
-                        });
-
-                        await Task.Run(() =>
-                        {
-                            for (int i = 0; i < totalChunks; i++)
-                            {
-                                int offset = i * chunkSize;
-                                int size = Math.Min(chunkSize, combinedAudio.Length - offset);
-
-                                byte[] chunk = new byte[chunkSize];
-                                Buffer.BlockCopy(combinedAudio, offset, chunk, 0, size);
-
-                                if (chunk.Length == 320)
-                                {
-                                    if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                                        P25EncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
-                                    else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                                        DMREncodeAudioFrame(chunk, fne, channel, cpgChannel, system);
-                                }
-                            }
-                        });
-
-                        double totalDurationMs = (toneADuration + toneBDuration) * 1000 + 750;
-                        await Task.Delay((int)totalDurationMs  + 4000);
-
-                        fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
-
-                        Dispatcher.Invoke(() =>
-                        {
-                            //channel.PageState = false; // TODO: Investigate
-                            channel.PageSelectButton.Background = ChannelBox.GRAY_GRADIENT;
-                        });
-                    }
-                }
-            }
-        }
 
         /// <summary>
         /// 
@@ -2227,10 +4978,186 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void AudioSettings_Click(object sender, RoutedEventArgs e)
         {
-            List<Codeplug.Channel> channels = Codeplug?.Zones.SelectMany(z => z.Channels).ToList() ?? new List<Codeplug.Channel>();
+            if (audioSettingsWindow == null)
+            {
+                List<Codeplug.Zone> zones = Codeplug?.Zones ?? new List<Codeplug.Zone>();
+                audioSettingsWindow = new AudioSettingsWindow(
+                    settingsManager,
+                    audioManager,
+                    zones,
+                    ApplyConfiguredInputDevice,
+                    PreviewMicrophoneProcessingSettings,
+                    RestoreSavedMicrophoneProcessingSettings)
+                {
+                    Owner = this
+                };
+                audioSettingsWindow.Closed += (_, _) => audioSettingsWindow = null;
+                audioSettingsWindow.Show();
+            }
 
-            AudioSettingsWindow audioSettingsWindow = new AudioSettingsWindow(settingsManager, audioManager, channels);
-            audioSettingsWindow.ShowDialog();
+            if (audioSettingsWindow.WindowState == WindowState.Minimized)
+                audioSettingsWindow.WindowState = WindowState.Normal;
+
+            audioSettingsWindow.Activate();
+        }
+
+        private void SettingsTransfer_Click(object sender, RoutedEventArgs e)
+        {
+            SettingsTransferWindow settingsTransferWindow = new SettingsTransferWindow(
+                settingsManager,
+                ApplyImportedSettingsToRuntime,
+                GetConfiguredZoneNames(),
+                BuildSettingsTransferScope)
+            {
+                Owner = this
+            };
+
+            settingsTransferWindow.ShowDialog();
+        }
+
+        private IEnumerable<string> GetConfiguredZoneNames()
+        {
+            return (Codeplug?.Zones ?? new List<Codeplug.Zone>())
+                .Where(zone => !string.IsNullOrWhiteSpace(zone?.Name))
+                .Select(zone => zone.Name.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private SettingsManager.SettingsTransferScope BuildSettingsTransferScope(IEnumerable<string> zoneNames)
+        {
+            HashSet<string> selectedZoneNames = new HashSet<string>(
+                zoneNames?.Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => NormalizeZoneName(name)) ?? Enumerable.Empty<string>(),
+                StringComparer.OrdinalIgnoreCase);
+
+            SettingsManager.SettingsTransferScope scope = new SettingsManager.SettingsTransferScope
+            {
+                ZoneNames = selectedZoneNames.ToList()
+            };
+
+            if (Codeplug?.Zones == null || selectedZoneNames.Count == 0)
+                return scope;
+
+            foreach (Codeplug.Zone zone in Codeplug.Zones.Where(zone => selectedZoneNames.Contains(NormalizeZoneName(zone.Name))))
+            {
+                foreach (Codeplug.Channel channel in zone.Channels ?? new List<Codeplug.Channel>())
+                {
+                    if (!string.IsNullOrWhiteSpace(channel.Name))
+                        scope.ChannelNames.Add(channel.Name.Trim());
+                    if (!string.IsNullOrWhiteSpace(channel.Tgid))
+                        scope.TalkgroupIds.Add(channel.Tgid.Trim());
+
+                    string resourceKey = ResourceIdentity.Build(channel.System, channel.Tgid);
+                    if (!string.IsNullOrWhiteSpace(resourceKey))
+                        scope.ChannelResourceKeys.Add(resourceKey);
+                }
+
+                foreach (Codeplug.WebStream stream in zone.WebStreams ?? new List<Codeplug.WebStream>())
+                {
+                    if (!string.IsNullOrWhiteSpace(stream.Name))
+                        scope.WebStreamNames.Add(stream.Name.Trim());
+                }
+            }
+
+            return scope;
+        }
+
+        private async void TabManager_Click(object sender, RoutedEventArgs e)
+        {
+            if (Codeplug?.Zones?.Any(zone => !string.IsNullOrWhiteSpace(zone?.Name)) != true)
+            {
+                MessageBox.Show("Load a codeplug before managing tabs.", "Tab Manager", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            TabManagerWindow tabManagerWindow = new TabManagerWindow(BuildTabManagerZoneItems())
+            {
+                Owner = this
+            };
+
+            if (tabManagerWindow.ShowDialog() != true)
+                return;
+
+            settingsManager.SaveHiddenResourceZones(tabManagerWindow.HiddenZoneNames);
+            await GenerateChannelWidgets();
+        }
+
+        private List<TabManagerWindow.ZoneVisibilityItem> BuildTabManagerZoneItems()
+        {
+            HashSet<string> hiddenZoneNames = GetHiddenResourceZoneSet();
+
+            return (Codeplug?.Zones ?? new List<Codeplug.Zone>())
+                .Where(zone => !string.IsNullOrWhiteSpace(zone?.Name))
+                .GroupBy(zone => NormalizeZoneName(zone.Name), StringComparer.OrdinalIgnoreCase)
+                .Select(group => new TabManagerWindow.ZoneVisibilityItem
+                {
+                    ZoneName = group.First().Name,
+                    IsVisible = !hiddenZoneNames.Contains(NormalizeZoneName(group.Key)),
+                    ChannelCount = group.Sum(zone => zone.Channels?.Count ?? 0),
+                    WebStreamCount = group.Sum(zone => zone.WebStreams?.Count ?? 0)
+                })
+                .ToList();
+        }
+
+        private async void ShowHiddenZone_Click(object sender, RoutedEventArgs e)
+        {
+            if ((sender as FrameworkElement)?.Tag is not string zoneName || string.IsNullOrWhiteSpace(zoneName))
+                return;
+
+            List<string> hiddenZoneNames = settingsManager.GetHiddenResourceZones();
+            int removed = hiddenZoneNames.RemoveAll(hiddenZone =>
+                string.Equals(NormalizeZoneName(hiddenZone), NormalizeZoneName(zoneName), StringComparison.OrdinalIgnoreCase));
+
+            if (removed == 0)
+                return;
+
+            settingsManager.SaveHiddenResourceZones(hiddenZoneNames);
+            await GenerateChannelWidgets();
+            SelectResourceTabByName(zoneName);
+        }
+
+        private void SelectResourceTabByName(string tabName)
+        {
+            if (string.IsNullOrWhiteSpace(tabName))
+                return;
+
+            foreach (TabItem tab in resourceTabs.Items.OfType<TabItem>())
+            {
+                if (IsHiddenZonesOverflowTab(tab))
+                    continue;
+                if (!string.Equals(GetTabDisplayName(tab), tabName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                resourceTabs.SelectedItem = tab;
+                return;
+            }
+        }
+
+        private Task ApplyImportedSettingsToRuntime()
+        {
+            return ReloadResourcesAsync((channels, streams) =>
+            {
+                menuToggleLockWidgets.IsChecked = settingsManager.LockWidgets;
+                menuSnapCallHistory.IsChecked = settingsManager.SnapCallHistoryToWindow;
+                menuTogglePTTMode.IsChecked = settingsManager.TogglePTTMode;
+                menuTalkPermitTone.IsChecked = settingsManager.TalkPermitTone;
+                menuMuteRxAudioWhileTransmitting.IsChecked = settingsManager.MuteRxAudioWhileTransmitting;
+                menuRetainPatchStateOnStartup.IsChecked = settingsManager.RetainPatchStateOnStartup;
+                menuRestoreSelectedChannels.IsChecked = settingsManager.RestoreSelectedChannelsOnStartup;
+                menuKeepWindowOnTop.IsChecked = settingsManager.KeepWindowOnTop;
+                menuDarkMode.IsChecked = settingsManager.DarkMode;
+
+                Topmost = settingsManager.KeepWindowOnTop;
+                UpdateBackground();
+                RefreshToolbarClocks();
+                audioManager.ReloadOutputDevices();
+                ApplyConfiguredInputDevice();
+
+                if (!string.IsNullOrWhiteSpace(settingsManager.LastCodeplugPath) && File.Exists(settingsManager.LastCodeplugPath))
+                    LoadCodeplugCore(settingsManager.LastCodeplugPath);
+                else
+                    GenerateChannelWidgetsCore(channels, streams);
+            });
         }
 
         /// <summary>
@@ -2243,9 +5170,17 @@ namespace dvmconsole
             var confirmResult = MessageBox.Show("Are you sure to wish to reset console settings?", "Reset Settings", MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (confirmResult == MessageBoxResult.Yes)
             {
-                MessageBox.Show("Settings will be reset after console restart.", "Reset Settings", MessageBoxButton.OK, MessageBoxImage.Information);
-                noSaveSettingsOnClose = true;
-                settingsManager.Reset();
+                try
+                {
+                    settingsManager.Reset();
+                    noSaveSettingsOnClose = true;
+                    MessageBox.Show("Settings will be reset after console restart.", "Reset Settings", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                catch (Exception ex)
+                {
+                    Log.StackTrace(ex, false);
+                    MessageBox.Show("Unable to reset settings. Your saved profile has not been cleared.", "Reset Settings", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
             }
         }
 
@@ -2254,9 +5189,10 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void SelectWidgets_Click(object sender, RoutedEventArgs e)
+        private async void SelectWidgets_Click(object sender, RoutedEventArgs e)
         {
-            WidgetSelectionWindow widgetSelectionWindow = new WidgetSelectionWindow();
+            WidgetSelectionWindow widgetSelectionWindow = new WidgetSelectionWindow(
+                settingsManager.ShowSystemStatus, settingsManager.ShowChannels, settingsManager.ShowAlertTones);
             widgetSelectionWindow.Owner = this;
             if (widgetSelectionWindow.ShowDialog() == true)
             {
@@ -2264,7 +5200,7 @@ namespace dvmconsole
                 settingsManager.ShowChannels = widgetSelectionWindow.ShowChannels;
                 settingsManager.ShowAlertTones = widgetSelectionWindow.ShowAlertTones;
 
-                GenerateChannelWidgets();
+                await GenerateChannelWidgets();
                 if (!noSaveSettingsOnClose)
                     settingsManager.SaveSettings();
             }
@@ -2275,49 +5211,334 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void AddAlertTone_Click(object sender, RoutedEventArgs e)
+        private void ManageAlertTones_Click(object sender, RoutedEventArgs e)
         {
-            OpenFileDialog openFileDialog = new OpenFileDialog
+            List<AlertToneManagerWindow.AlertToneManagerItem> alertTones =
+                settingsManager.GetAlertToneConfigs()
+                .Select(config => new AlertToneManagerWindow.AlertToneManagerItem
+                {
+                    Id = config.Id,
+                    DisplayName = config.DisplayName,
+                    FilePath = config.FilePath,
+                    TabName = string.IsNullOrWhiteSpace(config.TabName) ? GetAlertToneTabNames().First() : config.TabName
+                })
+                .ToList();
+
+            Dictionary<string, SettingsManager.AlertToneScheduleConfig> originalSchedules = settingsManager.GetAlertToneScheduleConfigs()
+                .ToDictionary(schedule => schedule.Id, StringComparer.OrdinalIgnoreCase);
+            AlertToneManagerWindow managerWindow = new AlertToneManagerWindow(
+                alertTones,
+                GetAlertToneTabNames(),
+                originalSchedules.Values,
+                BuildAlertToneScheduleTargetOptions(),
+                (items, schedules) =>
             {
-                Filter = "WAV Files (*.wav)|*.wav|All Files (*.*)|*.*",
-                Title = "Select Alert Tone"
+                Dictionary<string, SettingsManager.AlertToneConfig> existingConfigs =
+                    settingsManager.GetAlertToneConfigs()
+                    .ToDictionary(config => config.Id, StringComparer.OrdinalIgnoreCase);
+
+                List<SettingsManager.AlertToneConfig> updatedConfigs = items
+                    .Where(item => !string.IsNullOrWhiteSpace(item.FilePath))
+                    .Select(item =>
+                    {
+                        ChannelPosition position = existingConfigs.TryGetValue(item.Id, out SettingsManager.AlertToneConfig existing)
+                            ? existing.Position
+                            : new ChannelPosition { X = 20, Y = 20 };
+
+                        return new SettingsManager.AlertToneConfig
+                        {
+                            Id = item.Id,
+                            DisplayName = item.DisplayName,
+                            FilePath = item.FilePath,
+                            TabName = item.TabName,
+                            Position = position
+                        };
+                    })
+                    .ToList();
+
+                settingsManager.SaveAlertToneConfigs(updatedConfigs);
+                Dictionary<string, SettingsManager.AlertToneScheduleConfig> currentSchedules = settingsManager.GetAlertToneScheduleConfigs()
+                    .ToDictionary(schedule => schedule.Id, StringComparer.OrdinalIgnoreCase);
+                List<SettingsManager.AlertToneScheduleConfig> mergedSchedules = (schedules ?? Array.Empty<AlertToneManagerWindow.AlertToneScheduleManagerItem>())
+                    .Where(schedule => updatedConfigs.Any(tone => string.Equals(tone.Id, schedule.AlertToneId, StringComparison.OrdinalIgnoreCase)))
+                    .Select(schedule =>
+                    {
+                        originalSchedules.TryGetValue(schedule.Id, out var original);
+                        currentSchedules.TryGetValue(schedule.Id, out var current);
+                        var merged = MergeAlertToneScheduleEdit(schedule, original, current);
+                        schedule.Enabled = merged.Enabled;
+                        schedule.NextRunLocal = merged.NextRunLocal;
+                        schedule.LastRunUtc = merged.LastRunUtc;
+                        return merged;
+                    }).ToList();
+                settingsManager.SaveAlertToneScheduleConfigs(mergedSchedules);
+                originalSchedules = settingsManager.GetAlertToneScheduleConfigs()
+                    .ToDictionary(schedule => schedule.Id, StringComparer.OrdinalIgnoreCase);
+                RefreshAlertToneWidgets();
+            })
+            {
+                Owner = this
             };
 
-            if (openFileDialog.ShowDialog() == true)
+            managerWindow.ShowDialog();
+        }
+
+        private List<AlertToneManagerWindow.AlertToneTargetItem> BuildAlertToneScheduleTargetOptions()
+        {
+            return GetAllCanvases()
+                .SelectMany(canvas => canvas.Children.OfType<ChannelBox>())
+                .Where(IsAlertToneScheduleTargetEligible)
+                .GroupBy(BuildChannelSelectionKey, StringComparer.OrdinalIgnoreCase)
+                .Select(group =>
+                {
+                    ChannelBox channel = group.First();
+                    return new AlertToneManagerWindow.AlertToneTargetItem
+                    {
+                        Key = group.Key,
+                        DisplayName = $"{channel.ChannelName} ({channel.ResourceSystemName} TG {channel.DstId})"
+                    };
+                })
+                .OrderBy(target => target.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static bool IsAlertToneScheduleTargetEligible(ChannelBox channel)
+        {
+            return channel != null &&
+                   !channel.IsRxOnly &&
+                   !channel.IsLocalPlayback;
+        }
+
+        private static SettingsManager.AlertToneScheduleConfig ToAlertToneScheduleConfig(AlertToneManagerWindow.AlertToneScheduleManagerItem item)
+        {
+            return new SettingsManager.AlertToneScheduleConfig
             {
-                string alertFilePath = openFileDialog.FileName;
-                AlertTone alertTone = new AlertTone(alertFilePath);
+                Id = string.IsNullOrWhiteSpace(item?.Id) ? Guid.NewGuid().ToString("N") : item.Id,
+                DisplayName = string.IsNullOrWhiteSpace(item?.DisplayName) ? "Timed Announcement" : item.DisplayName.Trim(),
+                AlertToneId = item?.AlertToneId ?? string.Empty,
+                TargetResourceKey = item?.TargetResourceKey ?? string.Empty,
+                Enabled = item?.Enabled ?? true,
+                Mode = item?.Mode ?? SettingsManager.ALERT_TONE_SCHEDULE_MODE_ONCE,
+                NextRunLocal = item?.NextRunLocal ?? DateTime.Now.AddMinutes(5),
+                RepeatMinutes = item?.RepeatMinutes ?? 60.0,
+                LastRunUtc = item?.LastRunUtc
+            };
+        }
 
-                alertTone.OnAlertTone += SendAlertTone;
-
-                // widget placement
-                alertTone.MouseRightButtonDown += AlertTone_MouseRightButtonDown;
-                alertTone.MouseRightButtonUp += AlertTone_MouseRightButtonUp;
-                alertTone.MouseMove += AlertTone_MouseMove;
-
-                // Get the current active tab's canvas
-                TabItem currentTab = resourceTabs.SelectedItem as TabItem;
-                Canvas targetCanvas = currentTab != null && tabCanvases.ContainsKey(currentTab) 
-                    ? tabCanvases[currentTab] 
-                    : channelsCanvas;
-
-                if (settingsManager.AlertTonePositions.TryGetValue(alertFilePath, out var position))
-                {
-                    Canvas.SetLeft(alertTone, position.X);
-                    Canvas.SetTop(alertTone, position.Y);
-                }
-                else
-                {
-                    Canvas.SetLeft(alertTone, 20);
-                    Canvas.SetTop(alertTone, 20);
-                }
-
-                targetCanvas.Children.Add(alertTone);
-                if (currentTab != null)
-                    elementToTabMap[alertTone] = currentTab;
-                    
-                settingsManager.UpdateAlertTonePaths(alertFilePath);
+        /// <summary>
+        /// Merges editor changes without replacing scheduler progress with the opening snapshot.
+        /// </summary>
+        private static SettingsManager.AlertToneScheduleConfig MergeAlertToneScheduleEdit(
+            AlertToneManagerWindow.AlertToneScheduleManagerItem item,
+            SettingsManager.AlertToneScheduleConfig original, SettingsManager.AlertToneScheduleConfig current)
+        {
+            SettingsManager.AlertToneScheduleConfig edited = ToAlertToneScheduleConfig(item);
+            edited.LastRunUtc = current?.LastRunUtc;
+            if (original != null && current != null)
+            {
+                bool rescheduled = edited.NextRunLocal != original.NextRunLocal;
+                if (edited.Enabled == original.Enabled && !rescheduled)
+                    edited.Enabled = current.Enabled;
+                if (!rescheduled)
+                    edited.NextRunLocal = current.NextRunLocal;
             }
+            return edited;
+        }
+
+        private void TonePresets_Click(object sender, RoutedEventArgs e)
+        {
+            TonePresetManagerWindow managerWindow = new TonePresetManagerWindow(
+                settingsManager.GetTonePresetConfigs(),
+                BuildTonePresetTargetOptions(),
+                SaveTonePresetManagerItems,
+                SendTonePresetManagerItemAsync)
+            {
+                Owner = this
+            };
+
+            managerWindow.ShowDialog();
+        }
+
+        private List<TonePresetManagerWindow.TonePresetTargetItem> BuildTonePresetTargetOptions()
+        {
+            List<TonePresetManagerWindow.TonePresetTargetItem> targets = new List<TonePresetManagerWindow.TonePresetTargetItem>();
+            List<ChannelBox> selectedChannels = selectedChannelsManager.GetSelectedChannels()
+                .Where(IsTonePresetTargetEligible)
+                .ToList();
+
+            List<ChannelBox> pageSelectedChannels = selectedChannels
+                .Where(channel => channel.PageState)
+                .ToList();
+            pageSelectedChannels = ResolveAlertToneTransmitTargets(pageSelectedChannels.Concat(GetActiveAlertToneGroupTargetChannels()));
+
+            if (pageSelectedChannels.Count > 0)
+            {
+                targets.Add(new TonePresetManagerWindow.TonePresetTargetItem
+                {
+                    DisplayName = $"Page-selected resources ({pageSelectedChannels.Count})",
+                    Key = string.Empty,
+                    Channels = pageSelectedChannels,
+                    ClearPageStateAfterSend = true
+                });
+            }
+
+            foreach (ChannelBox channel in selectedChannels.OrderBy(channel => channel.ChannelName, StringComparer.OrdinalIgnoreCase))
+            {
+                targets.Add(new TonePresetManagerWindow.TonePresetTargetItem
+                {
+                    Key = BuildChannelSelectionKey(channel),
+                    DisplayName = $"{channel.ChannelName} ({channel.ResourceSystemName} TG {channel.DstId})",
+                    Channels = new List<ChannelBox> { channel },
+                    ClearPageStateAfterSend = false
+                });
+            }
+
+            return targets;
+        }
+
+        private bool IsTonePresetTargetEligible(ChannelBox channel)
+        {
+            return channel != null &&
+                   channel.IsSelected &&
+                   !channel.IsRxOnly &&
+                   !channel.IsLocalPlayback;
+        }
+
+        private void SaveTonePresetManagerItems(IReadOnlyList<TonePresetManagerWindow.TonePresetManagerItem> items)
+        {
+            settingsManager.SaveTonePresetConfigs((items ?? Array.Empty<TonePresetManagerWindow.TonePresetManagerItem>())
+                .Select(ToTonePresetConfig));
+        }
+
+        private async Task<bool> SendTonePresetManagerItemAsync(
+            TonePresetManagerWindow.TonePresetManagerItem item,
+            TonePresetManagerWindow.TonePresetTargetItem target)
+        {
+            SettingsManager.TonePresetConfig preset = ToTonePresetConfig(item);
+            return await SendToneStackAsync(
+                preset.Steps,
+                target?.Channels ?? Array.Empty<ChannelBox>(),
+                "TONE PRESET",
+                clearPageStateAfterSend: target?.ClearPageStateAfterSend == true,
+                sendStartSignal: true);
+        }
+
+        private static SettingsManager.TonePresetConfig ToTonePresetConfig(TonePresetManagerWindow.TonePresetManagerItem item)
+        {
+            IEnumerable<TonePresetManagerWindow.TonePresetStepItem> steps =
+                item?.Steps ?? Enumerable.Empty<TonePresetManagerWindow.TonePresetStepItem>();
+
+            return new SettingsManager.TonePresetConfig
+            {
+                Id = string.IsNullOrWhiteSpace(item?.Id) ? Guid.NewGuid().ToString("N") : item.Id,
+                DisplayName = string.IsNullOrWhiteSpace(item?.DisplayName) ? "Tone Preset" : item.DisplayName.Trim(),
+                TargetResourceKey = item?.TargetResourceKey ?? string.Empty,
+                Steps = steps
+                    .Where(step => step != null)
+                    .Select(step => new SettingsManager.TonePresetStep
+                    {
+                        Kind = string.Equals(step.Kind, "Hold", StringComparison.OrdinalIgnoreCase)
+                            ? SettingsManager.TONE_PRESET_STEP_KIND_HOLD
+                            : SettingsManager.TONE_PRESET_STEP_KIND_TONE,
+                        FrequencyHz = step.FrequencyHz,
+                        DurationSeconds = step.DurationSeconds
+                    })
+                    .ToList()
+            };
+        }
+
+        private void DtmfPresets_Click(object sender, RoutedEventArgs e)
+        {
+            DtmfPresetManagerWindow managerWindow = new DtmfPresetManagerWindow(
+                settingsManager.GetDtmfPresetConfigs(),
+                BuildDtmfPresetTargetOptions(),
+                SaveDtmfPresetManagerItems,
+                SendDtmfPresetManagerItemAsync)
+            {
+                Owner = this
+            };
+
+            managerWindow.ShowDialog();
+        }
+
+        private List<DtmfPresetManagerWindow.DtmfPresetTargetItem> BuildDtmfPresetTargetOptions()
+        {
+            List<DtmfPresetManagerWindow.DtmfPresetTargetItem> targets = new List<DtmfPresetManagerWindow.DtmfPresetTargetItem>();
+            List<ChannelBox> selectedChannels = selectedChannelsManager.GetSelectedChannels()
+                .Where(IsTonePresetTargetEligible)
+                .ToList();
+
+            List<ChannelBox> pageSelectedChannels = selectedChannels
+                .Where(channel => channel.PageState)
+                .ToList();
+            pageSelectedChannels = ResolveAlertToneTransmitTargets(pageSelectedChannels.Concat(GetActiveAlertToneGroupTargetChannels()));
+
+            if (pageSelectedChannels.Count > 0)
+            {
+                targets.Add(new DtmfPresetManagerWindow.DtmfPresetTargetItem
+                {
+                    DisplayName = $"Page-selected resources ({pageSelectedChannels.Count})",
+                    Key = string.Empty,
+                    Channels = pageSelectedChannels,
+                    ClearPageStateAfterSend = true
+                });
+            }
+
+            foreach (ChannelBox channel in selectedChannels.OrderBy(channel => channel.ChannelName, StringComparer.OrdinalIgnoreCase))
+            {
+                targets.Add(new DtmfPresetManagerWindow.DtmfPresetTargetItem
+                {
+                    Key = BuildChannelSelectionKey(channel),
+                    DisplayName = $"{channel.ChannelName} ({channel.ResourceSystemName} TG {channel.DstId})",
+                    Channels = new List<ChannelBox> { channel },
+                    ClearPageStateAfterSend = false
+                });
+            }
+
+            return targets;
+        }
+
+        private void SaveDtmfPresetManagerItems(IReadOnlyList<DtmfPresetManagerWindow.DtmfPresetManagerItem> items)
+        {
+            settingsManager.SaveDtmfPresetConfigs((items ?? Array.Empty<DtmfPresetManagerWindow.DtmfPresetManagerItem>())
+                .Select(ToDtmfPresetConfig));
+        }
+
+        private async Task<bool> SendDtmfPresetManagerItemAsync(
+            DtmfPresetManagerWindow.DtmfPresetManagerItem item,
+            DtmfPresetManagerWindow.DtmfPresetTargetItem target)
+        {
+            SettingsManager.DtmfPresetConfig preset = ToDtmfPresetConfig(item);
+            return await SendDtmfStackAsync(
+                preset.Steps,
+                target?.Channels ?? Array.Empty<ChannelBox>(),
+                "DTMF TONE",
+                clearPageStateAfterSend: target?.ClearPageStateAfterSend == true,
+                sendStartSignal: true);
+        }
+
+        private static SettingsManager.DtmfPresetConfig ToDtmfPresetConfig(DtmfPresetManagerWindow.DtmfPresetManagerItem item)
+        {
+            IEnumerable<DtmfPresetManagerWindow.DtmfPresetStepItem> steps =
+                item?.Steps ?? Enumerable.Empty<DtmfPresetManagerWindow.DtmfPresetStepItem>();
+
+            return new SettingsManager.DtmfPresetConfig
+            {
+                Id = string.IsNullOrWhiteSpace(item?.Id) ? Guid.NewGuid().ToString("N") : item.Id,
+                DisplayName = string.IsNullOrWhiteSpace(item?.DisplayName) ? "DTMF Preset" : item.DisplayName.Trim(),
+                TargetResourceKey = item?.TargetResourceKey ?? string.Empty,
+                Steps = steps
+                    .Where(step => step != null)
+                    .Select(step => new SettingsManager.DtmfPresetStep
+                    {
+                        Kind = string.Equals(step.Kind, SettingsManager.TONE_PRESET_STEP_KIND_HOLD, StringComparison.OrdinalIgnoreCase)
+                            ? SettingsManager.TONE_PRESET_STEP_KIND_HOLD
+                            : SettingsManager.DTMF_PRESET_STEP_KIND_DIGIT,
+                        Digit = step.Digit,
+                        DurationSeconds = step.DurationSeconds
+                    })
+                    .ToList()
+            };
         }
 
         /// <summary>
@@ -2356,6 +5577,7 @@ namespace dvmconsole
 
             settingsManager.DarkMode = menuDarkMode.IsChecked;
             UpdateBackground();
+            patchGroupsWindow?.RefreshTheme();
         }
 
         /// <summary>
@@ -2369,6 +5591,8 @@ namespace dvmconsole
                 return;
 
             settingsManager.LockWidgets = !settingsManager.LockWidgets;
+            if (settingsManager.LockWidgets)
+                ClearLayoutSelection();
         }
 
         /// <summary>
@@ -2444,6 +5668,335 @@ namespace dvmconsole
             settingsManager.WindowWidth = ActualWidth;
             settingsManager.WindowHeight = ActualHeight;
         }
+        private void SnapCardsToGrid_Click(object sender, RoutedEventArgs e)
+        {
+            const double startX = 20;
+            const double startY = 20;
+            const double streamWidth = 178;
+            const double streamHeight = 90;
+            const double spacingX = 5;
+            const double spacingY = 10;
+
+            Canvas canvas = GetActiveCanvas();
+            if (canvas == null)
+                return;
+
+            double layoutWidth = canvas.ActualWidth;
+            if (layoutWidth < 200)
+                layoutWidth = ActualWidth;
+
+            double x = startX;
+            double y = startY;
+            double rowHeight = 0;
+
+            foreach (UIElement element in canvas.Children)
+            {
+                if (element is not ChannelBox &&
+                    element is not SystemStatusBox &&
+                    element is not AlertTone &&
+                    element is not WebStreamChip)
+                    continue;
+
+                Canvas.SetLeft(element, x);
+                Canvas.SetTop(element, y);
+                double elementWidth = ChannelBox.NORMAL_CARD_WIDTH;
+                double elementHeight = ChannelBox.NORMAL_CARD_HEIGHT;
+                if (element is ChannelBox sizedChannelBox)
+                {
+                    elementWidth = sizedChannelBox.Width > 0 ? sizedChannelBox.Width : ChannelBox.NORMAL_CARD_WIDTH;
+                    elementHeight = sizedChannelBox.Height > 0 ? sizedChannelBox.Height : ChannelBox.NORMAL_CARD_HEIGHT;
+                }
+                else if (element is WebStreamChip)
+                {
+                    elementWidth = streamWidth;
+                    elementHeight = streamHeight;
+                }
+                rowHeight = Math.Max(rowHeight, elementHeight);
+
+                if (element is ChannelBox channelBox)
+                {
+                    settingsManager.UpdateChannelPosition(channelBox.ChannelSettingsKey, x, y);
+                }
+                else if (element is SystemStatusBox systemStatusBox)
+                {
+                    settingsManager.SystemStatusPositions[systemStatusBox.SystemName] =
+                        new ChannelPosition { X = x, Y = y };
+                }
+                else if (element is AlertTone alertTone)
+                {
+                    settingsManager.UpdateAlertTonePositionById(alertTone.AlertToneId, x, y);
+                }
+                else if (element is WebStreamChip streamChip)
+                {
+                    settingsManager.UpdateWebStreamPosition(streamChip.DisplayName, x, y);
+                }
+
+                x += elementWidth + spacingX;
+
+                if (x + elementWidth > layoutWidth)
+                {
+                    x = startX;
+                    y += rowHeight + spacingY;
+                    rowHeight = 0;
+                }
+            }
+
+            settingsManager.SaveSettings();
+        }
+
+        private void AttachLayoutSelectionCanvasEvents(Canvas canvas)
+        {
+            if (canvas == null)
+                return;
+
+            canvas.PreviewMouseLeftButtonDown -= LayoutCanvas_PreviewMouseLeftButtonDown;
+            canvas.PreviewMouseMove -= LayoutCanvas_PreviewMouseMove;
+            canvas.PreviewMouseLeftButtonUp -= LayoutCanvas_PreviewMouseLeftButtonUp;
+
+            canvas.PreviewMouseLeftButtonDown += LayoutCanvas_PreviewMouseLeftButtonDown;
+            canvas.PreviewMouseMove += LayoutCanvas_PreviewMouseMove;
+            canvas.PreviewMouseLeftButtonUp += LayoutCanvas_PreviewMouseLeftButtonUp;
+        }
+
+        private void LayoutCanvas_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (settingsManager.LockWidgets || sender is not Canvas canvas || e.OriginalSource != canvas)
+                return;
+
+            ClearLayoutSelection();
+            BeginLayoutSelection(canvas, e.GetPosition(canvas));
+            e.Handled = true;
+        }
+
+        private void LayoutCanvas_PreviewMouseMove(object sender, MouseEventArgs e)
+        {
+            if (!isLayoutSelecting || layoutSelectionCanvas == null || layoutSelectionRectangle == null)
+                return;
+
+            if (e.LeftButton != MouseButtonState.Pressed)
+            {
+                CompleteLayoutSelection();
+                return;
+            }
+
+            UpdateLayoutSelectionRectangle(e.GetPosition(layoutSelectionCanvas));
+            e.Handled = true;
+        }
+
+        private void LayoutCanvas_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (!isLayoutSelecting)
+                return;
+
+            CompleteLayoutSelection();
+            e.Handled = true;
+        }
+
+        private void BeginLayoutSelection(Canvas canvas, Point startPoint)
+        {
+            isLayoutSelecting = true;
+            layoutSelectionCanvas = canvas;
+            layoutSelectionStartPoint = startPoint;
+
+            layoutSelectionRectangle = new System.Windows.Shapes.Rectangle
+            {
+                Stroke = Brushes.DeepSkyBlue,
+                StrokeThickness = 1,
+                StrokeDashArray = new DoubleCollection { 3, 2 },
+                Fill = new SolidColorBrush(Color.FromArgb(45, 0, 122, 204)),
+                IsHitTestVisible = false
+            };
+
+            Canvas.SetLeft(layoutSelectionRectangle, startPoint.X);
+            Canvas.SetTop(layoutSelectionRectangle, startPoint.Y);
+            Canvas.SetZIndex(layoutSelectionRectangle, int.MaxValue);
+            canvas.Children.Add(layoutSelectionRectangle);
+            canvas.CaptureMouse();
+        }
+
+        private void UpdateLayoutSelectionRectangle(Point currentPoint)
+        {
+            double left = Math.Min(layoutSelectionStartPoint.X, currentPoint.X);
+            double top = Math.Min(layoutSelectionStartPoint.Y, currentPoint.Y);
+            double width = Math.Abs(currentPoint.X - layoutSelectionStartPoint.X);
+            double height = Math.Abs(currentPoint.Y - layoutSelectionStartPoint.Y);
+
+            Canvas.SetLeft(layoutSelectionRectangle, left);
+            Canvas.SetTop(layoutSelectionRectangle, top);
+            layoutSelectionRectangle.Width = width;
+            layoutSelectionRectangle.Height = height;
+        }
+
+        private void CompleteLayoutSelection()
+        {
+            Canvas canvas = layoutSelectionCanvas;
+            System.Windows.Shapes.Rectangle rectangle = layoutSelectionRectangle;
+
+            if (canvas == null || rectangle == null)
+            {
+                isLayoutSelecting = false;
+                return;
+            }
+
+            Rect selectionBounds = new Rect(
+                Canvas.GetLeft(rectangle),
+                Canvas.GetTop(rectangle),
+                rectangle.Width,
+                rectangle.Height);
+
+            bool isTinySelection =
+                selectionBounds.Width < SystemParameters.MinimumHorizontalDragDistance &&
+                selectionBounds.Height < SystemParameters.MinimumVerticalDragDistance;
+
+            List<UIElement> selected = new List<UIElement>();
+            try
+            {
+                if (!isTinySelection)
+                {
+                    selected = canvas.Children
+                        .OfType<UIElement>()
+                        .Where(element => !ReferenceEquals(element, rectangle))
+                        .Where(IsMovableLayoutWidget)
+                        .Where(element => selectionBounds.IntersectsWith(GetElementBounds(element)))
+                        .ToList();
+                }
+            }
+            finally
+            {
+                if (canvas.Children.Contains(rectangle))
+                    canvas.Children.Remove(rectangle);
+
+                if (canvas.IsMouseCaptured)
+                    canvas.ReleaseMouseCapture();
+
+                layoutSelectionRectangle = null;
+                layoutSelectionCanvas = null;
+                isLayoutSelecting = false;
+            }
+
+            if (isTinySelection)
+                ClearLayoutSelection();
+            else
+                SetLayoutSelection(selected);
+        }
+
+        private void SetLayoutSelection(IEnumerable<UIElement> elements)
+        {
+            ClearLayoutSelection();
+
+            foreach (UIElement element in elements ?? Enumerable.Empty<UIElement>())
+            {
+                if (!layoutSelectedElements.Add(element))
+                    continue;
+
+                layoutSelectionOriginalEffects[element] = element.Effect;
+                element.Effect = new System.Windows.Media.Effects.DropShadowEffect
+                {
+                    Color = Colors.DeepSkyBlue,
+                    BlurRadius = 14,
+                    ShadowDepth = 0,
+                    Opacity = 0.95
+                };
+            }
+        }
+
+        private void ClearLayoutSelection()
+        {
+            foreach (UIElement element in layoutSelectedElements.ToList())
+            {
+                if (layoutSelectionOriginalEffects.TryGetValue(element, out var originalEffect))
+                    element.Effect = originalEffect;
+                else
+                    element.ClearValue(UIElement.EffectProperty);
+            }
+
+            layoutSelectedElements.Clear();
+            layoutSelectionOriginalEffects.Clear();
+            layoutDragStartPositions.Clear();
+            isLayoutGroupDrag = false;
+        }
+
+        private static bool IsMovableLayoutWidget(UIElement element)
+        {
+            return element is ChannelBox ||
+                   element is SystemStatusBox ||
+                   element is AlertTone ||
+                   element is WebStreamChip;
+        }
+
+        private static Rect GetElementBounds(UIElement element)
+        {
+            return new Rect(GetCanvasLeft(element), GetCanvasTop(element), element.RenderSize.Width, element.RenderSize.Height);
+        }
+
+        private static void GetCanvasMovementBounds(Canvas canvas, out double maxWidth, out double maxHeight)
+        {
+            ScrollViewer scrollViewer = canvas.Parent as ScrollViewer;
+            maxWidth = scrollViewer != null ? Math.Max(canvas.ActualWidth, scrollViewer.ViewportWidth) : canvas.ActualWidth;
+            maxHeight = scrollViewer != null ? Math.Max(canvas.ActualHeight, scrollViewer.ViewportHeight) : canvas.ActualHeight;
+
+            if (maxHeight < 100)
+                maxHeight = 10000;
+            if (maxWidth < 100)
+                maxWidth = 10000;
+        }
+
+        private static double GetCanvasLeft(UIElement element)
+        {
+            double left = Canvas.GetLeft(element);
+            return double.IsNaN(left) ? 0 : left;
+        }
+
+        private static double GetCanvasTop(UIElement element)
+        {
+            double top = Canvas.GetTop(element);
+            return double.IsNaN(top) ? 0 : top;
+        }
+
+        private void PersistWidgetPositions(IEnumerable<UIElement> elements)
+        {
+            bool changed = false;
+            bool alertToneChanged = false;
+            List<SettingsManager.AlertToneConfig> alertToneConfigs = null;
+
+            foreach (UIElement element in elements ?? Enumerable.Empty<UIElement>())
+            {
+                double left = GetCanvasLeft(element);
+                double top = GetCanvasTop(element);
+
+                if (element is ChannelBox channelBox)
+                {
+                    settingsManager.ChannelPositions[channelBox.ChannelSettingsKey] = new ChannelPosition { X = left, Y = top };
+                    changed = true;
+                }
+                else if (element is WebStreamChip streamChip)
+                {
+                    settingsManager.WebStreamPositions[streamChip.DisplayName] = new ChannelPosition { X = left, Y = top };
+                    changed = true;
+                }
+                else if (element is SystemStatusBox systemStatusBox)
+                {
+                    settingsManager.SystemStatusPositions[systemStatusBox.SystemName] = new ChannelPosition { X = left, Y = top };
+                    changed = true;
+                }
+                else if (element is AlertTone alertTone && !string.IsNullOrWhiteSpace(alertTone.AlertToneId))
+                {
+                    alertToneConfigs ??= settingsManager.GetAlertToneConfigs();
+                    SettingsManager.AlertToneConfig config = alertToneConfigs
+                        .FirstOrDefault(t => string.Equals(t.Id, alertTone.AlertToneId, StringComparison.OrdinalIgnoreCase));
+                    if (config != null)
+                    {
+                        config.Position = new ChannelPosition { X = left, Y = top };
+                        alertToneChanged = true;
+                    }
+                }
+            }
+
+            if (alertToneChanged)
+                settingsManager.SaveAlertToneConfigs(alertToneConfigs);
+            else if (changed)
+                settingsManager.SaveSettings();
+        }
 
         /** Widget Controls */
 
@@ -2454,8 +6007,28 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void ChannelBox_HoldChannelButtonClicked(object sender, ChannelBox e)
         {
-            if (e.SystemName == PLAYBACKSYS || e.ChannelName == PLAYBACKCHNAME || e.DstId == PLAYBACKTG)
+            if (e.IsLocalPlayback)
                 return;
+
+            if (!e.HoldState)
+                StopTonePlaybackForChannel(e, sendFallbackEndSignal: true);
+        }
+
+        /// <summary>
+        /// Persists selectable encryption state for the channel's configured system/talkgroup.
+        /// </summary>
+        private void ChannelBox_SelectableEncryptionClicked(object sender, ChannelBox e)
+        {
+            if (e == null)
+                return;
+
+            Codeplug.Channel cpgChannel = e.ConfiguredChannel;
+            if (cpgChannel == null || !cpgChannel.SelectableEncryption || !cpgChannel.HasSelectableTxProtection())
+                return;
+
+            settingsManager.UpdateSelectableEncryptionState(
+                BuildSelectableEncryptionStateKey(cpgChannel.System, cpgChannel.Tgid),
+                e.IsTxEncrypted);
         }
 
         /// <summary>
@@ -2465,41 +6038,52 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void ChannelBox_PageButtonClicked(object sender, ChannelBox e)
         {
-            if (e.SystemName == PLAYBACKSYS || e.ChannelName == PLAYBACKCHNAME || e.DstId == PLAYBACKTG)
+            if (e.IsLocalPlayback)
                 return;
 
-            Codeplug.System system = Codeplug.GetSystemForChannel(e.ChannelName);
-            if (system == null)
+            if (!TryResolveChannelEndpoint(e, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne, out string endpointError))
             {
-                MessageBox.Show($"{e.ChannelName} refers to an {INVALID_SYSTEM} {e.SystemName}. {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                e.IsSelected = false;
-                selectedChannelsManager.RemoveSelectedChannel(e);
-                return;
-            }
+                if (TryHandleDisconnectedFneEndpoint(e, system, $"Page select {e.ChannelName}"))
+                {
+                    e.PageState = false;
+                    return;
+                }
 
-            Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(e.ChannelName);
-            if (cpgChannel == null)
-            {
-                // bryanb: this should actually never happen...
-                MessageBox.Show($"{e.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                e.IsSelected = false;
-                selectedChannelsManager.RemoveSelectedChannel(e);
-                return;
-            }
-
-            PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
-            if (fne == null)
-            {
-                MessageBox.Show($"{e.ChannelName} has a {ERR_INVALID_FNE_REF}. {PLEASE_RESTART_CONSOLE}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"{endpointError} {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 e.IsSelected = false;
                 selectedChannelsManager.RemoveSelectedChannel(e);
                 return;
             }
 
             if (e.PageState)
-                fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
+            {
+                if (!ValidateFneConnectionAvailable(system.Name, e, current => current.PageState = false))
+                    return;
+
+                if (!ValidateTalkgroupAvailability(fne, cpgChannel, e, current => current.PageState = false))
+                    return;
+
+                if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                    fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
+            }
             else
-                fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
+            {
+                if (StopTonePlaybackForChannel(e, sendFallbackEndSignal: false))
+                    return;
+
+                if (IsFneSystemConnected(system.Name) && cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                {
+                    if (e.TxStreamId != 0)
+                        EndP25Transmission(e, fne, cpgChannel, system, uint.Parse(cpgChannel.GetSourceRid(system)), e.TxStreamId);
+                    else
+                    {
+                        try { fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false); }
+                        catch (Exception ex) { Log.WriteWarning($"Page release failed for {e.ChannelName}: {ex.Message}"); }
+                    }
+                }
+                else if (!IsFneSystemConnected(system.Name))
+                    Log.WriteWarning($"Page TDU end skipped for {e.ChannelName}; FNE system '{system.Name}' is disconnected.");
+            }
         }
 
         /// <summary>
@@ -2509,10 +6093,12 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void ChannelBox_PTTButtonClicked(object sender, ChannelBox e)
         {
-            if (e.SystemName == PLAYBACKSYS || e.ChannelName == PLAYBACKCHNAME || e.DstId == PLAYBACKTG)
+            if (e.IsLocalPlayback)
+                return;
+            if (!e.PttState && e.TxStreamId == 0)
                 return;
 
-            Codeplug.System system = Codeplug.GetSystemForChannel(e.ChannelName);
+            Codeplug.System system = Codeplug.GetSystemForChannel(e.ConfiguredChannel);
             if (system == null)
             {
                 MessageBox.Show($"{e.ChannelName} refers to an {INVALID_SYSTEM} {e.SystemName}. {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -2521,7 +6107,7 @@ namespace dvmconsole
                 return;
             }
 
-            Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(e.ChannelName);
+            Codeplug.Channel cpgChannel = e.ConfiguredChannel;
             if (cpgChannel == null)
             {
                 // bryanb: this should actually never happen...
@@ -2534,159 +6120,88 @@ namespace dvmconsole
             PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
             if (fne == null)
             {
+                if (TryHandleDisconnectedFneEndpoint(e, system, $"PTT click {e.ChannelName}"))
+                {
+                    e.PttState = false;
+                    e.VolumeMeterLevel = 0;
+                    ResetChannel(e);
+                    return;
+                }
+
                 MessageBox.Show($"{e.ChannelName} has a {ERR_INVALID_FNE_REF}. {PLEASE_RESTART_CONSOLE}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 e.IsSelected = false;
                 selectedChannelsManager.RemoveSelectedChannel(e);
                 return;
             }
 
-            if (!e.IsSelected)
+            if (!e.IsSelected && e.PttState)
                 return;
 
-            FneUtils.Memset(e.mi, 0x00, P25Defines.P25_MI_LENGTH);
-
-            uint srcId = uint.Parse(system.Rid);
+            uint srcId = uint.Parse(cpgChannel.GetSourceRid(system));
             uint dstId = uint.Parse(cpgChannel.Tgid);
 
             if (e.PttState)
             {
+                if (!ValidateFneConnectionAvailable(system.Name, e, current =>
+                {
+                    current.PttState = false;
+                    ResetChannel(current);
+                    current.VolumeMeterLevel = 0;
+                }))
+                    return;
+
+                if (!ValidateTalkgroupAvailability(fne, cpgChannel, e, current =>
+                {
+                    current.PttState = false;
+                    ResetChannel(current);
+                    current.VolumeMeterLevel = 0;
+                }))
+                    return;
+
+                if (!ValidateP25Transmit(cpgChannel, e))
+                {
+                    e.PttState = false;
+                    ResetChannel(e);
+                    e.VolumeMeterLevel = 0;
+                    return;
+                }
+
+                EnsureAudioInputCaptureHealthy("channel PTT start");
+                ApplyRxPlaybackMuteForTransmitStart();
+
                 if (e.TxStreamId != 0)
                     Log.WriteWarning($"{e.ChannelName} CHANNEL still had a TxStreamId? This shouldn't happen.");
 
                 e.TxStreamId = fne.NewStreamId();
+                StartOperatorPtt(e);
                 Log.WriteLine($"({system.Name}) {e.ChannelMode.ToUpperInvariant()} Traffic *CALL START     * SRC_ID {srcId} TGID {dstId} [STREAM ID {e.TxStreamId}]");
                 e.VolumeMeterLevel = 0;
+                BeginTarTxRecording(e, system, cpgChannel, e.TxStreamId);
+
                 if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
                     fne.SendP25TDU(srcId, dstId, true);
+
+                PlayTalkPermitTone();
             }
             else
             {
+                StopOperatorPtt(e);
                 e.VolumeMeterLevel = 0;
                 Log.WriteLine($"({system.Name}) {e.ChannelMode.ToUpperInvariant()} Traffic *CALL END       * SRC_ID {srcId} TGID {dstId} [STREAM ID {e.TxStreamId}]");
-                if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                    fne.SendP25TDU(srcId, dstId, false);
-                else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                    fne.SendDMRTerminator(srcId, dstId, 1, e.dmrSeqNo, e.dmrN, e.embeddedData);
+                EndTarTxRecording(e, system, cpgChannel);
+                if (IsFneSystemConnected(system.Name))
+                {
+                    if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                        EndP25Transmission(e, fne, cpgChannel, system, srcId, e.TxStreamId);
+                    else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                        EndDmrTransmission(e);
+                }
+                else
+                {
+                    Log.WriteWarning($"Call end network signal skipped for {e.ChannelName}; FNE system '{system.Name}' is disconnected.");
+                }
 
                 // reset values
-                ResetChannel(e);
-            }
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        /// <exception cref="NotImplementedException"></exception>
-        private void ChannelBox_PTTButtonPressed(object sender, ChannelBox e)
-        {
-            if (e.SystemName == PLAYBACKSYS || e.ChannelName == PLAYBACKCHNAME || e.DstId == PLAYBACKTG)
-                return;
-
-            if (!e.PttState)
-            {
-                Codeplug.System system = Codeplug.GetSystemForChannel(e.ChannelName);
-                if (system == null)
-                {
-                    MessageBox.Show($"{e.ChannelName} refers to an {INVALID_SYSTEM} {e.SystemName}. {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    e.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(e);
-                    return;
-                }
-
-                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(e.ChannelName);
-                if (cpgChannel == null)
-                {
-                    // bryanb: this should actually never happen...
-                    MessageBox.Show($"{e.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    e.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(e);
-                    return;
-                }
-
-                PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
-                if (fne == null)
-                {
-                    MessageBox.Show($"{e.ChannelName} has a {ERR_INVALID_FNE_REF}. {PLEASE_RESTART_CONSOLE}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    e.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(e);
-                    return;
-                }
-
-                if (!e.IsSelected)
-                    return;
-
-                FneUtils.Memset(e.mi, 0x00, P25Defines.P25_MI_LENGTH);
-
-                uint srcId = uint.Parse(system.Rid);
-                uint dstId = uint.Parse(cpgChannel.Tgid);
-
-                if (e.TxStreamId != 0)
-                    Log.WriteWarning($"{e.ChannelName} CHANNEL still had a TxStreamId? This shouldn't happen.");
-
-                e.TxStreamId = fne.NewStreamId();
-                Log.WriteLine($"({system.Name}) {e.ChannelMode.ToUpperInvariant()} Traffic *CALL START     * SRC_ID {srcId} TGID {dstId} [STREAM ID {e.TxStreamId}]");
-                e.VolumeMeterLevel = 0;
-                if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                    fne.SendP25TDU(srcId, dstId, true);
-            }
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        /// <exception cref="NotImplementedException"></exception>
-        private void ChannelBox_PTTButtonReleased(object sender, ChannelBox e)
-        {
-            if (e.SystemName == PLAYBACKSYS || e.ChannelName == PLAYBACKCHNAME || e.DstId == PLAYBACKTG)
-                return;
-
-            if (e.PttState)
-            {
-                Codeplug.System system = Codeplug.GetSystemForChannel(e.ChannelName);
-                if (system == null)
-                {
-                    MessageBox.Show($"{e.ChannelName} refers to an {INVALID_SYSTEM} {e.SystemName}. {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    e.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(e);
-                    return;
-                }
-
-                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(e.ChannelName);
-                if (cpgChannel == null)
-                {
-                    // bryanb: this should actually never happen...
-                    MessageBox.Show($"{e.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {PLEASE_CHECK_CODEPLUG}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    e.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(e);
-                    return;
-                }
-
-                PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
-                if (fne == null)
-                {
-                    MessageBox.Show($"{e.ChannelName} has a {ERR_INVALID_FNE_REF}. {PLEASE_RESTART_CONSOLE}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    e.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(e);
-                    return;
-                }
-
-                if (!e.IsSelected)
-                    return;
-
-                uint srcId = uint.Parse(system.Rid);
-                uint dstId = uint.Parse(cpgChannel.Tgid);
-
-                Log.WriteLine($"({system.Name}) {e.ChannelMode.ToUpperInvariant()} Traffic *CALL END       * SRC_ID {srcId} TGID {dstId} [STREAM ID {e.TxStreamId}]");
-                e.VolumeMeterLevel = 0;
-                if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                    fne.SendP25TDU(srcId, dstId, false);
-                else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
-                    fne.SendDMRTerminator(srcId, dstId, 1, e.dmrSeqNo, e.dmrN, e.embeddedData);
-
                 ResetChannel(e);
             }
         }
@@ -2701,12 +6216,30 @@ namespace dvmconsole
             if (settingsManager.LockWidgets || !(sender is UIElement element))
                 return;
 
-            draggedElement = element;
             Canvas targetCanvas = GetCanvasForElement(element);
+            if (targetCanvas == null)
+                return;
+
+            if (!layoutSelectedElements.Contains(element))
+                ClearLayoutSelection();
+
+            draggedElement = element;
             startPoint = e.GetPosition(targetCanvas);
-            offsetX = startPoint.X - Canvas.GetLeft(draggedElement);
-            offsetY = startPoint.Y - Canvas.GetTop(draggedElement);
+            offsetX = startPoint.X - GetCanvasLeft(draggedElement);
+            offsetY = startPoint.Y - GetCanvasTop(draggedElement);
             isDragging = true;
+            isLayoutGroupDrag = layoutSelectedElements.Count > 1 && layoutSelectedElements.Contains(element);
+
+            layoutDragStartPositions.Clear();
+            if (isLayoutGroupDrag)
+            {
+                layoutGroupDragStartPoint = startPoint;
+                foreach (UIElement selectedElement in layoutSelectedElements)
+                {
+                    if (GetCanvasForElement(selectedElement) == targetCanvas)
+                        layoutDragStartPositions[selectedElement] = new Point(GetCanvasLeft(selectedElement), GetCanvasTop(selectedElement));
+                }
+            }
 
             Cursor = Cursors.ScrollAll;
 
@@ -2726,6 +6259,13 @@ namespace dvmconsole
             Cursor = Cursors.Arrow;
 
             isDragging = false;
+            if (isLayoutGroupDrag)
+            {
+                PersistWidgetPositions(layoutSelectedElements);
+                layoutDragStartPositions.Clear();
+                isLayoutGroupDrag = false;
+            }
+
             if (draggedElement != null)
             {
                 draggedElement.ReleaseMouseCapture();
@@ -2750,24 +6290,38 @@ namespace dvmconsole
 
             Point currentPosition = e.GetPosition(targetCanvas);
 
+            // Move the current marquee selection as a block when the dragged widget is selected.
+            if (isLayoutGroupDrag && layoutDragStartPositions.Count > 0 && layoutDragStartPositions.ContainsKey(draggedElement))
+            {
+                double deltaX = Math.Round((currentPosition.X - layoutGroupDragStartPoint.X) / GridSize) * GridSize;
+                double deltaY = Math.Round((currentPosition.Y - layoutGroupDragStartPoint.Y) / GridSize) * GridSize;
+
+                GetCanvasMovementBounds(targetCanvas, out double groupMaxWidth, out double groupMaxHeight);
+
+                foreach (KeyValuePair<UIElement, Point> kvp in layoutDragStartPositions)
+                {
+                    UIElement element = kvp.Key;
+                    Point originalPosition = kvp.Value;
+                    deltaX = Math.Max(deltaX, -originalPosition.X);
+                    deltaY = Math.Max(deltaY, -originalPosition.Y);
+                    deltaX = Math.Min(deltaX, groupMaxWidth - element.RenderSize.Width - originalPosition.X);
+                    deltaY = Math.Min(deltaY, groupMaxHeight - element.RenderSize.Height - originalPosition.Y);
+                }
+
+                foreach (KeyValuePair<UIElement, Point> kvp in layoutDragStartPositions)
+                {
+                    Canvas.SetLeft(kvp.Key, kvp.Value.X + deltaX);
+                    Canvas.SetTop(kvp.Key, kvp.Value.Y + deltaY);
+                }
+
+                return;
+            }
+
             // Calculate the new position with snapping to the grid
             double newLeft = Math.Round((currentPosition.X - offsetX) / GridSize) * GridSize;
             double newTop = Math.Round((currentPosition.Y - offsetY) / GridSize) * GridSize;
 
-            // Get the ScrollViewer parent to get proper viewport dimensions
-            ScrollViewer scrollViewer = targetCanvas.Parent as ScrollViewer;
-            double maxWidth = scrollViewer != null ? Math.Max(targetCanvas.ActualWidth, scrollViewer.ViewportWidth) : targetCanvas.ActualWidth;
-            double maxHeight = scrollViewer != null ? Math.Max(targetCanvas.ActualHeight, scrollViewer.ViewportHeight) : targetCanvas.ActualHeight;
-            
-            // If canvas height is 0 or very small, use a large default to allow free vertical movement
-            if (maxHeight < 100)
-            {
-                maxHeight = 10000; // Allow free vertical movement
-            }
-            if (maxWidth < 100)
-            {
-                maxWidth = 10000; // Allow free horizontal movement
-            }
+            GetCanvasMovementBounds(targetCanvas, out double maxWidth, out double maxHeight);
 
             // Ensure the box stays within canvas bounds (but allow free movement if canvas is small)
             newLeft = Math.Max(0, Math.Min(newLeft, maxWidth - draggedElement.RenderSize.Width));
@@ -2779,9 +6333,119 @@ namespace dvmconsole
 
             // Save the new position if it's a ChannelBox
             if (draggedElement is ChannelBox channelBox)
-                settingsManager.UpdateChannelPosition(channelBox.ChannelName, newLeft, newTop);
+                settingsManager.UpdateChannelPosition(channelBox.ChannelSettingsKey, newLeft, newTop);
+            else if (draggedElement is WebStreamChip streamChip)
+                settingsManager.UpdateWebStreamPosition(streamChip.DisplayName, newLeft, newTop);
         }
-        
+
+        /// <summary>
+        /// Tracks the start point for channel drag into patch groups.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void ChannelBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is not ChannelBox channel)
+                return;
+
+            // Ignore patch-group drag workflow entirely unless a group is currently in edit mode.
+            if (patchGroupsWindow?.IsAnyGroupEditing != true)
+            {
+                channelDragSource = null;
+                channelDragMoved = false;
+                channelDragSuppressSelection = false;
+                channel.SuppressSelectionToggle = false;
+                return;
+            }
+
+            channelDragSource = channel;
+            channelDragStartPoint = e.GetPosition(null);
+            channelDragMoved = false;
+            channelDragSuppressSelection = true;
+            channel.SuppressSelectionToggle = true;
+        }
+
+        /// <summary>
+        /// Starts drag operation from main channel widgets into patch groups.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void ChannelBox_PreviewMouseMove(object sender, MouseEventArgs e)
+        {
+            if (patchGroupsWindow?.IsAnyGroupEditing != true)
+            {
+                if (channelDragSource != null)
+                    channelDragSource.SuppressSelectionToggle = false;
+                channelDragSource = null;
+                channelDragMoved = false;
+                channelDragSuppressSelection = false;
+                return;
+            }
+
+            ChannelBox dragSource = channelDragSource;
+            if (dragSource == null || e.LeftButton != MouseButtonState.Pressed)
+                return;
+            if (dragSource.IsLocalPlayback)
+                return;
+
+            Point currentPosition = e.GetPosition(null);
+            Vector delta = currentPosition - channelDragStartPoint;
+            if (Math.Abs(delta.X) < SystemParameters.MinimumHorizontalDragDistance &&
+                Math.Abs(delta.Y) < SystemParameters.MinimumVerticalDragDistance)
+                return;
+
+            channelDragMoved = true;
+
+            string systemName = dragSource.ResourceSystemName;
+            string tgid = dragSource.DstId?.Trim();
+            if (string.IsNullOrWhiteSpace(systemName) || string.IsNullOrWhiteSpace(tgid))
+                return;
+
+            PatchGroupsWindow.ChannelDragData dragPayload = new PatchGroupsWindow.ChannelDragData
+            {
+                ChannelName = dragSource.ChannelName,
+                SystemName = systemName,
+                Tgid = tgid
+            };
+            System.Windows.DataObject data = new System.Windows.DataObject(PatchGroupsWindow.CHANNEL_DRAG_FORMAT, dragPayload);
+            try
+            {
+                DragDrop.DoDragDrop(dragSource, data, System.Windows.DragDropEffects.Copy);
+            }
+            finally
+            {
+                dragSource.SuppressSelectionToggle = false;
+                if (ReferenceEquals(channelDragSource, dragSource))
+                    channelDragSource = null;
+                channelDragSuppressSelection = false;
+            }
+        }
+
+        /// <summary>
+        /// Completes click-vs-drag handling for patch edit drag workflow.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void ChannelBox_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is not ChannelBox channel)
+                return;
+            if (!ReferenceEquals(channel, channelDragSource))
+            {
+                channel.SuppressSelectionToggle = false;
+                return;
+            }
+
+            // If this started in patch edit mode but did not become a drag, preserve normal click behavior.
+            if (channelDragSuppressSelection && !channelDragMoved)
+                channel.ProcessSelectionClick(e);
+
+            channel.SuppressSelectionToggle = false;
+            channelDragSource = null;
+            channelDragMoved = false;
+            channelDragSuppressSelection = false;
+        }
+
         /// <summary>
         /// Gets the canvas that contains the given element
         /// </summary>
@@ -2818,7 +6482,1109 @@ namespace dvmconsole
         }
 
         /// <summary>
-        /// Activates Global PTT after a click or keyboard shortcut
+        /// Gets configured channels across all zones.
+        /// </summary>
+        /// <returns></returns>
+        private IEnumerable<Codeplug.Channel> GetConfiguredChannels()
+        {
+            if (Codeplug?.Zones == null)
+                return Enumerable.Empty<Codeplug.Channel>();
+
+            return Codeplug.Zones.SelectMany(z => z.Channels ?? new List<Codeplug.Channel>());
+        }
+
+        private IEnumerable<Codeplug.WebStream> GetConfiguredWebStreams()
+        {
+            if (Codeplug?.Zones == null)
+                return Enumerable.Empty<Codeplug.WebStream>();
+
+            return Codeplug.Zones.SelectMany(z => z.WebStreams ?? new List<Codeplug.WebStream>());
+        }
+
+        private bool TryResolveChannelEndpoint(ChannelBox channel, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne, out string failureMessage)
+        {
+            cpgChannel = null;
+            system = null;
+            fne = null;
+            failureMessage = string.Empty;
+
+            if (channel == null)
+            {
+                failureMessage = $"{INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.";
+                return false;
+            }
+
+            Codeplug.Channel resolvedChannel = channel.ConfiguredChannel;
+
+            if (resolvedChannel == null)
+            {
+                failureMessage = $"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.";
+                return false;
+            }
+
+            cpgChannel = resolvedChannel;
+            system = Codeplug?.GetSystemForChannel(resolvedChannel);
+            if (system == null)
+            {
+                failureMessage = $"{channel.ChannelName} refers to an {INVALID_SYSTEM} {resolvedChannel.System}. {ERR_INVALID_CODEPLUG}.";
+                return false;
+            }
+
+            fne = fneSystemManager.GetFneSystem(system.Name);
+            if (fne == null)
+            {
+                failureMessage = $"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {ERR_INVALID_CODEPLUG}.";
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Builds a stable settings key for selectable encryption state.
+        /// </summary>
+        private static string BuildSelectableEncryptionStateKey(string systemName, string tgid)
+        {
+            return ResourceIdentity.Build(systemName, tgid);
+        }
+
+        private static string BuildChannelSelectionKey(ChannelBox channel)
+        {
+            if (channel == null)
+                return string.Empty;
+
+            return ResourceIdentity.Build(channel.ResourceSystemName, channel.DstId);
+        }
+
+        private void PersistSelectedResourceState(bool saveSettings = true)
+        {
+            if (settingsManager.RestoreSelectedChannelsOnStartup)
+            {
+                settingsManager.SelectedChannels = GetSelectedChannelsForPersistence()
+                    .Where(c => !c.IsLocalPlayback)
+                    .Select(BuildChannelSelectionKey)
+                    .Where(key => !string.IsNullOrWhiteSpace(key))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                settingsManager.SelectedWebStreams = GetAllWebStreamChips()
+                    .Where(s => s.IsActive)
+                    .Select(s => s.DisplayName)
+                    .Where(name => !string.IsNullOrWhiteSpace(name))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+            else
+            {
+                settingsManager.SelectedChannels = new List<string>();
+                settingsManager.SelectedWebStreams = new List<string>();
+            }
+
+            if (saveSettings)
+                settingsManager.SaveSettings();
+        }
+
+        private IEnumerable<ChannelBox> GetSelectedChannelsForPersistence()
+        {
+            List<ChannelBox> visualSelections = GetAllCanvases()
+                .SelectMany(canvas => canvas.Children.OfType<ChannelBox>())
+                .Where(channel => channel.IsSelected)
+                .Distinct()
+                .ToList();
+
+            if (visualSelections.Count > 0)
+                return visualSelections;
+
+            return selectedChannelsManager.GetSelectedChannels();
+        }
+
+        private bool PruneHiddenZoneSelectedResourceState(HashSet<string> hiddenZoneNames, bool saveSettings = true)
+        {
+            if (Codeplug?.Zones == null || hiddenZoneNames == null || hiddenZoneNames.Count == 0)
+                return false;
+
+            HashSet<string> hiddenChannelKeys = GetHiddenZoneChannelKeys(hiddenZoneNames);
+            HashSet<string> hiddenChannelNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> hiddenWebStreamNames = GetHiddenZoneWebStreamNames(hiddenZoneNames);
+
+            foreach (Codeplug.Zone zone in Codeplug.Zones.Where(zone => IsZoneHidden(zone, hiddenZoneNames)))
+            {
+                foreach (Codeplug.Channel channel in zone.Channels ?? new List<Codeplug.Channel>())
+                {
+                    if (!string.IsNullOrWhiteSpace(channel.Name))
+                        hiddenChannelNames.Add(channel.Name.Trim());
+                }
+            }
+
+            bool changed = false;
+            if (settingsManager.SelectedChannels != null)
+            {
+                List<string> selectedChannels = settingsManager.SelectedChannels
+                    .Where(key => !string.IsNullOrWhiteSpace(key) &&
+                                  !hiddenChannelKeys.Contains(key.Trim()) &&
+                                  !hiddenChannelNames.Contains(key.Trim()))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (!settingsManager.SelectedChannels.SequenceEqual(selectedChannels, StringComparer.OrdinalIgnoreCase))
+                {
+                    settingsManager.SelectedChannels = selectedChannels;
+                    changed = true;
+                }
+            }
+
+            if (settingsManager.SelectedWebStreams != null)
+            {
+                List<string> selectedWebStreams = settingsManager.SelectedWebStreams
+                    .Where(name => !string.IsNullOrWhiteSpace(name) && !hiddenWebStreamNames.Contains(name.Trim()))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (!settingsManager.SelectedWebStreams.SequenceEqual(selectedWebStreams, StringComparer.OrdinalIgnoreCase))
+                {
+                    settingsManager.SelectedWebStreams = selectedWebStreams;
+                    changed = true;
+                }
+            }
+
+            if (changed && saveSettings)
+                settingsManager.SaveSettings();
+
+            return changed;
+        }
+
+        private HashSet<string> GetHiddenZoneChannelKeys(HashSet<string> hiddenZoneNames)
+        {
+            HashSet<string> hiddenChannelKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (Codeplug?.Zones == null || hiddenZoneNames == null || hiddenZoneNames.Count == 0)
+                return hiddenChannelKeys;
+
+            foreach (Codeplug.Channel channel in Codeplug.Zones
+                .Where(zone => IsZoneHidden(zone, hiddenZoneNames))
+                .SelectMany(zone => zone.Channels ?? new List<Codeplug.Channel>()))
+            {
+                string resourceKey = ResourceIdentity.Build(channel.System, channel.Tgid);
+                if (!string.IsNullOrWhiteSpace(resourceKey))
+                    hiddenChannelKeys.Add(resourceKey);
+            }
+
+            return hiddenChannelKeys;
+        }
+
+        private HashSet<string> GetHiddenZoneWebStreamNames(HashSet<string> hiddenZoneNames)
+        {
+            HashSet<string> hiddenWebStreamNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (Codeplug?.Zones == null || hiddenZoneNames == null || hiddenZoneNames.Count == 0)
+                return hiddenWebStreamNames;
+
+            foreach (Codeplug.WebStream stream in Codeplug.Zones
+                .Where(zone => IsZoneHidden(zone, hiddenZoneNames))
+                .SelectMany(zone => zone.WebStreams ?? new List<Codeplug.WebStream>()))
+            {
+                if (!string.IsNullOrWhiteSpace(stream.Name))
+                    hiddenWebStreamNames.Add(stream.Name.Trim());
+            }
+
+            return hiddenWebStreamNames;
+        }
+
+        private void PruneSettingsForLoadedCodeplug()
+        {
+            IEnumerable<Codeplug.Channel> channels = GetConfiguredChannels().ToList();
+            IEnumerable<Codeplug.WebStream> webStreams = GetConfiguredWebStreams().ToList();
+            settingsManager.MigrateResourceScopedSettings(channels);
+
+            IEnumerable<string> validChannelNames = channels.Select(c => c.Name);
+            IEnumerable<string> validTalkgroupIds = channels.Select(c => c.Tgid);
+            IEnumerable<string> validResourceKeys = channels.Select(c => ResourceIdentity.Build(c.System, c.Tgid));
+            IEnumerable<string> validSystemNames = Codeplug?.Systems?.Select(s => s.Name) ?? Enumerable.Empty<string>();
+            IEnumerable<string> validWebStreamNames = webStreams.Select(s => s.Name);
+            IEnumerable<string> validSelectableEncryptionKeys = channels
+                .Where(c => c.SelectableEncryption && c.HasSelectableTxProtection())
+                .Select(c => BuildSelectableEncryptionStateKey(c.System, c.Tgid));
+
+            settingsManager.PruneHiddenResourceZones(Codeplug?.Zones?.Select(z => z.Name) ?? Enumerable.Empty<string>());
+            settingsManager.PruneResourceSettings(validChannelNames, validTalkgroupIds, validSystemNames, validWebStreamNames, validSelectableEncryptionKeys, validResourceKeys);
+        }
+
+        /// <summary>
+        /// Resolves patch talkgroup state from existing channel widgets.
+        /// </summary>
+        /// <param name="systemName">Configured system name.</param>
+        /// <param name="tgid">Talkgroup ID within that system.</param>
+        /// <returns></returns>
+        private PatchGroupsWindow.PatchTalkgroupState ResolvePatchTalkgroupState(string systemName, string tgid)
+        {
+            if (IsPatchPttTargetActive(systemName, tgid))
+                return PatchGroupsWindow.PatchTalkgroupState.Transmitting;
+
+            ChannelBox channel = FindChannelBySystemAndTgid(systemName, tgid);
+            if (patchManager.IsForwardTargetActive(systemName, tgid))
+                return PatchGroupsWindow.PatchTalkgroupState.Transmitting;
+            if (channel == null)
+                return PatchGroupsWindow.PatchTalkgroupState.Idle;
+
+            if (channel.IsOperatorTransmitting)
+                return PatchGroupsWindow.PatchTalkgroupState.Transmitting;
+            if (channel.IsReceiving || channel.IsReceivingEncrypted)
+                return PatchGroupsWindow.PatchTalkgroupState.Receiving;
+            return PatchGroupsWindow.PatchTalkgroupState.Idle;
+        }
+
+        /// <summary>
+        /// Finds a channel widget by its configured system and talkgroup.
+        /// </summary>
+        /// <param name="systemName"></param>
+        /// <param name="tgid"></param>
+        /// <returns></returns>
+        private ChannelBox FindChannelBySystemAndTgid(string systemName, string tgid)
+        {
+            foreach (Canvas canvas in GetAllCanvases())
+            {
+                ChannelBox found = canvas.Children
+                    .OfType<ChannelBox>()
+                    .FirstOrDefault(c => ChannelMatchesResource(c, systemName, tgid));
+                if (found != null)
+                    return found;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Converts channel system label to canonical system name.
+        /// </summary>
+        /// <param name="systemLabel"></param>
+        /// <returns></returns>
+        private static string NormalizeChannelSystemName(string systemLabel)
+        {
+            if (string.IsNullOrWhiteSpace(systemLabel))
+                return string.Empty;
+
+            const string prefix = "System: ";
+            string trimmed = systemLabel.Trim();
+            if (trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return trimmed.Substring(prefix.Length).Trim();
+
+            return trimmed;
+        }
+
+        /// <summary>
+        /// Matches a visual resource card to a canonical system/talkgroup pair.
+        /// </summary>
+        private static bool ChannelMatchesResource(ChannelBox channel, string systemName, string tgid)
+        {
+            if (channel?.ConfiguredChannel == null)
+                return false;
+
+            return ResourceIdentity.SystemMatches(channel.ConfiguredChannel.System, systemName) &&
+                string.Equals(
+                    channel.ConfiguredChannel.Tgid?.Trim() ?? string.Empty,
+                    tgid?.Trim() ?? string.Empty,
+                    StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Applies committed patch memberships transactionally.
+        /// </summary>
+        /// <param name="memberships"></param>
+        private void PatchGroupsWindow_MembershipsCommitted(Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships)
+        {
+            currentPatchMemberships = ClonePatchMemberships(memberships);
+            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> patchMemberships = FilterPatchMemberships(memberships, patchGroupEnabledStates);
+            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> multiSelectMemberships = FilterMultiSelectMemberships(memberships);
+
+            patchManager.ApplyMemberships(patchMemberships, patchGroupModes);
+            PublishActiveGroups(publishImmediately: true, reason: "memberships committed");
+            SynchronizeActivePatchReceiveStreams();
+            UpdatePatchMemberIndicators(FilterPatchMemberships(memberships), patchGroupEnabledStates);
+            UpdateMultiSelectIndicators(multiSelectMemberships);
+        }
+
+        private Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> FilterMultiSelectMemberships(
+      Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships)
+        {
+            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> result =
+                new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> hiddenZoneNames = GetHiddenResourceZoneSet();
+
+            foreach (KeyValuePair<string, List<SettingsManager.PatchTalkgroupMember>> kvp in
+                memberships ?? new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>())
+            {
+                Codeplug.Group group = Codeplug?.Groups?
+                    .FirstOrDefault(g => string.Equals(g.Name, kvp.Key, StringComparison.OrdinalIgnoreCase));
+
+                if (group == null || !group.IsMultiselectGroup())
+                    continue;
+
+                List<SettingsManager.PatchTalkgroupMember> visibleMembers = (kvp.Value ?? new List<SettingsManager.PatchTalkgroupMember>())
+                    .Where(member => IsPatchMemberVisible(member, hiddenZoneNames))
+                    .ToList();
+                if (visibleMembers.Count > 0)
+                    result[kvp.Key] = visibleMembers;
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Applies one-way mode changes from the Groups window.
+        /// </summary>
+        /// <param name="modes"></param>
+        private void PatchGroupsWindow_GroupModesCommitted(Dictionary<string, bool> modes)
+        {
+            patchGroupModes = new Dictionary<string, bool>(modes ?? new Dictionary<string, bool>(), StringComparer.OrdinalIgnoreCase);
+            patchManager.ApplyMemberships(FilterPatchMemberships(currentPatchMemberships, patchGroupEnabledStates), patchGroupModes);
+            PublishActiveGroups(publishImmediately: false, reason: "group modes changed");
+            SynchronizeActivePatchReceiveStreams();
+        }
+
+        /// <summary>
+        /// Applies patch enabled-state changes from the Groups window.
+        /// </summary>
+        private void PatchGroupsWindow_GroupEnabledStatesCommitted(Dictionary<string, bool> states)
+        {
+            patchGroupEnabledStates = new Dictionary<string, bool>(states ?? new Dictionary<string, bool>(), StringComparer.OrdinalIgnoreCase);
+            patchManager.ApplyMemberships(FilterPatchMemberships(currentPatchMemberships, patchGroupEnabledStates), patchGroupModes);
+            PublishActiveGroups(publishImmediately: true, reason: "group enabled states changed");
+            SynchronizeActivePatchReceiveStreams();
+            UpdatePatchMemberIndicators(FilterPatchMemberships(currentPatchMemberships), patchGroupEnabledStates);
+        }
+
+        /// <summary>
+        /// Replays already-active RX streams into the patch manager after patch configuration changes.
+        /// </summary>
+        private void SynchronizeActivePatchReceiveStreams()
+        {
+            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> activePatchMemberships =
+                FilterPatchMemberships(currentPatchMemberships, patchGroupEnabledStates);
+
+            if (activePatchMemberships.Count == 0)
+                return;
+
+            HashSet<string> activePatchMembers = new HashSet<string>(
+                activePatchMemberships.Values
+                    .SelectMany(members => members ?? new List<SettingsManager.PatchTalkgroupMember>())
+                    .Where(member => !string.IsNullOrWhiteSpace(member?.SystemName) && !string.IsNullOrWhiteSpace(member?.Tgid))
+                    .Select(member => BuildPatchTargetKey(member.SystemName, member.Tgid)),
+                StringComparer.OrdinalIgnoreCase);
+
+            if (activePatchMembers.Count == 0)
+                return;
+
+            foreach (Canvas canvas in GetAllCanvases())
+            {
+                foreach (ChannelBox channel in canvas.Children.OfType<ChannelBox>())
+                {
+                    if (channel == null || channel.RxStreamId == 0 || !(channel.IsReceiving || channel.IsReceivingEncrypted))
+                        continue;
+                    if (channel.IsLocalPlayback)
+                        continue;
+
+                    Codeplug.Channel cpgChannel = channel.ConfiguredChannel;
+                    Codeplug.System system = cpgChannel == null ? null : Codeplug?.GetSystemForChannel(channel.ConfiguredChannel);
+                    if (cpgChannel == null || system == null)
+                        continue;
+                    if (!activePatchMembers.Contains(BuildPatchTargetKey(system.Name, cpgChannel.Tgid)))
+                        continue;
+
+                    SlotStatus slotStatus = FindActiveReceiveStatus(channel, cpgChannel);
+                    uint sourceId = slotStatus?.RxRFS ?? 0;
+                    patchManager.HandleCallStart(system.Name, cpgChannel.Tgid, channel.RxStreamId, sourceId);
+                    Log.WriteLine($"({system.Name}) Patch manager synchronized active RX stream for TGID {cpgChannel.Tgid} [STREAM ID {channel.RxStreamId}] after patch configuration change.");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Filters memberships down to patch-type groups only.
+        /// </summary>
+        /// <param name="memberships"></param>
+        /// <returns></returns>
+        private Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> FilterPatchMemberships(Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships)
+        {
+            return FilterPatchMemberships(memberships, null);
+        }
+
+        /// <summary>
+        /// Filters memberships down to enabled patch-type groups only.
+        /// </summary>
+        private Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> FilterPatchMemberships(
+            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships,
+            Dictionary<string, bool> enabledStates)
+        {
+            HashSet<string> patchGroupNames = new HashSet<string>(
+                (Codeplug?.Groups ?? new List<Codeplug.Group>())
+                    .Where(g => !string.IsNullOrWhiteSpace(g?.Name) && g.IsPatchGroup())
+                    .Select(g => g.Name),
+                StringComparer.OrdinalIgnoreCase);
+            HashSet<string> hiddenZoneNames = GetHiddenResourceZoneSet();
+
+            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> filtered = new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>();
+            foreach (KeyValuePair<string, List<SettingsManager.PatchTalkgroupMember>> kvp in memberships ?? new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>())
+            {
+                if (!patchGroupNames.Contains(kvp.Key))
+                    continue;
+                if (enabledStates != null && (!enabledStates.TryGetValue(kvp.Key, out bool isEnabled) || !isEnabled))
+                    continue;
+
+                List<SettingsManager.PatchTalkgroupMember> visibleMembers = (kvp.Value ?? new List<SettingsManager.PatchTalkgroupMember>())
+                    .Where(member => IsPatchMemberVisible(member, hiddenZoneNames))
+                    .ToList();
+                if (visibleMembers.Count > 0)
+                    filtered[kvp.Key] = visibleMembers;
+            }
+
+            return filtered;
+        }
+
+        private bool IsPatchMemberVisible(SettingsManager.PatchTalkgroupMember member, HashSet<string> hiddenZoneNames)
+        {
+            if (member == null || string.IsNullOrWhiteSpace(member.SystemName) || string.IsNullOrWhiteSpace(member.Tgid))
+                return false;
+            if (Codeplug?.Zones == null)
+                return true;
+
+            return Codeplug.Zones.Any(zone =>
+                !IsZoneHidden(zone, hiddenZoneNames) &&
+                (zone.Channels ?? new List<Codeplug.Channel>()).Any(channel =>
+                    ResourceIdentity.SystemMatches(channel.System, member.SystemName) &&
+                    string.Equals(channel.Tgid?.Trim() ?? string.Empty, member.Tgid.Trim(), StringComparison.OrdinalIgnoreCase)));
+        }
+
+        /// <summary>
+        /// Clones patch memberships dictionary.
+        /// </summary>
+        /// <param name="memberships"></param>
+        /// <returns></returns>
+        private static Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> ClonePatchMemberships(Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships)
+        {
+            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> copy = new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>();
+            foreach (KeyValuePair<string, List<SettingsManager.PatchTalkgroupMember>> kvp in memberships ?? new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>())
+            {
+                copy[kvp.Key] = (kvp.Value ?? new List<SettingsManager.PatchTalkgroupMember>())
+                    .Select(m => new SettingsManager.PatchTalkgroupMember
+                    {
+                        SystemName = m.SystemName,
+                        Tgid = m.Tgid
+                    })
+                    .ToList();
+            }
+
+            return copy;
+        }
+
+        /// <summary>
+        /// Updates channel resource badges indicating patch group membership, both local and as reported by the
+        /// FNE patch status registry.
+        /// </summary>
+        /// <param name="memberships"></param>
+        private void UpdatePatchMemberIndicators(
+            Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships,
+            Dictionary<string, bool> enabledStates = null)
+        {
+            HashSet<string> patchMembers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> activePatchMembers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            List<PatchStatusService.RegistryView> registries = patchStatusService?.GetRegistryViews() ?? new List<PatchStatusService.RegistryView>();
+
+            enabledStates ??= new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (KeyValuePair<string, List<SettingsManager.PatchTalkgroupMember>> kvp in memberships ?? new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>())
+            {
+                bool isEnabled = enabledStates.TryGetValue(kvp.Key, out bool enabled) && enabled;
+                foreach (SettingsManager.PatchTalkgroupMember member in (kvp.Value ?? new List<SettingsManager.PatchTalkgroupMember>())
+                    .Where(m => !string.IsNullOrWhiteSpace(m?.SystemName) && !string.IsNullOrWhiteSpace(m?.Tgid)))
+                {
+                    string memberKey = BuildPatchTargetKey(member.SystemName, member.Tgid);
+                    patchMembers.Add(memberKey);
+                    if (isEnabled)
+                        activePatchMembers.Add(memberKey);
+                }
+            }
+
+            foreach (Canvas canvas in GetAllCanvases())
+            {
+                foreach (ChannelBox channel in canvas.Children.OfType<ChannelBox>())
+                {
+                    if (channel.IsLocalPlayback)
+                    {
+                        channel.SetPatchMembershipIndicator(false, false);
+                        continue;
+                    }
+
+                    string channelKey = BuildPatchTargetKey(channel.ResourceSystemName, channel.DstId);
+                    List<RegistryPatch> registryPatches = FindRegistryPatches(channel, registries);
+                    bool isMember = patchMembers.Contains(channelKey);
+                    bool isActive = activePatchMembers.Contains(channelKey);
+                    bool isPatchedRemotely = registryPatches.Count > 0;
+
+                    // local membership and remote (registry) patches are kept apart so the card can show the remote
+                    // patch icon when only another console has this resource patched
+                    channel.SetPatchMembershipIndicator(isMember, isActive,
+                        isMember || isPatchedRemotely ? BuildPatchIndicatorToolTip(channel, memberships, enabledStates, registryPatches) : null,
+                        isPatchedRemotely);
+                }
+
+            }
+        }
+        private void UpdateMultiSelectIndicators(Dictionary<string, List<SettingsManager.PatchTalkgroupMember>> memberships)
+        {
+            HashSet<string> multiSelectMembers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (SettingsManager.PatchTalkgroupMember member in (memberships ?? new Dictionary<string, List<SettingsManager.PatchTalkgroupMember>>())
+                .SelectMany(kvp => kvp.Value ?? new List<SettingsManager.PatchTalkgroupMember>())
+                .Where(m => !string.IsNullOrWhiteSpace(m?.SystemName) && !string.IsNullOrWhiteSpace(m?.Tgid)))
+            {
+                multiSelectMembers.Add(BuildPatchTargetKey(member.SystemName, member.Tgid));
+            }
+
+            foreach (Canvas canvas in GetAllCanvases())
+            {
+                foreach (ChannelBox channel in canvas.Children.OfType<ChannelBox>())
+                {
+                    if (channel.IsLocalPlayback)
+                    {
+                        channel.SetMultiSelectIndicator(false);
+                        continue;
+                    }
+
+                    string channelKey = BuildPatchTargetKey(channel.ResourceSystemName, channel.DstId);
+                    channel.SetMultiSelectIndicator(multiSelectMembers.Contains(channelKey));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Handles patch group PTT state changes from the Patch Groups window.
+        /// </summary>
+        private void PatchGroupsWindow_PatchPttStateChanged(object sender, PatchGroupsWindow.PatchGroupPttEventArgs e)
+        {
+            if (e == null)
+                return;
+
+            if (e.IsActive && !CanStartPttOutsidePatchEditMode())
+            {
+                patchGroupsWindow.RefreshMemberStatusIcons();
+                return;
+            }
+
+            if (e.IsActive)
+                StartPatchPttGroup(e.GroupName, e.Members ?? new List<SettingsManager.PatchTalkgroupMember>());
+            else
+                StopPatchPttGroup(e.GroupName);
+
+            patchGroupsWindow.RefreshMemberStatusIcons();
+        }
+
+        private void PatchGroupsWindow_AlertToneTargetStateChanged(object sender, PatchGroupsWindow.PatchGroupAlertToneEventArgs e)
+        {
+            if (e == null)
+                return;
+
+            string groupName = e.GroupName ?? string.Empty;
+            if (e.IsActive)
+            {
+                activeAlertToneGroupTargets[groupName] = (e.Members ?? new List<SettingsManager.PatchTalkgroupMember>())
+                    .Where(m => !string.IsNullOrWhiteSpace(m?.SystemName) && !string.IsNullOrWhiteSpace(m?.Tgid))
+                    .Select(m => new SettingsManager.PatchTalkgroupMember
+                    {
+                        SystemName = m.SystemName,
+                        Tgid = m.Tgid
+                    })
+                    .ToList();
+            }
+            else
+            {
+                activeAlertToneGroupTargets.Remove(groupName);
+                if (activeToneTransmitGroups.TryGetValue(groupName, out ToneTransmitGroupSession session))
+                {
+                    // Cancel only this group's tone legs, not unrelated PTT or later calls.
+                    foreach (CancellationTokenSource cancelSource in session.Cancels.ToArray())
+                        cancelSource.Cancel();
+                }
+            }
+
+            foreach (SettingsManager.PatchTalkgroupMember member in e.Members ?? new List<SettingsManager.PatchTalkgroupMember>())
+            {
+                if (!TryResolvePatchEndpoint(member.SystemName, member.Tgid, out ChannelBox channelBox, out _, out _, out _))
+                    continue;
+
+                channelBox.PageState = IsGroupTransmitAllowed(channelBox) && (e.IsActive || IsAlertToneGroupTargetStillActive(member));
+            }
+        }
+
+        /// <summary>
+        /// Starts patch PTT call legs for the selected patch group members.
+        /// </summary>
+        private void StartPatchPttGroup(string groupName, List<SettingsManager.PatchTalkgroupMember> members)
+        {
+            StopPatchPttGroup(groupName);
+            EnsureAudioInputCaptureHealthy("patch PTT start");
+            bool clearedRxPlaybackForTransmit = false;
+
+            foreach (SettingsManager.PatchTalkgroupMember member in members.Where(m => !string.IsNullOrWhiteSpace(m?.SystemName) && !string.IsNullOrWhiteSpace(m?.Tgid)))
+            {
+                string systemName = member.SystemName.Trim();
+                string tgid = member.Tgid.Trim();
+                string key = BuildPatchTargetKey(systemName, tgid);
+
+                if (!TryResolvePatchEndpoint(systemName, tgid, out ChannelBox channelBox, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne))
+                    continue;
+                if (!IsGroupTransmitAllowed(channelBox))
+                    continue;
+                if (channelBox.PttTimedOut)
+                {
+                    PlayTransmitTimeoutAlert(true);
+                    continue;
+                }
+
+                if (!ValidateFneConnectionAvailable(system.Name, channelBox, null, showWarning: false))
+                    continue;
+
+                if (!ValidateTalkgroupAvailability(fne, cpgChannel))
+                    continue;
+
+                if (!ValidateP25Transmit(cpgChannel, channelBox))
+                    continue;
+
+                if (channelBox.TxStreamId != 0)
+                {
+                    Log.WriteWarning($"({system.Name}) {cpgChannel.GetChannelMode().ToString().ToUpperInvariant()} Traffic *CALL START     * TGID {tgid} skipped for Patch PTT; channel already has active stream {channelBox.TxStreamId}.");
+                    continue;
+                }
+
+                if (!clearedRxPlaybackForTransmit)
+                {
+                    ApplyRxPlaybackMuteForTransmitStart();
+                    clearedRxPlaybackForTransmit = true;
+                }
+
+                channelBox.TxStreamId = fne.NewStreamId();
+                StartOperatorPtt(channelBox);
+                channelBox.PatchForwardingTxState = true;
+                channelBox.VolumeMeterLevel = 0;
+
+                uint sourceId = uint.Parse(cpgChannel.GetSourceRid(system));
+                uint dstId = uint.Parse(cpgChannel.Tgid);
+                Log.WriteLine($"({system.Name}) {cpgChannel.GetChannelMode().ToString().ToUpperInvariant()} Traffic *CALL START     * SRC_ID {sourceId} TGID {dstId} [STREAM ID {channelBox.TxStreamId}] (Patch PTT: {groupName})");
+                BeginTarTxRecording(channelBox, system, cpgChannel, channelBox.TxStreamId);
+
+                if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                    fne.SendP25TDU(sourceId, dstId, true);
+
+                lock (patchPttSync)
+                {
+                    activePatchPttTargets[key] = new PatchPttTargetSession
+                    {
+                        Key = key,
+                        GroupName = groupName ?? string.Empty,
+                        SystemName = systemName,
+                        Tgid = tgid,
+                        Channel = channelBox,
+                        CodeplugChannel = cpgChannel,
+                        CodeplugSystem = system,
+                        Fne = fne,
+                        SourceId = sourceId,
+                        StreamId = channelBox.TxStreamId
+                    };
+                }
+            }
+        }
+
+        /// <summary>
+        /// Stops all patch PTT call legs for a patch group.
+        /// </summary>
+        private void StopPatchPttGroup(string groupName)
+        {
+            List<PatchPttTargetSession> sessionsToStop;
+            lock (patchPttSync)
+            {
+                sessionsToStop = activePatchPttTargets.Values
+                    .Where(s => string.Equals(s.GroupName, groupName ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                foreach (PatchPttTargetSession session in sessionsToStop)
+                    activePatchPttTargets.Remove(session.Key);
+            }
+
+            foreach (PatchPttTargetSession session in sessionsToStop)
+            {
+                if (!session.Channel.PttState)
+                    session.Channel.PttTimedOut = false;
+                StopPatchPttSession(session);
+            }
+            patchGroupsWindow.SetPttTimedOut(groupName, false);
+        }
+
+        /// <summary>
+        /// Stops all active patch PTT call legs.
+        /// </summary>
+        private void StopAllPatchPttTargets()
+        {
+            List<PatchPttTargetSession> sessionsToStop;
+            lock (patchPttSync)
+            {
+                sessionsToStop = activePatchPttTargets.Values.ToList();
+                activePatchPttTargets.Clear();
+            }
+
+            foreach (PatchPttTargetSession session in sessionsToStop)
+            {
+                if (!session.Channel.PttState)
+                    session.Channel.PttTimedOut = false;
+                StopPatchPttSession(session);
+                patchGroupsWindow.SetPttTimedOut(session.GroupName, false);
+            }
+        }
+
+        /// <summary>
+        /// Releases only this resource's group PTT and patch forwarding legs when it is deselected.
+        /// </summary>
+        private void StopGroupTransmissionsForChannel(ChannelBox channel)
+        {
+            string key = BuildPatchTargetKey(channel.ResourceSystemName, channel.DstId);
+            PatchPttTargetSession session;
+            lock (patchPttSync)
+                activePatchPttTargets.Remove(key, out session);
+
+            if (session != null)
+            {
+                if (!channel.PttState)
+                    channel.PttTimedOut = false;
+                StopPatchPttSession(session);
+            }
+            patchManager?.StopMember(channel.ResourceSystemName, channel.DstId);
+        }
+
+        /// <summary>
+        /// Stops a single patch PTT call leg.
+        /// </summary>
+        private void StopPatchPttSession(PatchPttTargetSession session)
+        {
+            if (session?.Channel == null || session.CodeplugChannel == null || session.CodeplugSystem == null || session.Fne == null ||
+                session.Channel.TxStreamId == 0 || session.Channel.TxStreamId != session.StreamId)
+                return;
+
+            StopOperatorPtt(session.Channel);
+            uint dstId = uint.Parse(session.CodeplugChannel.Tgid);
+            Log.WriteLine($"({session.CodeplugSystem.Name}) {session.CodeplugChannel.GetChannelMode().ToString().ToUpperInvariant()} Traffic *CALL END       * SRC_ID {session.SourceId} TGID {dstId} [STREAM ID {session.Channel.TxStreamId}] (Patch PTT: {session.GroupName})");
+            EndTarTxRecording(session.Channel, session.CodeplugSystem, session.CodeplugChannel);
+
+            if (IsFneSystemConnected(session.CodeplugSystem.Name))
+            {
+                if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                    EndP25Transmission(session.Channel, session.Fne, session.CodeplugChannel,
+                        session.CodeplugSystem, session.SourceId, session.StreamId, discardPending: session.Channel.PttTimedOut);
+                else if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                    EndDmrTransmission(session.Channel);
+            }
+            else
+            {
+                Log.WriteWarning($"Patch PTT call end skipped for {session.Channel.ChannelName}; FNE system '{session.CodeplugSystem.Name}' is disconnected.");
+            }
+
+            session.Channel.PatchForwardingTxState = false;
+            ResetChannel(session.Channel);
+            session.Channel.VolumeMeterLevel = 0;
+        }
+
+        /// <summary>
+        /// Encodes and forwards microphone audio to active patch PTT legs.
+        /// </summary>
+        private void SendPatchPttMicAudio(byte[] pcmBuffer, HashSet<string> alreadySentTargets)
+        {
+            List<PatchPttTargetSession> sessions;
+            lock (patchPttSync)
+                sessions = activePatchPttTargets.Values.ToList();
+
+            foreach (PatchPttTargetSession session in sessions)
+            {
+                if (session.Channel == null || session.CodeplugChannel == null || session.CodeplugSystem == null || session.Fne == null ||
+                    session.Channel.TxStreamId == 0 || session.Channel.TxStreamId != session.StreamId)
+                    continue;
+                if (!IsGroupTransmitAllowed(session.Channel))
+                    continue;
+                if (!CanSendOperatorPttAudio(session.Channel, session.Channel.TxStreamId))
+                    continue;
+                if (alreadySentTargets.Contains(session.Key))
+                    continue;
+                if (!IsFneSystemConnected(session.CodeplugSystem.Name))
+                    continue;
+
+                alreadySentTargets.Add(session.Key);
+                uint stream = session.Channel.TxStreamId;
+                AppendTarTxAudio(session.CodeplugSystem.Name, session.CodeplugChannel.Tgid, session.Channel.TxStreamId, pcmBuffer);
+                if (session.CodeplugChannel.GetChannelMode() is Codeplug.ChannelMode.NXDN or Codeplug.ChannelMode.Analog)
+                {
+                    foreach (byte[] chunk in AudioConverter.SplitToChunks(pcmBuffer))
+                    {
+                        if (!IsGroupTransmitAllowed(session.Channel) || session.Channel.TxStreamId != stream)
+                            break;
+                        SendOperatorPttFrame(session.Channel, stream, () =>
+                        {
+                            if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN)
+                                NXDNEncodeAudioFrame(chunk, session.Fne, session.Channel, session.CodeplugChannel, session.CodeplugSystem, expectedStreamId: stream);
+                            else if (chunk.Length == PCM_SAMPLES_LENGTH)
+                                AnalogEncodeAudioFrame(chunk, session.Fne, session.Channel, session.CodeplugChannel, session.CodeplugSystem, expectedStreamId: stream);
+                        });
+                    }
+                    continue;
+                }
+
+                Task.Run(() =>
+                {
+                    List<byte[]> chunks = AudioConverter.SplitToChunks(pcmBuffer);
+                    foreach (byte[] chunk in chunks)
+                    {
+                        if (!IsGroupTransmitAllowed(session.Channel) || session.Channel.TxStreamId != stream)
+                            break;
+                        if (chunk.Length != PCM_SAMPLES_LENGTH)
+                            continue;
+
+                        SendOperatorPttFrame(session.Channel, stream, () =>
+                        {
+                            if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                                P25EncodeAudioFrame(chunk, session.Fne, session.Channel, session.CodeplugChannel, session.CodeplugSystem);
+                            else if (session.CodeplugChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                                DMREncodeAudioFrame(chunk, session.Fne, session.Channel, session.CodeplugChannel, session.CodeplugSystem);
+                        });
+                    }
+                });
+            }
+        }
+
+        /// <summary>
+        /// Returns whether a patch PTT leg is currently active for a system/talkgroup.
+        /// </summary>
+        private bool IsPatchPttTargetActive(string systemName, string tgid)
+        {
+            string key = BuildPatchTargetKey(systemName, tgid);
+            lock (patchPttSync)
+                return activePatchPttTargets.TryGetValue(key, out PatchPttTargetSession session) &&
+                    session.Channel.TxStreamId != 0 && session.Channel.TxStreamId == session.StreamId && !session.Channel.PttTimedOut;
+        }
+
+        /// <summary>
+        /// Builds a canonical identity key for patch PTT targets.
+        /// </summary>
+        private static string BuildPatchTargetKey(string systemName, string tgid)
+        {
+            string normalizedSystem = (systemName ?? string.Empty).Trim().ToLowerInvariant();
+            string normalizedTgid = (tgid ?? string.Empty).Trim();
+            return $"{normalizedSystem}|{normalizedTgid}";
+        }
+
+        /// <summary>
+        /// Resolves endpoint objects needed for patch forwarding.
+        /// </summary>
+        /// <param name="systemName"></param>
+        /// <param name="tgid"></param>
+        /// <param name="channelBox"></param>
+        /// <param name="cpgChannel"></param>
+        /// <param name="system"></param>
+        /// <param name="fne"></param>
+        /// <returns></returns>
+        private bool TryResolvePatchEndpoint(string systemName, string tgid, out ChannelBox channelBox, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne)
+        {
+            channelBox = FindChannelBySystemAndTgid(systemName, tgid);
+            return TryResolveChannelEndpoint(channelBox, out cpgChannel, out system, out fne, out _);
+        }
+
+        /// <summary>
+        /// Starts an outbound patch forward call to destination member.
+        /// </summary>
+        private uint BeginPatchForward(string systemName, string tgid, uint sourceId)
+        {
+            if (!TryResolvePatchEndpoint(systemName, tgid, out ChannelBox channelBox, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne))
+            {
+                Log.WriteWarning($"Patch forward target unavailable: {systemName} TG {tgid} could not be resolved.");
+                return 0;
+            }
+            if (!IsGroupTransmitAllowed(channelBox))
+            {
+                return 0;
+            }
+
+            // Forwarding can only acquire an idle card, never borrow another sender's stream.
+            if (channelBox.TxStreamId != 0 || channelBox.PttState || channelBox.PatchForwardingTxState ||
+                channelBox.PageState || channelBox.HoldState || channelBox.IsReceiving ||
+                !channelBox.AnalogEndTask.IsCompleted || !channelBox.DmrEndTask.IsCompleted || !channelBox.NxdnEndTask.IsCompleted)
+                return 0;
+            lock (toneTransmitSync)
+            {
+                if (activeToneTransmitCancels.ContainsKey(GetToneTransmitKey(channelBox)))
+                    return 0;
+            }
+
+            if (!ValidateP25Transmit(cpgChannel, channelBox))
+                return 0;
+
+            if (!ValidateFneConnectionAvailable(system.Name, channelBox, null, showWarning: false))
+            {
+                Log.WriteWarning($"Patch forward target blocked: {channelBox.ChannelName} ({systemName} TG {tgid}) is disconnected from the FNE.");
+                return 0;
+            }
+
+            if (!ValidateTalkgroupAvailability(fne, cpgChannel))
+            {
+                Log.WriteWarning($"Patch forward target blocked: {channelBox.ChannelName} ({systemName} TG {tgid}) is unavailable on the FNE.");
+                return 0;
+            }
+
+            if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN && sourceId is 0 or > ushort.MaxValue)
+            {
+                Log.WriteWarning("NXDN patch source RID is outside 1-65535; disable source passthrough to use nxdnRid.");
+                return 0;
+            }
+
+            if (!uint.TryParse(cpgChannel.Tgid, out uint dstId))
+                return 0;
+            uint streamId = fne.NewStreamId();
+            if (streamId == 0)
+                return 0;
+
+            channelBox.TxStreamId = streamId;
+            channelBox.PatchForwardStreamId = streamId;
+            channelBox.PatchForwardingTxState = true;
+            channelBox.VolumeMeterLevel = 0;
+            try
+            {
+                if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                    fne.SendP25TDU(sourceId, dstId, true, streamId);
+
+                Log.WriteLine($"Patch forward started: {channelBox.ChannelName} ({systemName} TG {tgid}) stream {streamId}, source {sourceId}.");
+                return streamId;
+            }
+            catch (Exception ex)
+            {
+                Log.WriteWarning($"Patch forward start failed for {channelBox.ChannelName}: {ex.Message}");
+                if (channelBox.TxStreamId == streamId && channelBox.PatchForwardStreamId == streamId)
+                {
+                    channelBox.PatchForwardingTxState = false;
+                    ResetChannel(channelBox);
+                }
+                return 0;
+            }
+        }
+
+        /// <summary>
+        /// UI-thread wrapper for patch forward call starts.
+        /// </summary>
+        private uint BeginPatchForwardOnUiThread(string systemName, string tgid, uint sourceId)
+        {
+            if (Dispatcher.CheckAccess())
+                return BeginPatchForward(systemName, tgid, sourceId);
+
+            return Dispatcher.Invoke(() => BeginPatchForward(systemName, tgid, sourceId));
+        }
+
+        /// <summary>
+        /// Stops an outbound patch forward call to destination member.
+        /// </summary>
+        private void EndPatchForward(string systemName, string tgid, uint streamId, uint sourceId)
+        {
+            bool hasEndpoint = TryResolvePatchEndpoint(systemName, tgid, out ChannelBox channelBox, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne);
+            if (channelBox == null || streamId == 0 || channelBox.TxStreamId != streamId || channelBox.PatchForwardStreamId != streamId)
+                return;
+
+            try
+            {
+                if (hasEndpoint && IsFneSystemConnected(system.Name))
+                {
+                    if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                        EndP25Transmission(channelBox, fne, cpgChannel, system, sourceId, streamId);
+                    else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                        EndDmrTransmission(channelBox);
+                }
+                else
+                {
+                    Log.WriteWarning($"Patch forward call end skipped for {channelBox.ChannelName}; FNE system '{systemName}' is disconnected.");
+                }
+            }
+            finally
+            {
+                channelBox.PatchForwardingTxState = false;
+                ResetChannel(channelBox);
+                channelBox.VolumeMeterLevel = 0;
+            }
+        }
+
+        /// <summary>
+        /// UI-thread wrapper for patch forward call stops.
+        /// </summary>
+        private void EndPatchForwardOnUiThread(string systemName, string tgid, uint streamId, uint sourceId)
+        {
+            if (Dispatcher.CheckAccess())
+            {
+                EndPatchForward(systemName, tgid, streamId, sourceId);
+                return;
+            }
+
+            Dispatcher.Invoke(() => EndPatchForward(systemName, tgid, streamId, sourceId));
+        }
+
+        /// <summary>
+        /// Sends forwarded PCM audio to destination member.
+        /// </summary>
+        private void SendPatchForwardAudio(string systemName, string tgid, byte[] pcm, uint sourceId, uint streamId)
+        {
+            if (!TryResolvePatchEndpoint(systemName, tgid, out ChannelBox channelBox, out Codeplug.Channel cpgChannel, out Codeplug.System system, out PeerSystem fne))
+                return;
+            if (!IsGroupTransmitAllowed(channelBox) || streamId == 0 ||
+                channelBox.TxStreamId != streamId || channelBox.PatchForwardStreamId != streamId)
+                return;
+            if (isReloadingResources || isShuttingDown || !IsFneSystemConnected(system.Name))
+                return;
+
+            if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
+                P25EncodeAudioFrame(pcm, fne, channelBox, cpgChannel, system, sourceId);
+            else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR)
+                DMREncodeAudioFrame(pcm, fne, channelBox, cpgChannel, system, sourceId);
+            else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN)
+                NXDNEncodeAudioFrame(pcm, fne, channelBox, cpgChannel, system, sourceId, expectedStreamId: streamId);
+            else if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.Analog)
+                AnalogEncodeAudioFrame(pcm, fne, channelBox, cpgChannel, system, sourceId, expectedStreamId: streamId);
+        }
+
+        /// <summary>
+        /// UI-thread wrapper for patch forward audio sends.
+        /// </summary>
+        private void SendPatchForwardAudioOnUiThread(string systemName, string tgid, byte[] pcm, uint sourceId, uint streamId)
+        {
+            if (Dispatcher.CheckAccess())
+            {
+                SendPatchForwardAudio(systemName, tgid, pcm, sourceId, streamId);
+                return;
+            }
+
+            Dispatcher.Invoke(() => SendPatchForwardAudio(systemName, tgid, pcm, sourceId, streamId));
+        }
+
+        /// <summary>
+        /// Gets fallback source ID when source passthrough is unavailable/disabled.
+        /// </summary>
+        private uint GetPatchFallbackSourceId(string systemName, string tgid)
+        {
+            Codeplug.Channel channel = FindChannelBySystemAndTgid(systemName, tgid)?.ConfiguredChannel;
+            Codeplug.System system = Codeplug?.GetSystemForChannel(channel);
+            if (system == null || string.IsNullOrWhiteSpace(system.Rid))
+                return 0;
+
+            return uint.TryParse(channel.GetSourceRid(system), out uint rid) ? rid : 0;
+        }
+
+        /// <summary>
+        /// UI-thread wrapper for resolving fallback source ID.
+        /// </summary>
+        private uint GetPatchFallbackSourceIdOnUiThread(string systemName, string tgid)
+        {
+            if (Dispatcher.CheckAccess())
+                return GetPatchFallbackSourceId(systemName, tgid);
+
+            return Dispatcher.Invoke(() => GetPatchFallbackSourceId(systemName, tgid));
+        }
+
+        /// <summary>
+        /// Begins moving the system-status widget using the shared layout drag handler.
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
@@ -2872,7 +7638,7 @@ namespace dvmconsole
             {
                 double x = Canvas.GetLeft(alertTone);
                 double y = Canvas.GetTop(alertTone);
-                settingsManager.UpdateAlertTonePosition(alertTone.AlertFilePath, x, y);
+                settingsManager.UpdateAlertTonePositionById(alertTone.AlertToneId, x, y);
 
                 ChannelBox_MouseRightButtonUp(sender, e);
             }
@@ -2887,93 +7653,18 @@ namespace dvmconsole
 
         /** WPF Ribbon Controls */
 
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private async void GlobalPTTActivate(object sender, RoutedEventArgs e)
+        private void SetGlobalPttVisualState(bool transmitting)
         {
-            if (globalPttState)
-                await Task.Delay(500);
-
-            ChannelBox primaryChannel = selectedChannelsManager.PrimaryChannel;
-
-            if (primaryChannel != null)
+            if (transmitting)
             {
-                Dispatcher.Invoke(() =>
-                {
-                    if (globalPttState)
-                        btnGlobalPtt.Background = ChannelBox.RED_GRADIENT;
-                    else
-                        btnGlobalPtt.Background = btnGlobalPttDefaultBg;
-                });
-                
-                primaryChannel.TriggerPTTState(globalPttState);
-
-                return;
+                btnGlobalPtt.Background = ChannelBox.RED_GRADIENT;
+                btnGlobalPtt.Foreground = Brushes.White;
             }
-
-            
-            // Check for global PTT keys all preference, if not enabled, return early
-            if (!settingsManager.GlobalPTTKeysAllChannels)
+            else
             {
-                return;
-            }
-
-            foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
-            {
-                if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
-                    continue;
-
-                Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
-                if (system == null)
-                {
-                    Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}.");
-                    channel.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(channel);
-                    continue;
-                }
-
-                Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                if (cpgChannel == null)
-                {
-                    Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.");
-                    channel.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(channel);
-                    continue;
-                }
-
-                PeerSystem fne = fneSystemManager.GetFneSystem(system.Name);
-                if (fne == null)
-                {
-                    Log.WriteLine($"{channel.ChannelName} has a {ERR_INVALID_FNE_REF}. {ERR_INVALID_CODEPLUG}.");
-                    channel.IsSelected = false;
-                    selectedChannelsManager.RemoveSelectedChannel(channel);
-                    continue;
-                }
-
-                channel.TxStreamId = fne.NewStreamId();
-                if (globalPttState)
-                {
-                    Dispatcher.Invoke(() =>
-                    {
-                        btnGlobalPtt.Background = ChannelBox.RED_GRADIENT;
-                        channel.PttState = true;
-                    });
-
-                    fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
-                }
-                else
-                {
-                    Dispatcher.Invoke(() =>
-                    {
-                        btnGlobalPtt.Background = btnGlobalPttDefaultBg;
-                        channel.PttState = false;
-                    });
-
-                    fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), false);
-                }
+                // Restore the style resources so a theme change also updates the idle button.
+                btnGlobalPtt.ClearValue(System.Windows.Controls.Control.BackgroundProperty);
+                btnGlobalPtt.ClearValue(System.Windows.Controls.Control.ForegroundProperty);
             }
         }
 
@@ -2982,7 +7673,28 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        /// <exception cref="NotImplementedException"></exception>
+        private void GlobalPTTActivate(object sender, RoutedEventArgs e)
+        {
+            if (!globalPttState)
+            {
+                foreach (ChannelBox target in globalMousePttTargets)
+                    target.SetPttInput(globalMousePttOwner, false);
+                globalMousePttTargets.Clear();
+            }
+            else if (globalMousePttTargets.Count == 0)
+            {
+                foreach (ChannelBox target in ResolvePrimaryPttTargets())
+                    if (target.SetPttInput(globalMousePttOwner, true))
+                        globalMousePttTargets.Add(target);
+                if (globalMousePttTargets.Count == 0)
+                    globalPttState = false;
+            }
+            RefreshGlobalPttIndicator();
+        }
+
+        /// <summary>
+        /// Toggles the global mouse PTT in momentary mode.
+        /// </summary>
         private void btnGlobalPtt_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
             if (settingsManager.TogglePTTMode)
@@ -3033,11 +7745,9 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void btnAlert1_Click(object sender, RoutedEventArgs e)
+        private async void btnAlert1_Click(object sender, RoutedEventArgs e)
         {
-            Dispatcher.Invoke(() => {
-                SendAlertTone(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/alert1.wav"));
-            });
+            await SendBuiltInAlertToneAsync(1);
         }
 
         /// <summary>
@@ -3045,12 +7755,9 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void btnAlert2_Click(object sender, RoutedEventArgs e)
+        private async void btnAlert2_Click(object sender, RoutedEventArgs e)
         {
-            Dispatcher.Invoke(() =>
-            {
-                SendAlertTone(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/alert2.wav"));
-            });
+            await SendBuiltInAlertToneAsync(2);
         }
 
         /// <summary>
@@ -3058,12 +7765,39 @@ namespace dvmconsole
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void btnAlert3_Click(object sender, RoutedEventArgs e)
+        private async void btnAlert3_Click(object sender, RoutedEventArgs e)
         {
-            Dispatcher.Invoke(() =>
-            {
-                SendAlertTone(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio/alert3.wav"));
-            });
+            await SendBuiltInAlertToneAsync(3);
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private async void btnAlert4_Click(object sender, RoutedEventArgs e)
+        {
+            await SendBuiltInAlertToneAsync(4);
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private async void btnAlert5_Click(object sender, RoutedEventArgs e)
+        {
+            await SendBuiltInAlertToneAsync(5);
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private async void btnAlert6_Click(object sender, RoutedEventArgs e)
+        {
+            await SendBuiltInAlertToneAsync(6);
         }
 
         /// <summary>
@@ -3073,17 +7807,27 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void SelectAll_Click(object sender, RoutedEventArgs e)
         {
-            selectAll = !selectAll;
-            
-            // Iterate through all canvases (all tabs) to select/deselect all channels
-            foreach (var canvas in GetAllCanvases())
-            {
-                foreach (ChannelBox channel in canvas.Children.OfType<ChannelBox>())
-                {
-                    if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
-                        continue;
+            Canvas activeCanvas = GetActiveCanvas();
+            if (activeCanvas == null)
+                return;
 
-                    Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
+            List<ChannelBox> tabChannels = activeCanvas.Children
+                .OfType<ChannelBox>()
+                .Where(channel => !channel.IsLocalPlayback)
+                .ToList();
+
+            if (tabChannels.Count == 0)
+                return;
+
+            selectAll = tabChannels.Any(channel => !channel.IsSelected);
+
+            // Scope bulk selection to the currently selected resource tab only.
+            suppressSelectedResourcePersistence = true;
+            try
+            {
+                foreach (ChannelBox channel in tabChannels)
+                {
+                    Codeplug.System system = Codeplug.GetSystemForChannel(channel.ConfiguredChannel);
                     if (system == null)
                     {
                         Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}.");
@@ -3092,7 +7836,7 @@ namespace dvmconsole
                         continue;
                     }
 
-                    Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
+                    Codeplug.Channel cpgChannel = channel.ConfiguredChannel;
                     if (cpgChannel == null)
                     {
                         Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.");
@@ -3102,7 +7846,6 @@ namespace dvmconsole
                     }
 
                     channel.IsSelected = selectAll;
-                    channel.Background = channel.IsSelected ? ChannelBox.BLUE_GRADIENT : ChannelBox.DARK_GRAY_GRADIENT;
 
                     if (channel.IsSelected)
                         selectedChannelsManager.AddSelectedChannel(channel);
@@ -3110,6 +7853,12 @@ namespace dvmconsole
                         selectedChannelsManager.RemoveSelectedChannel(channel);
                 }
             }
+            finally
+            {
+                suppressSelectedResourcePersistence = false;
+            }
+
+            PersistSelectedResourceState();
         }
 
         /// <summary>
@@ -3119,11 +7868,58 @@ namespace dvmconsole
         /// <param name="e"></param>
         private void KeyStatus_Click(object sender, RoutedEventArgs e)
         {
-            KeyStatusWindow keyStatus = new KeyStatusWindow(Codeplug, this);
-            keyStatus.Owner = this;
-            keyStatus.Show();
-        }
+            if (keyStatusWindow == null || !keyStatusWindow.IsLoaded)
+            {
+                keyStatusWindow = new KeyStatusWindow(Codeplug, this)
+                {
+                    Owner = this
+                };
+                keyStatusWindow.Closed += (_, _) => keyStatusWindow = null;
+                keyStatusWindow.Show();
+            }
+            else
+                keyStatusWindow.RefreshKeyStatus();
 
+            if (keyStatusWindow.WindowState == WindowState.Minimized)
+                keyStatusWindow.WindowState = WindowState.Normal;
+
+            keyStatusWindow.Activate();
+        }
+        private void ToggleTalkPermitTone_Click(object sender, RoutedEventArgs e)
+        {
+            if (!windowLoaded)
+                return;
+
+            settingsManager.TalkPermitTone = menuTalkPermitTone.IsChecked;
+            settingsManager.SaveSettings();
+        }
+        private void ToggleMuteRxAudioWhileTransmitting_Click(object sender, RoutedEventArgs e)
+        {
+            if (!windowLoaded)
+                return;
+
+            settingsManager.MuteRxAudioWhileTransmitting = menuMuteRxAudioWhileTransmitting.IsChecked;
+            settingsManager.SaveSettings();
+
+            if (ShouldMuteRxPlayback())
+                audioManager.ClearAllTalkgroupBuffers();
+        }
+        private void ToggleRestoreSelectedChannels_Click(object sender, RoutedEventArgs e)
+        {
+            if (!windowLoaded)
+                return;
+
+            settingsManager.RestoreSelectedChannelsOnStartup = menuRestoreSelectedChannels.IsChecked;
+            PersistSelectedResourceState();
+        }
+        private void ToggleRetainPatchStateOnStartup_Click(object sender, RoutedEventArgs e)
+        {
+            if (!windowLoaded)
+                return;
+
+            settingsManager.RetainPatchStateOnStartup = menuRetainPatchStateOnStartup.IsChecked;
+            settingsManager.SaveSettings();
+        }
         /// <summary>
         /// 
         /// </summary>
@@ -3149,156 +7945,59 @@ namespace dvmconsole
             }
         }
 
+        /// <summary>
+        ///
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void PatchGroups_Click(object sender, RoutedEventArgs e)
+        {
+            if (Codeplug?.Groups?.Any(pg => !string.IsNullOrWhiteSpace(pg?.Name) &&
+                (pg.IsPatchGroup() || pg.IsMultiselectGroup())) != true)
+                return;
+
+            patchGroupsWindow.Owner = this;
+            patchGroupsWindow.RefreshTheme();
+            if (patchGroupsWindow.Visibility == Visibility.Visible)
+                patchGroupsWindow.Close();
+            else
+            {
+                patchGroupsWindow.RefreshMemberStatusIcons();
+                patchGroupsWindow.Show();
+            }
+        }
+
         /** fnecore Hooks / Helpers */
 
         /// <summary>
         /// Handler for FNE key responses.
         /// </summary>
         /// <param name="e"></param>
-        public void KeyResponseReceived(KeyResponseEvent e)
+        public void KeyResponseReceived(KeyResponseEvent e, string sourceSystemName = null)
         {
-            //Log.WriteLine($"Message ID: {e.KmmKey.MessageId}");
-            //Log.WriteLine($"Decrypt Info Format: {e.KmmKey.DecryptInfoFmt}");
-            //Log.WriteLine($"Algorithm ID: {e.KmmKey.AlgId}");
-            //Log.WriteLine($"Key ID: {e.KmmKey.KeyId}");
-            //Log.WriteLine($"Keyset ID: {e.KmmKey.KeysetItem.KeysetId}");
-            //Log.WriteLine($"Keyset Alg ID: {e.KmmKey.KeysetItem.AlgId}");
-            //Log.WriteLine($"Keyset Key Length: {e.KmmKey.KeysetItem.KeyLength}");
-            //Log.WriteLine($"Number of Keys: {e.KmmKey.KeysetItem.Keys.Count}");
+            if (e?.KmmKey?.KeysetItem?.Keys == null || string.IsNullOrWhiteSpace(sourceSystemName))
+                return;
 
-            foreach (var key in e.KmmKey.KeysetItem.Keys)
+            Dispatcher.Invoke(() =>
             {
-                //Log.WriteLine($"  Key Format: {key.KeyFormat}");
-                //Log.WriteLine($"  SLN: {key.Sln}");
-                //Log.WriteLine($"  Key ID: {key.KeyId}");
-                //Log.WriteLine($"  Key Data: {BitConverter.ToString(key.GetKey())}");
+                if (!(Codeplug?.Systems?.Any(system => ResourceIdentity.SystemMatches(system.Name, sourceSystemName)) ?? false))
+                    return;
 
-                Dispatcher.Invoke(() =>
+                KeysetItem received = e.KmmKey.KeysetItem;
+                foreach (var key in received.Keys)
                 {
-                    foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
-                    {
-                        if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
-                            continue;
-
-                        Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
-                        if (system == null)
-                        {
-                            Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_SYSTEM} {channel.SystemName}. {ERR_INVALID_CODEPLUG}.");
-                            channel.IsSelected = false;
-                            selectedChannelsManager.RemoveSelectedChannel(channel);
-                            continue;
-                        }
-
-                        Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
-                        if (cpgChannel == null)
-                        {
-                            Log.WriteLine($"{channel.ChannelName} refers to an {INVALID_CODEPLUG_CHANNEL}. {ERR_INVALID_CODEPLUG}.");
-                            channel.IsSelected = false;
-                            selectedChannelsManager.RemoveSelectedChannel(channel);
-                            continue;
-                        }
-
-                        ushort keyId = cpgChannel.GetKeyId();
-                        byte algoId = cpgChannel.GetAlgoId();
-                        KeysetItem receivedKey = e.KmmKey.KeysetItem;
-
-                        if (keyId != 0 && algoId != 0 && keyId == key.KeyId && algoId == receivedKey.AlgId)
-                            channel.Crypter.SetKey(key.KeyId, receivedKey.AlgId, key.GetKey());
-                    }
-                });
-            }
-        }
-
-        /** Keyboard Shortcuts */
-
-        /// <summary>
-        /// Sets the global PTT keybind
-        /// Hooks a listener to listen for a keypress, then saves that as the global PTT keybind
-        /// Global PTT keybind is effectively the same as pressing the Global PTT button
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        /// <exception cref="NotImplementedException"></exception>
-        private async void SetGlobalPTTKeybind(object sender, RoutedEventArgs e)
-        {
-            
-            // Create and show a MessageBox with no buttons or standard close behavior
-            Window messageBox = new Window
-            {
-                Width = 500,
-                Height = 150,
-                WindowStyle = WindowStyle.None,
-                ShowInTaskbar = false,
-                ResizeMode = ResizeMode.NoResize,
-                Topmost = true,
-                Background = System.Windows.Media.Brushes.White,
-                Content = new System.Windows.Controls.TextBlock
-                {
-                    Text = "Press any key to set the Global PTT shortcut...",
-                    HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
-                    VerticalAlignment = System.Windows.VerticalAlignment.Center,
-                    FontSize = 16,
-                    FontWeight = System.Windows.FontWeights.Bold,
+                    if (key != null && !networkKeys.Store(sourceSystemName, received.AlgId, key.KeyId, key.GetKey()))
+                        Log.WriteWarning($"({sourceSystemName}) Ignoring unsupported key ALGID {received.AlgId} KID {key.KeyId}.");
                 }
-            };
-
-            // Center messageBox on the main window
-            messageBox.Owner = this; // Set the current window as owner
-            messageBox.WindowStartupLocation = WindowStartupLocation.CenterOwner;
-
-            // Open and close the MessageBox after 500ms
-            messageBox.Show();
-            Keys keyPress = await keyboardManager.GetNextKeyPress();
-            messageBox.Close();
-            settingsManager.GlobalPTTShortcut = keyPress;
-            InitializeKeyboardShortcuts();
-            settingsManager.SaveSettings();
-            MessageBox.Show("Global PTT shortcut set to " + keyPress.ToString(), "Success", MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-
-        /// <summary>
-        /// Initializes global keyboard shortcut listener
-        /// </summary>
-        private void InitializeKeyboardShortcuts()
-        {
-            var listeningKeys = new List<Keys> { settingsManager.GlobalPTTShortcut };
-            keyboardManager.SetListenKeys(listeningKeys);
-            // Clear event listener
-            keyboardManager.OnKeyEvent -= KeyboardManagerOnKeyEvent;
-            // Re-add listener
-            keyboardManager.OnKeyEvent += KeyboardManagerOnKeyEvent;
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="pressedKey"></param>
-        /// <param name="state"></param>
-        private void KeyboardManagerOnKeyEvent(Keys pressedKey,GlobalKeyboardHook.KeyboardState state)
-        {
-            if (pressedKey == settingsManager.GlobalPTTShortcut)
-            {
-                if(state is GlobalKeyboardHook.KeyboardState.KeyDown or GlobalKeyboardHook.KeyboardState.SysKeyDown)
+                ImportNxdnNetworkKeys(e, sourceSystemName);
+                foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
                 {
-                    globalPttState = true;
-                    GlobalPTTActivate(null, null);
+                    Codeplug.Channel config = channel.ConfiguredChannel;
+                    if (config != null && ResourceIdentity.SystemMatches(config.System, sourceSystemName))
+                        ApplyP25TransmitKey(channel, config);
                 }
-                else
-                {
-                    globalPttState = false;
-                    GlobalPTTActivate(null, null);
-                }
-            }
+            });
         }
 
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void ToggleGlobalPTTAllChannels_Click(object sender, RoutedEventArgs e)
-        {
-            settingsManager.GlobalPTTKeysAllChannels = !settingsManager.GlobalPTTKeysAllChannels;
-        }
     } // public partial class MainWindow : Window
 } // namespace dvmconsole

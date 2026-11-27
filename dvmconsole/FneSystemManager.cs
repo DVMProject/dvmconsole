@@ -8,6 +8,7 @@
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
 *   Copyright (C) 2025 Caleb, K4PHP
+*   Copyright (C) 2026 C. Lovell, Dev_Ranger
 *
 */
 
@@ -25,7 +26,7 @@ namespace dvmconsole
         */
 
         /// <summary>
-        /// Creates an instance of <see cref="PeerSystem"/> class.
+        /// Creates an instance of the <see cref="FneSystemManager"/> class.
         /// </summary>
         public FneSystemManager()
         {
@@ -43,18 +44,27 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// Replaces any existing system handler with a new instance.
+        /// </summary>
+        public PeerSystem AddOrReplaceFneSystem(string systemId, Codeplug.System system, MainWindow mainWindow)
+        {
+            RemoveFneSystem(systemId);
+            PeerSystem handler = new PeerSystem(mainWindow, system);
+            peerHandlers[systemId] = handler;
+            return handler;
+        }
+
+        /// <summary>
         /// Return a <see cref="PeerSystem"/> by looking up a systemid
         /// </summary>
         /// <param name="systemId"></param>
-        /// <returns></returns>
-        /// <exception cref="KeyNotFoundException"></exception>
+        /// <returns>The system handler, or null if the system is not registered.</returns>
         public PeerSystem GetFneSystem(string systemId)
         {
             if (peerHandlers.TryGetValue(systemId, out var handler))
                 return handler;
 
             return null;
-            //throw new KeyNotFoundException($"WebSocketHandler for system '{systemId}' not found.");
         }
 
         /// <summary>
@@ -65,7 +75,7 @@ namespace dvmconsole
         {
             if (peerHandlers.TryGetValue(systemId, out var handler))
             {
-                handler.peer.Stop();
+                handler.Stop();
                 peerHandlers.Remove(systemId);
             }
         }
@@ -86,7 +96,7 @@ namespace dvmconsole
         public void ClearAll()
         {
             foreach (var handler in peerHandlers.Values)
-                handler.peer.Stop();
+                handler.Stop();
 
             peerHandlers.Clear();
         }

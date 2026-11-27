@@ -12,9 +12,19 @@
 *
 */
 
+using System;
 using System.Collections.ObjectModel;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Diagnostics;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
+
+using NAudio.Wave;
 
 namespace dvmconsole
 {
@@ -28,6 +38,24 @@ namespace dvmconsole
         public static readonly DependencyProperty ForegroundColorProperty =
             DependencyProperty.Register(nameof(ForegroundColor), typeof(Brush), typeof(CallEntry), new PropertyMetadata(Brushes.White));
 
+        public static readonly DependencyProperty SrcIdProperty =
+            DependencyProperty.Register(nameof(SrcId), typeof(int?), typeof(CallEntry), new PropertyMetadata(null));
+        public static readonly DependencyProperty SrcIdTextProperty =
+            DependencyProperty.Register(nameof(SrcIdText), typeof(string), typeof(CallEntry), new PropertyMetadata(string.Empty));
+        public static readonly DependencyProperty RidAliasProperty =
+            DependencyProperty.Register(nameof(RidAlias), typeof(string), typeof(CallEntry), new PropertyMetadata(string.Empty));
+        public static readonly DependencyProperty EncryptionKeyIdProperty =
+            DependencyProperty.Register(nameof(EncryptionKeyId), typeof(ushort?), typeof(CallEntry), new PropertyMetadata(null));
+
+        /// <summary>
+        /// On-air key ID, independent of recording and the channel's transmit key.
+        /// </summary>
+        public ushort? EncryptionKeyId
+        {
+            get { return (ushort?)GetValue(EncryptionKeyIdProperty); }
+            set { SetValue(EncryptionKeyIdProperty, value); }
+        }
+
         /*
         ** Properties
         */
@@ -39,16 +67,61 @@ namespace dvmconsole
         /// <summary>
         /// Source ID.
         /// </summary>
-        public int SrcId { get; set; }
+        public int? SrcId
+        {
+            get { return (int?)GetValue(SrcIdProperty); }
+            set { SetValue(SrcIdProperty, value); }
+        }
+        /// <summary>
+        /// Source ID display text.
+        /// </summary>
+        public string SrcIdText
+        {
+            get { return (string)GetValue(SrcIdTextProperty); }
+            set { SetValue(SrcIdTextProperty, value); }
+        }
         /// <summary>
         /// Destination ID.
         /// </summary>
-        public int DstId { get; set; }
+        public int? DstId { get; set; }
+        /// <summary>
+        /// Destination ID display text.
+        /// </summary>
+        public string DstIdText { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Resolved RID alias when available.
+        /// </summary>
+        public string RidAlias
+        {
+            get { return (string)GetValue(RidAliasProperty); }
+            set { SetValue(RidAliasProperty, value); }
+        }
 
         /// <summary>
         /// Timestamp for entry.
         /// </summary>
         public string Timestamp { get; set; }
+
+        /// <summary>
+        /// True when this row is an informational console/FNE event instead of a call.
+        /// </summary>
+        public bool IsEvent { get; set; }
+
+        /// <summary>
+        /// True when this row represents a console-originated transmit call.
+        /// </summary>
+        public bool IsConsoleTx { get; set; }
+
+        /// <summary>
+        /// Transport stream ID associated with this RX or console TX row.
+        /// </summary>
+        public uint? StreamId { get; set; }
+
+        /// <summary>
+        /// The exact TAR session for this call, completed after its recording is saved.
+        /// </summary>
+        public Task<TarRecordingMetadata> Recording { get; set; }
 
         /// <summary>
         /// Background color for call entry.
@@ -101,9 +174,16 @@ namespace dvmconsole
     /// </summary>
     public partial class CallHistoryWindow : Window
     {
-        public const int MAX_CALL_HISTORY = 200;
+        public const int MAX_CALL_HISTORY = 100;
         private int maxCallHistory = MAX_CALL_HISTORY;
         private SettingsManager settingsManager;
+        private Dictionary<string, DataGridColumn> columnsByKey;
+        private bool eventHistoryMode;
+        private WaveOut playbackOutput;
+        private AudioFileReader playbackReader;
+        private readonly Dictionary<CallEntry, long> pageHighlights = new Dictionary<CallEntry, long>();
+        private readonly Dictionary<CallEntry, Action> pageAcknowledgements = new Dictionary<CallEntry, Action>();
+        private DispatcherTimer pageHighlightTimer;
 
         /*
         ** Properties
@@ -123,11 +203,23 @@ namespace dvmconsole
         /// </summary>
         /// <param name="settingsManager"></param>
         /// <param name="maxCallHistory"></param>
-        public CallHistoryWindow(SettingsManager settingsManager, int maxCallHistory)
+        public CallHistoryWindow(SettingsManager settingsManager, int maxCallHistory, bool eventHistoryMode = false)
         {
             InitializeComponent();
             this.settingsManager = settingsManager;
             this.maxCallHistory = maxCallHistory;
+            this.eventHistoryMode = eventHistoryMode;
+            if (this.eventHistoryMode)
+                Title = "Event History";
+            columnsByKey = new Dictionary<string, DataGridColumn>
+            {
+                { "Timestamp", TimestampColumn },
+                { "Channel", ChannelColumn },
+                { "RidAlias", RidAliasColumn },
+                { "Rid", RidColumn },
+                { "Tgid", TgidColumn },
+                { "EncryptionKeyId", EncryptionKeyIdColumn }
+            };
 
             // clamp max call history count
             if (this.maxCallHistory > MAX_CALL_HISTORY)
@@ -137,6 +229,9 @@ namespace dvmconsole
 
             ViewModel = new CallHistoryViewModel();
             DataContext = ViewModel;
+
+            ApplyWindowPlacement();
+            ApplyColumnSettings();
         }
 
         /// <summary>
@@ -145,8 +240,204 @@ namespace dvmconsole
         /// <param name="e"></param>
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
+            StopPlayback();
+            SaveWindowSettings();
             e.Cancel = true;
             this.Hide();
+        }
+
+        /// <summary>
+        /// Acknowledges a page or plays the recording belonging to the clicked call.
+        /// </summary>
+        private void CallHistoryRow_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton != MouseButton.Left || sender is not DataGridRow row || row.Item is not CallEntry entry)
+                return;
+
+            if (pageHighlights.ContainsKey(entry))
+            {
+                e.Handled = true;
+                AcknowledgePage(entry);
+                return;
+            }
+            if (entry.IsEvent)
+                return;
+
+            e.Handled = true;
+            PlayRecording(entry);
+        }
+
+        private void PlayRecording(CallEntry entry)
+        {
+            StopPlayback();
+            if (entry.Recording == null)
+            {
+                PlaybackStatusText.Text = "No TAR recording was captured for this call.";
+                return;
+            }
+
+            if (!entry.Recording.IsCompleted)
+            {
+                PlaybackStatusText.Text = "This call is still recording or being saved. Try again shortly.";
+                return;
+            }
+
+            TarRecordingMetadata recording = entry.Recording.IsCompletedSuccessfully ? entry.Recording.Result : null;
+            if (recording == null)
+            {
+                PlaybackStatusText.Text = "No TAR audio was saved for this call.";
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(recording.FilePath) || !File.Exists(recording.FilePath))
+            {
+                PlaybackStatusText.Text = "The TAR recording for this call is no longer available.";
+                return;
+            }
+
+            try
+            {
+                playbackReader = new AudioFileReader(recording.FilePath);
+                playbackOutput = new WaveOut();
+                playbackOutput.PlaybackStopped += PlaybackOutput_PlaybackStopped;
+                playbackOutput.Init(playbackReader);
+                playbackOutput.Play();
+                StopPlaybackButton.IsEnabled = true;
+                PlaybackStatusText.Text = $"Playing {entry.Channel} / RID {entry.SrcIdText} at {entry.Timestamp}";
+            }
+            catch (Exception ex)
+            {
+                StopPlayback();
+                PlaybackStatusText.Text = $"Unable to play TAR recording. {ex.Message}";
+            }
+        }
+
+        private void PlaybackOutput_PlaybackStopped(object sender, StoppedEventArgs e)
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                // A queued completion from the previous call must not stop a newer playback.
+                if (!ReferenceEquals(sender, playbackOutput))
+                    return;
+
+                StopPlayback();
+                PlaybackStatusText.Text = e.Exception == null ? "Playback finished." : $"Unable to play TAR recording. {e.Exception.Message}";
+            }));
+        }
+
+        private void StopPlayback_Click(object sender, RoutedEventArgs e)
+        {
+            StopPlayback();
+        }
+
+        private void StopPlayback()
+        {
+            if (playbackOutput != null)
+            {
+                playbackOutput.PlaybackStopped -= PlaybackOutput_PlaybackStopped;
+                try
+                {
+                    playbackOutput.Stop();
+                }
+                catch
+                {
+                    /* best effort */
+                }
+
+                playbackOutput.Dispose();
+                playbackOutput = null;
+            }
+
+            playbackReader?.Dispose();
+            playbackReader = null;
+            StopPlaybackButton.IsEnabled = false;
+            PlaybackStatusText.Text = "Double-click a recorded call to play TAR audio.";
+        }
+
+        private void ApplyWindowPlacement()
+        {
+            SettingsManager.WindowPlacementConfig placement = settingsManager?.CallHistoryWindowPlacement;
+            if (placement == null)
+                return;
+
+            Width = placement.Width > 0 ? placement.Width : SettingsManager.DEFAULT_CALL_HISTORY_WINDOW_WIDTH;
+            Height = placement.Height > 0 ? placement.Height : SettingsManager.DEFAULT_CALL_HISTORY_WINDOW_HEIGHT;
+
+            if (placement.Left.HasValue && placement.Top.HasValue)
+            {
+                WindowStartupLocation = WindowStartupLocation.Manual;
+                Left = ClampToVirtualScreen(placement.Left.Value, SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenWidth, Width);
+                Top = ClampToVirtualScreen(placement.Top.Value, SystemParameters.VirtualScreenTop, SystemParameters.VirtualScreenHeight, Height);
+            }
+        }
+
+        private void ApplyColumnSettings()
+        {
+            List<SettingsManager.GridColumnConfig> columnSettings = settingsManager?.CallHistoryColumns;
+            if (columnSettings == null || columnSettings.Count == 0)
+                return;
+
+            foreach (SettingsManager.GridColumnConfig columnSetting in columnSettings)
+            {
+                if (!columnsByKey.TryGetValue(columnSetting.Key, out DataGridColumn column))
+                    continue;
+
+                if (columnSetting.Width > 0)
+                    column.Width = new DataGridLength(columnSetting.Width);
+
+                column.Visibility = columnSetting.Visible ? Visibility.Visible : Visibility.Collapsed;
+            }
+
+            foreach (SettingsManager.GridColumnConfig columnSetting in columnSettings.OrderBy(c => c.DisplayIndex))
+            {
+                if (!columnsByKey.TryGetValue(columnSetting.Key, out DataGridColumn column))
+                    continue;
+
+                int displayIndex = Math.Max(0, Math.Min(CallHistoryGrid.Columns.Count - 1, columnSetting.DisplayIndex));
+                if (column.DisplayIndex != displayIndex)
+                    column.DisplayIndex = displayIndex;
+            }
+        }
+
+        private void SaveWindowSettings()
+        {
+            if (settingsManager == null)
+                return;
+
+            Rect bounds = WindowState == WindowState.Normal
+                ? new Rect(Left, Top, Width, Height)
+                : RestoreBounds;
+
+            settingsManager.SaveCallHistoryWindowSettings(
+                new SettingsManager.WindowPlacementConfig
+                {
+                    Left = bounds.Left,
+                    Top = bounds.Top,
+                    Width = bounds.Width,
+                    Height = bounds.Height
+                },
+                GetColumnSettings());
+        }
+
+        private IEnumerable<SettingsManager.GridColumnConfig> GetColumnSettings()
+        {
+            return columnsByKey
+                .Select(kvp => new SettingsManager.GridColumnConfig
+                {
+                    Key = kvp.Key,
+                    DisplayIndex = kvp.Value.DisplayIndex,
+                    Width = kvp.Value.ActualWidth > 0 ? kvp.Value.ActualWidth : kvp.Value.Width.Value,
+                    Visible = kvp.Value.Visibility == Visibility.Visible
+                })
+                .OrderBy(column => column.DisplayIndex)
+                .ToList();
+        }
+
+        private static double ClampToVirtualScreen(double coordinate, double screenStart, double screenSize, double windowSize)
+        {
+            double min = screenStart;
+            double max = screenStart + Math.Max(0, screenSize - windowSize);
+            return Math.Max(min, Math.Min(max, coordinate));
         }
 
         /// <summary>
@@ -155,21 +446,185 @@ namespace dvmconsole
         /// <param name="channel"></param>
         /// <param name="srcId"></param>
         /// <param name="dstId"></param>
-        public void AddCall(string channel, int srcId, int dstId, string timestamp)
+        /// <param name="ridAlias"></param>
+        /// <param name="timestamp"></param>
+        /// <param name="recording"></param>
+        public CallEntry AddCall(string channel, int srcId, int dstId, string ridAlias, string timestamp, Task<TarRecordingMetadata> recording = null)
+        {
+            return Dispatcher.Invoke(() =>
+            {
+                TrimHistoryForNewEntry();
+
+                CallEntry entry = new CallEntry
+                {
+                    Channel = channel,
+                    SrcId = srcId,
+                    SrcIdText = srcId.ToString(),
+                    DstId = dstId,
+                    DstIdText = dstId.ToString(),
+                    RidAlias = ridAlias ?? string.Empty,
+                    Timestamp = timestamp,
+                    Recording = recording,
+                    IsEvent = false,
+                    BackgroundColor = Brushes.Transparent
+                };
+                ViewModel.CallHistory.Insert(0, entry);
+                return entry;
+            });
+        }
+
+        /// <summary>
+        /// Adds an informational row to the global Event History view.
+        /// </summary>
+        /// <param name="source"></param>
+        /// <param name="message"></param>
+        public void AddEvent(string source, string message, string ridText = null, string tgidText = null, Brush foreground = null)
+        {
+            if (!eventHistoryMode || string.IsNullOrWhiteSpace(message))
+                return;
+
+            Dispatcher.Invoke(() =>
+            {
+                TrimHistoryForNewEntry();
+
+                ViewModel.CallHistory.Insert(0, new CallEntry
+                {
+                    Channel = string.IsNullOrWhiteSpace(source) ? "Console" : source.Trim(),
+                    RidAlias = message.Trim(),
+                    SrcIdText = ridText?.Trim() ?? string.Empty,
+                    DstIdText = tgidText?.Trim() ?? string.Empty,
+                    Timestamp = DateTime.Now.ToString("HH:mm:ss"),
+                    IsEvent = true,
+                    ForegroundColor = foreground ?? (settingsManager?.DarkMode == false ? Brushes.Black : Brushes.White),
+                    BackgroundColor = Brushes.Transparent
+                });
+            });
+        }
+
+        /// <summary>
+        /// Adds a received page with a solid blue highlight for sixty seconds.
+        /// Pages are system events, not voice calls or TAR recordings.
+        /// </summary>
+        public void AddPage(string systemName, int sourceId, string alias, DateTime receivedAt, Action acknowledge = null)
+        {
+            if (!eventHistoryMode)
+                return;
+
+            Dispatcher.Invoke(() =>
+            {
+                TrimHistoryForNewEntry();
+                CallEntry entry = new CallEntry
+                {
+                    Channel = systemName,
+                    SrcId = sourceId,
+                    SrcIdText = sourceId.ToString(),
+                    RidAlias = alias ?? string.Empty,
+                    Timestamp = receivedAt.ToString("HH:mm:ss"),
+                    IsEvent = true,
+                    ForegroundColor = Brushes.White,
+                    BackgroundColor = Brushes.RoyalBlue
+                };
+                ViewModel.CallHistory.Insert(0, entry);
+                pageHighlights[entry] = Stopwatch.GetTimestamp();
+                if (acknowledge != null)
+                    pageAcknowledgements[entry] = acknowledge;
+                pageHighlightTimer ??= new DispatcherTimer(TimeSpan.FromSeconds(1),
+                    DispatcherPriority.Background, UpdatePageHighlights, Dispatcher);
+                pageHighlightTimer.Start();
+            });
+        }
+
+        private void UpdatePageHighlights(object sender, EventArgs e)
+        {
+            foreach (var page in pageHighlights.ToArray())
+            {
+                if (Stopwatch.GetElapsedTime(page.Value) < TimeSpan.FromSeconds(60))
+                    continue;
+
+                AcknowledgePage(page.Key);
+            }
+            if (pageHighlights.Count == 0)
+                pageHighlightTimer?.Stop();
+        }
+
+        private void AcknowledgePage(CallEntry entry)
+        {
+            pageHighlights.Remove(entry);
+            ResetEntryColors(entry);
+            if (pageHighlights.Count == 0)
+                pageHighlightTimer?.Stop();
+            if (pageAcknowledgements.Remove(entry, out Action acknowledge))
+            {
+                try { acknowledge(); }
+                catch (Exception ex) { Log.WriteWarning($"Unable to stop page alert: {ex.Message}"); }
+            }
+        }
+
+        /// <summary>
+        /// Stops pending page notifications before resources are reloaded or shut down.
+        /// </summary>
+        public void ClearPageAlerts()
         {
             Dispatcher.Invoke(() =>
             {
-                if (ViewModel.CallHistory.Count == maxCallHistory)
-                    ViewModel.CallHistory.RemoveAt(maxCallHistory - 1);
+                foreach (CallEntry entry in pageHighlights.Keys.ToArray())
+                    AcknowledgePage(entry);
+            });
+        }
+
+        /// <summary>
+        /// Adds a console-originated transmit row to Event History and marks it active.
+        /// </summary>
+        /// <param name="channel"></param>
+        /// <param name="srcId"></param>
+        /// <param name="dstId"></param>
+        /// <param name="ridAlias"></param>
+        /// <param name="timestamp"></param>
+        /// <param name="streamId"></param>
+        /// <param name="recording"></param>
+        public void AddConsoleTransmission(string channel, int srcId, int dstId, string ridAlias, string timestamp, uint streamId, Task<TarRecordingMetadata> recording = null, ushort? encryptionKeyId = null)
+        {
+            if (!eventHistoryMode || string.IsNullOrWhiteSpace(channel) || streamId == 0)
+                return;
+
+            Dispatcher.Invoke(() =>
+            {
+                TrimHistoryForNewEntry();
 
                 ViewModel.CallHistory.Insert(0, new CallEntry
                 {
                     Channel = channel,
                     SrcId = srcId,
+                    SrcIdText = srcId.ToString(),
                     DstId = dstId,
+                    DstIdText = dstId.ToString(),
+                    RidAlias = ridAlias ?? string.Empty,
                     Timestamp = timestamp,
-                    BackgroundColor = Brushes.Transparent
+                    IsConsoleTx = true,
+                    EncryptionKeyId = encryptionKeyId,
+                    StreamId = streamId,
+                    Recording = recording,
+                    ForegroundColor = Brushes.White,
+                    BackgroundColor = Brushes.Red
                 });
+            });
+        }
+
+        /// <summary>
+        /// Clears active highlighting for a completed console-originated transmit row.
+        /// </summary>
+        /// <param name="channel"></param>
+        /// <param name="srcId"></param>
+        /// <param name="streamId"></param>
+        public void ConsoleTransmissionEnded(string channel, int srcId, uint streamId)
+        {
+            if (string.IsNullOrWhiteSpace(channel) || streamId == 0)
+                return;
+
+            Dispatcher.Invoke(() =>
+            {
+                foreach (var entry in ViewModel.CallHistory.Where(c => c.IsConsoleTx && c.Channel == channel && c.SrcId == srcId && c.StreamId == streamId))
+                    ResetEntryColors(entry);
             });
         }
 
@@ -183,7 +638,7 @@ namespace dvmconsole
         {
             Dispatcher.Invoke(() =>
             {
-                foreach (var entry in ViewModel.CallHistory.Where(c => c.Channel == channel && c.SrcId == srcId))
+                foreach (var entry in ViewModel.CallHistory.Where(c => !c.IsEvent && !c.IsConsoleTx && c.Channel == channel && c.SrcId == srcId))
                 {
                     entry.ForegroundColor = Brushes.Black;
 
@@ -204,15 +659,45 @@ namespace dvmconsole
         {
             Dispatcher.Invoke(() =>
             {
-                foreach (var entry in ViewModel.CallHistory.Where(c => c.Channel == channel && c.SrcId == srcId))
-                {
-                    if (settingsManager.DarkMode)
-                        entry.ForegroundColor = Brushes.White;
-                    else
-                        entry.ForegroundColor = Brushes.Black;
-                    entry.BackgroundColor = Brushes.Transparent;
-                }
+                foreach (var entry in ViewModel.CallHistory.Where(c => !c.IsEvent && !c.IsConsoleTx && c.Channel == channel && c.SrcId == srcId))
+                    ResetEntryColors(entry);
             });
+        }
+
+        /// <summary>
+        /// Clears any active call highlighting for a channel, regardless of source RID.
+        /// </summary>
+        /// <param name="channel"></param>
+        public void ClearChannelActivity(string channel)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                foreach (var entry in ViewModel.CallHistory.Where(c => !c.IsEvent && c.Channel == channel))
+                    ResetEntryColors(entry);
+            });
+        }
+
+        private void TrimHistoryForNewEntry()
+        {
+            if (ViewModel.CallHistory.Count == maxCallHistory)
+            {
+                CallEntry oldest = ViewModel.CallHistory[maxCallHistory - 1];
+                if (pageHighlights.ContainsKey(oldest))
+                    AcknowledgePage(oldest);
+                ViewModel.CallHistory.RemoveAt(maxCallHistory - 1);
+            }
+        }
+
+        private void ResetEntryColors(CallEntry entry)
+        {
+            if (entry == null)
+                return;
+
+            if (settingsManager.DarkMode)
+                entry.ForegroundColor = Brushes.White;
+            else
+                entry.ForegroundColor = Brushes.Black;
+            entry.BackgroundColor = Brushes.Transparent;
         }
     } // public partial class CallHistoryWindow : Window
 } // namespace dvmconsole

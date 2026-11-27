@@ -1,10 +1,10 @@
 ﻿// SPDX-License-Identifier: AGPL-3.0-only
 /**
-* Digital Voice Modem - Audio Bridge
+* Digital Voice Modem - Desktop Dispatch Console
 * AGPLv3 Open Source. Use is subject to license terms.
 * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 *
-* @package DVM / Audio Bridge
+* @package DVM / Desktop Dispatch Console
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
 *   Copyright (C) 2022-2024 Bryan Biedenkapp, N2PLL
@@ -22,7 +22,6 @@ namespace dvmconsole
     public abstract partial class FneSystemBase : fnecore.FneSystemBase
     {
         public const int AMBE_BUF_LEN = 9;
-        public const int DMR_AMBE_LENGTH_BYTES = 27;
         public const int AMBE_PER_SLOT = 3;
 
         public const int P25_FIXED_SLOT = 2;
@@ -36,9 +35,6 @@ namespace dvmconsole
         public const int AUDIO_NO_BUFFERS = 2;
         public const int AFSK_AUDIO_BUFFER_MS = 60;
         public const int AFSK_AUDIO_NO_BUFFERS = 4;
-
-        public new const int DMR_PACKET_SIZE = 55;
-        public new const int DMR_FRAME_LENGTH_BYTES = 33;
 
         /*
         ** Methods
@@ -63,45 +59,6 @@ namespace dvmconsole
         }
 
         /// <summary>
-        /// Creates an DMR frame message.
-        /// </summary>
-        /// <param name="data"></param>
-        /// <param name="srcId"></param>
-        /// <param name="dstId"></param>
-        /// <param name="slot"></param>
-        /// <param name="frameType"></param>
-        /// <param name="seqNo"></param>
-        /// <param name="n"></param>
-        public void CreateDMRMessage(ref byte[] data, uint srcId, uint dstId, byte slot, FrameType frameType, byte seqNo, byte n)
-        {
-            RemoteCallData callData = new RemoteCallData()
-            {
-                SrcId = srcId,
-                DstId = dstId,
-                FrameType = frameType,
-                Slot = slot,
-            };
-
-            CreateDMRMessage(ref data, callData, seqNo, n);
-        }
-
-        /// <summary>
-        /// Helper to send a DMR terminator with LC message.
-        /// </summary>
-        public void SendDMRTerminator(uint srcId, uint dstId, byte slot, int dmrSeqNo, byte dmrN, EmbeddedData embeddedData)
-        {
-            RemoteCallData callData = new RemoteCallData()
-            {
-                SrcId = srcId,
-                DstId = dstId,
-                FrameType = FrameType.DATA_SYNC,
-                Slot = slot
-            };
-
-            SendDMRTerminator(callData, ref dmrSeqNo, ref dmrN, embeddedData);
-        }
-
-        /// <summary>
         /// Event handler used to process incoming DMR data.
         /// </summary>
         /// <param name="sender"></param>
@@ -110,12 +67,8 @@ namespace dvmconsole
         {
             DateTime pktTime = DateTime.Now;
 
-            byte[] data = new byte[DMR_FRAME_LENGTH_BYTES];
-            Buffer.BlockCopy(e.Data, 20, data, 0, DMR_FRAME_LENGTH_BYTES);
-            byte bits = e.Data[15];
-
             if (e.CallType == CallType.GROUP)
-                mainWindow.DMRDataReceived(e, pktTime);
+                mainWindow.DMRDataReceived((this as PeerSystem)?.ConfiguredSystemName, e, pktTime);
 
             return;
         }

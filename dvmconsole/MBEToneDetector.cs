@@ -55,7 +55,7 @@ namespace dvmconsole
         */
 
         /// <summary>
-        /// Create a pitch detector which reports the running average of pitch for a sequence of samples
+        /// Creates a pitch detector for PCM sample frames.
         /// </summary>
         /// <param name="detect_ratio">Ratio required for a valid tone detection</param>
         /// <param name="hits_reqd">Number of repeated "hits" on a frequency to count as a tone detection</param>
@@ -120,21 +120,26 @@ namespace dvmconsole
                 // Determine hits
                 if (hits_freq == tone_freq)
                 {
-                    num_hits++;
-                    if (num_hits >= hits_reqd)
-                    {
-                        // Debug
-                        //Log.Logger.Debug($"Detected {tone_freq} Hz tone! (ratio {ratio})");
-                        return tone_freq;
-                    }
+                    num_hits = Math.Min(num_hits + 1, hits_reqd);
                 }
                 else
                 {
                     num_hits = 1;
                     hits_freq = tone_freq;
                 }
+                if (num_hits >= hits_reqd)
+                    return tone_freq;
             }
+            else
+                Reset();
             return 0;
+        }
+
+        /// <summary>Clears consecutive-tone history at a gap or call boundary.</summary>
+        public void Reset()
+        {
+            hits_freq = 0;
+            num_hits = 0;
         }
     } // public class MBEToneDetector
 } // namespace dvmconsole

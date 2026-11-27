@@ -1,10 +1,10 @@
 ﻿// SPDX-License-Identifier: AGPL-3.0-only
 /**
-* Digital Voice Modem - Audio Bridge
+* Digital Voice Modem - Desktop Dispatch Console
 * AGPLv3 Open Source. Use is subject to license terms.
 * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 *
-* @package DVM / Audio Bridge
+* @package DVM / Desktop Dispatch Console
 * @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
 *
 *   Copyright (C) 2023 Bryan Biedenkapp, N2PLL
@@ -21,7 +21,7 @@ namespace dvmconsole
     /// Implements P/Invoke to callback into external AMBE encoder/decoder library.
     /// </summary>
     /// <remarks>This is used to interface to a external library that talks to a DVSI USB-3000.</remarks>
-    public class AmbeVocoder
+    public class AmbeVocoder : IDisposable
     {
         private const int MBE_SAMPLES_LENGTH = 160;
         private const short NO_BIT_STEAL = 0;
@@ -53,6 +53,12 @@ namespace dvmconsole
         private ushort ecmode;
 
         private MBEInterleaver interleaver;
+
+        /// <summary>Releases the native interleaver owned by this external-vocoder adapter.</summary>
+        public void Dispose()
+        {
+            interleaver?.Dispose();
+        }
 
         /*
         ** Properties
@@ -88,6 +94,20 @@ namespace dvmconsole
             }
         }
 
+        /// <summary>
+        /// Gets or sets whether the external AMBE encoder applies automatic gain control.
+        /// </summary>
+        public bool EncoderAgcEnabled
+        {
+            get => (ecmode & ECMODE_AGC) == ECMODE_AGC;
+            set
+            {
+                ecmode = value
+                    ? (ushort)(ecmode | ECMODE_AGC)
+                    : (ushort)(ecmode & ~ECMODE_AGC);
+            }
+        }
+
         /*
         ** Methods
         */
@@ -101,14 +121,12 @@ namespace dvmconsole
             if (fullRate)
             {
                 this.mode = AmbeMode.FULL_RATE;
-                this.interleaver = new MBEInterleaver(MBE_MODE.IMBE_88BIT);
                 this.frameLengthInBits = 88;
                 this.frameLengthInBytes = 11;
             }
             else
             {
                 this.mode = AmbeMode.HALF_RATE;
-                this.interleaver = new MBEInterleaver(MBE_MODE.DMR_AMBE);
                 this.frameLengthInBits = 49;
                 this.frameLengthInBytes = 7;
             }
@@ -129,6 +147,9 @@ namespace dvmconsole
                 fixed (byte* state = encoderState)
                     ambe_init_enc((IntPtr)state, (short)mode, 1);
             }
+
+            // Acquire the owned native interleaver only after AMBE initialization succeeds.
+            this.interleaver = new MBEInterleaver(fullRate ? MBE_MODE.IMBE_88BIT : MBE_MODE.DMR_AMBE);
         }
 
         /// <summary>
@@ -151,36 +172,6 @@ namespace dvmconsole
                     if (processed < lengthBits)
                     {
                         codewordBits[bitPtr] = (short)((codeword[bytePtr] >> ((byte)j & 0x1F)) & 1);
-                        bitPtr++;
-                    }
-
-                    processed++;
-                }
-
-                bytePtr++;
-            }
-        }
-
-        /// <summary>
-        /// Helper to unpack the codeword bytes into codeword bits for use with the AMBE decoder.
-        /// </summary>
-        /// <remarks><see cref="byte"/> output bits array.</remarks>
-        /// <param name="codewordBits">Codeword bits.</param>
-        /// <param name="codeword">Codeword bytes.</param>
-        /// <param name="lengthBytes">Length of codeword in bytes.</param>
-        /// <param name="lengthBits">Length of codeword in bits.</param>
-        private void unpackBytesToBits(out byte[] codewordBits, byte[] codeword, int lengthBytes, int lengthBits)
-        {
-            codewordBits = new byte[this.frameLengthInBits * 2];
-
-            int processed = 0, bitPtr = 0, bytePtr = 0;
-            for (int i = 0; i < lengthBytes; i++)
-            {
-                for (int j = 7; -1 < j; j--)
-                {
-                    if (processed < lengthBits)
-                    {
-                        codewordBits[bitPtr] = (byte)((codeword[bytePtr] >> ((byte)j & 0x1F)) & 1);
                         bitPtr++;
                     }
 

@@ -10,12 +10,15 @@
 *   Copyright (C) 2025 Caleb, K4PHP
 *   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
 *   Copyright (C) 2025 Steven Jennison, KD8RHO
+*   Copyright (C) 2026 C. Lovell, Dev_Ranger
 *
 */
 
 using System.ComponentModel;
 using System.IO;
 using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -32,7 +35,27 @@ namespace dvmconsole.Controls
     /// </summary>
     public partial class ChannelBox : UserControl, INotifyPropertyChanged
     {
-        public const int MAX_CALL_HISTORY = 10;
+        public enum ResourceCardSize
+        {
+            Small,
+            Normal,
+            Large
+        }
+
+        public const double SMALL_CARD_WIDTH = 154;
+        public const double SMALL_CARD_HEIGHT = 68;
+        public const double NORMAL_CARD_WIDTH = 264;
+        public const double NORMAL_CARD_HEIGHT = 110;
+        public const double LARGE_CARD_WIDTH = 380;
+        public const double LARGE_CARD_HEIGHT = 158;
+
+        public const int DEFAULT_PTT_RELEASE_TAIL_MS = 500;
+        private const double DEFAULT_VOLUME = 1.0;
+        private const double VOLUME_STEP = 0.1;
+        private const double VOLUME_MARKER_TRACK_PADDING = 4.0;
+        private const double VOLUME_METER_VISIBLE_THRESHOLD = 0.01;
+        private static readonly Brush SELECTABLE_ENCRYPTION_ON_BRUSH = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFC107"));
+        private static readonly Brush SELECTABLE_ENCRYPTION_OFF_BRUSH = Brushes.LightGray;
 
         public readonly static Border BORDER_DEFAULT;
         public readonly static Border BORDER_GREEN;
@@ -51,11 +74,33 @@ namespace dvmconsole.Controls
         private readonly AudioManager audioManager;
 
         private bool pttState;
+        private bool patchForwardingTxState;
         private bool pageState;
         private bool holdState;
+        private bool isTxEncrypted;
         private string lastSrcId = "0";
-        private double volume = 1.0;
+        private double volume = DEFAULT_VOLUME;
+        private bool updatingVolumeSlider;
+        private bool isRxOnly;
+        private bool isEncryptionSelectable;
         private bool isSelected;
+        private volatile bool isEnabledForTransmit = true;
+        private bool forceHidePttButton;
+        private ResourceCardSize cardSize = ResourceCardSize.Normal;
+
+        private bool isMultiSelectMember = false;
+        private bool isPatchGroupActive = false;
+        private string indicatorIconSource = "/dvmconsole;component/Assets/patch_edit_off.png";
+        private Visibility indicatorIconVisibility = Visibility.Collapsed;
+        private string indicatorIconToolTip = "Member of one or more patch groups";
+        private string patchIndicatorToolTip;
+        private Visibility tarIndicatorVisibility = Visibility.Collapsed;
+        private string tarIndicatorToolTip = "TAR recording enabled for this channel";
+        private Visibility selectableEncryptionVisibility = Visibility.Collapsed;
+        private string selectableEncryptionToolTip = "Selectable encryption";
+        private Brush selectableEncryptionForeground = Brushes.LightGray;
+        private Visibility fneConnectionWarningVisibility = Visibility.Collapsed;
+        private string fneConnectionWarningToolTip = "FNE system disconnected. Transmit disabled.";
 
         public FlashingBackgroundManager flashingBackgroundManager;
 
@@ -68,12 +113,22 @@ namespace dvmconsole.Controls
         public int p25SeqNo = 0;
         public int p25Errs = 0;
 
-        public byte dmrN = 0;
-        public int dmrSeqNo = 0;
-
-        public int ambeCount = 0;
-        public byte[] ambeBuffer = new byte[FneSystemBase.DMR_AMBE_LENGTH_BYTES];
-        public EmbeddedData embeddedData = new EmbeddedData();
+        internal readonly object NxdnSync = new();
+        internal NXDN.NxdnTxCall NxdnTx;
+        internal fnecore.NXDN.NXDNCallData NxdnRx;
+        internal fnecore.NXDN.INxdnAmbeCodec NxdnRxCodec;
+        internal DMR.DmrTxCall DmrTx;
+        internal fnecore.DMR.DMRCallData DmrRx;
+        internal readonly object DmrSync = new();
+        internal Task DmrEndTask = Task.CompletedTask;
+        internal uint DmrFailedStreamId;
+        internal Task NxdnEndTask = Task.CompletedTask;
+        internal uint NxdnFailedStreamId;
+        internal readonly object AnalogSync = new();
+        internal AnalogTxCall AnalogTx;
+        internal Task AnalogEndTask = Task.CompletedTask;
+        internal uint AnalogFailedStreamId;
+        internal AnalogVoiceInversion AnalogRxInverter;
 
         public byte[] mi = new byte[P25Defines.P25_MI_LENGTH];     // Message Indicator
         public byte algId = 0;                                     // Algorithm ID
@@ -90,8 +145,29 @@ namespace dvmconsole.Controls
         public MBEToneDetector ToneDetector = new MBEToneDetector();
 
         public P25Crypto Crypter = new P25Crypto();
+        // Transmit MI belongs to one stream and must not share receive synchronization state.
+        internal readonly byte[] P25TxMi = new byte[P25Defines.P25_MI_LENGTH];
+        internal uint P25CryptoStreamId;
+        internal uint P25FailedStreamId;
+        internal readonly object P25Sync = new();
+        internal uint P25EndedStreamId;
+        internal P25ReceiveCrypto ReceiveCrypto { get; } = new();
+
+        /// <summary>
+        /// Exact codeplug entry for this card; null for local playback.
+        /// </summary>
+        internal Codeplug.Channel ConfiguredChannel { get; }
+        internal bool IsLocalPlayback => ConfiguredChannel == null;
+        /// <summary>
+        /// UI-maintained enabled state for audio workers, including inherited disables.
+        /// Avoid reading WPF IsEnabled from capture or encoding threads.
+        /// </summary>
+        internal bool IsEnabledForTransmit => isEnabledForTransmit;
+        internal string ResourceSystemName => ConfiguredChannel?.System ?? MainWindow.PLAYBACKSYS;
 
         private bool pttToggleMode = false;
+        private bool suppressSelectionToggle = false;
+        private CancellationTokenSource pendingPttReleaseCts;
 
         private bool isPrimary = false;
 
@@ -108,14 +184,6 @@ namespace dvmconsole.Controls
         /// </summary>
         public event EventHandler<ChannelBox> PTTButtonClicked;
         /// <summary>
-        /// Event action that handles the PTT button being pressed.
-        /// </summary>
-        public event EventHandler<ChannelBox> PTTButtonPressed;
-        /// <summary>
-        /// Event action that handles the PTT button being released.
-        /// </summary>
-        public event EventHandler<ChannelBox> PTTButtonReleased;
-        /// <summary>
         /// Event action that handles the page button being clicked.
         /// </summary>
         public event EventHandler<ChannelBox> PageButtonClicked;
@@ -124,6 +192,10 @@ namespace dvmconsole.Controls
         /// </summary>
         public event EventHandler<ChannelBox> HoldChannelButtonClicked;
         /// <summary>
+        /// Event action that handles selectable encryption being toggled.
+        /// </summary>
+        public event EventHandler<ChannelBox> SelectableEncryptionClicked;
+        /// <summary>
         /// Event action that occurs when a property changes on this control.
         /// </summary>
         public event PropertyChangedEventHandler PropertyChanged;
@@ -131,6 +203,47 @@ namespace dvmconsole.Controls
         /*
         ** Properties
         */
+
+        /// <summary>
+        /// Optional callback used to approve a new outbound PTT start before UI state is latched.
+        /// </summary>
+        public Func<ChannelBox, bool> CanStartPtt { get; set; }
+
+        /// <summary>
+        /// Optional protocol-specific key lookup; standalone cards retain the P25 key check.
+        /// </summary>
+        public Func<bool> HasTransmitKey { get; set; }
+
+        public bool HasLoadedTransmitKey() => HasTransmitKey?.Invoke() ?? Crypter.HasKey();
+
+        /// <summary>
+        /// Fixed, codeplug-defined resource card size.
+        /// </summary>
+        public ResourceCardSize CardSize
+        {
+            get => cardSize;
+            set
+            {
+                if (cardSize == value)
+                    return;
+
+                cardSize = value;
+                ApplyCardSizeLayout();
+            }
+        }
+
+        /// <summary>
+        /// Flag indicating whether this resource should only receive traffic.
+        /// </summary>
+        public bool IsRxOnly
+        {
+            get => isRxOnly;
+            set
+            {
+                isRxOnly = value;
+                ApplyRxOnlyVisualState();
+            }
+        }
 
         /// <summary>
         /// Private internal reference ID for this channel.
@@ -153,6 +266,15 @@ namespace dvmconsole.Controls
         /// Destination ID.
         /// </summary>
         public string DstId { get; set; }
+        /// <summary>
+        /// Stable audio/settings key for this resource.
+        /// </summary>
+        public string AudioOutputKey { get; private set; }
+
+        public string ChannelSettingsKey =>
+            IsLocalPlayback
+                ? MainWindow.PLAYBACKCHNAME
+                : AudioOutputKey;
 
         /// <summary>
         /// Gets or sets the <see cref="Brush"/> that fills the area between the bounds of the control border.
@@ -168,23 +290,79 @@ namespace dvmconsole.Controls
         }
 
         /// <summary>
+        /// Configured idle background for this channel when selected but not active.
+        /// Defaults to the standard blue gradient.
+        /// </summary>
+        public Brush ConfiguredIdleBackground { get; set; } = BLUE_GRADIENT;
+
+        /// <summary>
         /// Last Packet Time
         /// </summary>
         public DateTime LastPktTime = DateTime.Now;
 
+        private bool isReceiving = false;
+        private bool isReceivingEncrypted = false;
+
         /// <summary>
         /// Flag indicating whether or not this channel is receiving.
         /// </summary>
-        public bool IsReceiving { get; set; } = false;
+        public bool IsReceiving
+        {
+            get => isReceiving;
+            set
+            {
+                isReceiving = value;
+                Dispatcher.Invoke(() => UpdateBackground());
+            }
+        }
+
         /// <summary>
         /// Flag indicating whether or not this channel is receiving encrypted.
         /// </summary>
-        public bool IsReceivingEncrypted { get; set; } = false;
+        public bool IsReceivingEncrypted
+        {
+            get => isReceivingEncrypted;
+            set
+            {
+                isReceivingEncrypted = value;
+                Dispatcher.Invoke(() => UpdateBackground());
+            }
+        }
 
         /// <summary>
         /// Flag indicating whether or not the console is transmitting with encryption.
         /// </summary>
-        public bool IsTxEncrypted { get; set; } = false;
+        public bool IsTxEncrypted
+        {
+            get => isTxEncrypted;
+            set
+            {
+                if (isTxEncrypted == value)
+                    return;
+
+                isTxEncrypted = value;
+                UpdatePTTColor();
+                UpdateSelectableEncryptionIndicator();
+                OnPropertyChanged(nameof(IsTxEncrypted));
+            }
+        }
+
+        /// <summary>
+        /// Flag indicating this channel can toggle secure TX on/off from the card.
+        /// </summary>
+        public bool IsEncryptionSelectable
+        {
+            get => isEncryptionSelectable;
+            set
+            {
+                if (isEncryptionSelectable == value)
+                    return;
+
+                isEncryptionSelectable = value;
+                UpdateSelectableEncryptionIndicator();
+                OnPropertyChanged(nameof(IsEncryptionSelectable));
+            }
+        }
 
         /// <summary>
         /// Last Source ID received.
@@ -202,8 +380,39 @@ namespace dvmconsole.Controls
             }
         }
 
+        private volatile bool pttTimedOut;
+        private Brush fixedPttBorder;
+
         /// <summary>
-        /// Flag indicating the current PTT state of this channel.
+        /// Fixed shortcut border. The primary Ctrl-click selection takes precedence.
+        /// </summary>
+        internal Brush FixedPttBorder
+        {
+            get => fixedPttBorder;
+            set { fixedPttBorder = value; UpdateBackground(); }
+        }
+
+        /// <summary>
+        /// Holds off another operator transmission until the timed-out PTT is released.
+        /// </summary>
+        internal bool PttTimedOut
+        {
+            get => pttTimedOut;
+            set
+            {
+                pttTimedOut = value;
+                UpdatePTTColor();
+                PttButton.ToolTip = value ? "Transmit timed out. Release PTT before rekeying." : "Push To Talk";
+            }
+        }
+
+        /// <summary>
+        /// Whether operator PTT is still transmitting rather than latched after timeout.
+        /// </summary>
+        internal bool IsOperatorTransmitting => PttState && !PttTimedOut;
+
+        /// <summary>
+        /// Flag indicating the current PTT input state of this channel.
         /// </summary>
         public bool PttState
         {
@@ -211,7 +420,28 @@ namespace dvmconsole.Controls
             set
             {
                 pttState = value;
+                if (!value)
+                {
+                    pttInputs.Clear();
+                    PttTimedOut = false;
+                }
                 UpdatePTTColor();
+                Dispatcher.Invoke(() => UpdateBackground());
+            }
+        }
+
+        /// <summary>
+        /// Flag indicating programmatic transmit activity (patch forwarding/patch PTT) used for UI indication only.
+        /// This does not grant microphone transmit in the main loop.
+        /// </summary>
+        public bool PatchForwardingTxState
+        {
+            get => patchForwardingTxState;
+            set
+            {
+                patchForwardingTxState = value;
+                UpdatePTTColor();
+                Dispatcher.Invoke(() => UpdateBackground());
             }
         }
 
@@ -225,6 +455,7 @@ namespace dvmconsole.Controls
             {
                 pageState = value;
                 UpdatePageColor();
+                Dispatcher.Invoke(() => UpdateBackground());
             }
         }
 
@@ -238,6 +469,7 @@ namespace dvmconsole.Controls
             {
                 holdState = value;
                 UpdateHoldColor();
+                Dispatcher.Invoke(() => UpdateBackground());
             }
         }
 
@@ -249,6 +481,11 @@ namespace dvmconsole.Controls
             get => pttToggleMode;
             set => pttToggleMode = value;
         }
+
+        /// <summary>
+        /// Tail hold duration used before the transmit path is actually de-keyed.
+        /// </summary>
+        public int PttReleaseTailMs { get; set; } = DEFAULT_PTT_RELEASE_TAIL_MS;
 
         /// <summary>
         /// 
@@ -292,6 +529,218 @@ namespace dvmconsole.Controls
         }
 
         /// <summary>
+        /// Flag to suppress selection toggling during drag workflow.
+        /// </summary>
+        public bool SuppressSelectionToggle
+        {
+            get => suppressSelectionToggle;
+            set => suppressSelectionToggle = value;
+        }
+
+        /// <summary>
+        /// Flag indicating whether this resource belongs to at least one patch group on this console.
+        /// </summary>
+        public bool IsPatchGroupMember { get; private set; }
+
+        /// <summary>
+        /// Flag indicating whether another console reports an active patch containing this resource (FNE patch
+        /// status registry).
+        /// </summary>
+        public bool IsPatchedRemotely { get; private set; }
+
+        /// <summary>
+        /// Flag indicating whether this resource belongs to at least one enabled patch group on this console.
+        /// </summary>
+        public bool IsPatchGroupActive
+        {
+            get => isPatchGroupActive;
+            private set
+            {
+                if (isPatchGroupActive != value)
+                {
+                    isPatchGroupActive = value;
+                    OnPropertyChanged(nameof(IsPatchGroupActive));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Flag indicating whether this resource belongs to the current multi-select group.
+        /// </summary>
+        public bool IsMultiSelectMember
+        {
+            get => isMultiSelectMember;
+            private set
+            {
+                if (isMultiSelectMember != value)
+                {
+                    isMultiSelectMember = value;
+                    OnPropertyChanged(nameof(IsMultiSelectMember));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Source path for the top-right indicator icon.
+        /// </summary>
+        public string IndicatorIconSource
+        {
+            get => indicatorIconSource;
+            private set
+            {
+                if (indicatorIconSource != value)
+                {
+                    indicatorIconSource = value;
+                    OnPropertyChanged(nameof(IndicatorIconSource));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Visibility for the top-right indicator icon.
+        /// </summary>
+        public Visibility IndicatorIconVisibility
+        {
+            get => indicatorIconVisibility;
+            private set
+            {
+                if (indicatorIconVisibility != value)
+                {
+                    indicatorIconVisibility = value;
+                    OnPropertyChanged(nameof(IndicatorIconVisibility));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Tooltip text for the top-right indicator icon.
+        /// </summary>
+        public string IndicatorIconToolTip
+        {
+            get => indicatorIconToolTip;
+            private set
+            {
+                if (indicatorIconToolTip != value)
+                {
+                    indicatorIconToolTip = value;
+                    OnPropertyChanged(nameof(IndicatorIconToolTip));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Visibility for the TAR recording badge.
+        /// </summary>
+        public Visibility TarIndicatorVisibility
+        {
+            get => tarIndicatorVisibility;
+            private set
+            {
+                if (tarIndicatorVisibility != value)
+                {
+                    tarIndicatorVisibility = value;
+                    OnPropertyChanged(nameof(TarIndicatorVisibility));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Tooltip for the TAR recording badge.
+        /// </summary>
+        public string TarIndicatorToolTip
+        {
+            get => tarIndicatorToolTip;
+            private set
+            {
+                if (tarIndicatorToolTip != value)
+                {
+                    tarIndicatorToolTip = value;
+                    OnPropertyChanged(nameof(TarIndicatorToolTip));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Visibility for the selectable encryption badge.
+        /// </summary>
+        public Visibility SelectableEncryptionVisibility
+        {
+            get => selectableEncryptionVisibility;
+            private set
+            {
+                if (selectableEncryptionVisibility != value)
+                {
+                    selectableEncryptionVisibility = value;
+                    OnPropertyChanged(nameof(SelectableEncryptionVisibility));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Tooltip for the selectable encryption badge.
+        /// </summary>
+        public string SelectableEncryptionToolTip
+        {
+            get => selectableEncryptionToolTip;
+            private set
+            {
+                if (selectableEncryptionToolTip != value)
+                {
+                    selectableEncryptionToolTip = value;
+                    OnPropertyChanged(nameof(SelectableEncryptionToolTip));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Foreground color for the selectable encryption badge.
+        /// </summary>
+        public Brush SelectableEncryptionForeground
+        {
+            get => selectableEncryptionForeground;
+            private set
+            {
+                if (selectableEncryptionForeground != value)
+                {
+                    selectableEncryptionForeground = value;
+                    OnPropertyChanged(nameof(SelectableEncryptionForeground));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Visibility for the disconnected/unhealthy FNE badge.
+        /// </summary>
+        public Visibility FneConnectionWarningVisibility
+        {
+            get => fneConnectionWarningVisibility;
+            private set
+            {
+                if (fneConnectionWarningVisibility != value)
+                {
+                    fneConnectionWarningVisibility = value;
+                    OnPropertyChanged(nameof(FneConnectionWarningVisibility));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Tooltip for the disconnected/unhealthy FNE badge.
+        /// </summary>
+        public string FneConnectionWarningToolTip
+        {
+            get => fneConnectionWarningToolTip;
+            private set
+            {
+                if (fneConnectionWarningToolTip != value)
+                {
+                    fneConnectionWarningToolTip = value;
+                    OnPropertyChanged(nameof(FneConnectionWarningToolTip));
+                }
+            }
+        }
+
+        /// <summary>
         /// Current volume for this channel.
         /// </summary>
         public double Volume
@@ -299,13 +748,32 @@ namespace dvmconsole.Controls
             get => volume;
             set
             {
-                if (volume != value)
+                double steppedValue = NormalizeVolume(value);
+                if (Math.Abs(volume - steppedValue) > 0.0001)
                 {
-                    volume = value;
+                    volume = steppedValue;
                     OnPropertyChanged(nameof(Volume));
-                    audioManager.SetTalkgroupVolume(DstId, (float)value);
+                    audioManager.SetTalkgroupVolume(AudioOutputKey, (float)steppedValue);
+                    SettingsManager.Instance?.UpdateChannelVolume(ChannelSettingsKey, steppedValue);
                 }
             }
+        }
+
+        /// <summary>
+        /// Initializes the channel volume without immediately touching the audio stream.
+        /// </summary>
+        public void SetInitialVolume(double value)
+        {
+            volume = NormalizeVolume(value);
+            OnPropertyChanged(nameof(Volume));
+        }
+
+        /// <summary>
+        /// Applies the current channel volume to the backing audio stream/provider.
+        /// </summary>
+        public void ApplyCurrentVolume()
+        {
+            audioManager.SetTalkgroupVolume(AudioOutputKey, (float)volume);
         }
 
         /// <summary>
@@ -319,6 +787,9 @@ namespace dvmconsole.Controls
                 Dispatcher.Invoke(() =>
                 {
                     VolumeMeter.ViewModel.Level = value;
+                    VolumeMeter.Visibility = CardSize != ResourceCardSize.Small && VolumeMeter.ViewModel.Level > VOLUME_METER_VISIBLE_THRESHOLD
+                        ? Visibility.Visible
+                        : Visibility.Collapsed;
                 });
             }
         }
@@ -329,6 +800,11 @@ namespace dvmconsole.Controls
         public uint TxStreamId { get; internal set; }
 
         /// <summary>
+        /// Stream owned by automatic patch forwarding, separate from operator/group PTT.
+        /// </summary>
+        internal uint PatchForwardStreamId { get; set; }
+
+        /// <summary>
         /// 
         /// </summary>
         public uint PeerId { get; set; }
@@ -336,6 +812,12 @@ namespace dvmconsole.Controls
         /// 
         /// </summary>
         public uint RxStreamId { get; set; }
+
+        /// <summary>
+        /// Exact history rows belonging to the current received call.
+        /// </summary>
+        internal ReceivedCallHistory RxHistory { get; set; }
+        internal ReceiveCallState RxCall { get; } = new ReceiveCallState();
 
         /*
         ** Methods
@@ -421,13 +903,30 @@ namespace dvmconsole.Controls
         /// </summary>
         /// <param name="selectedChannelsManager"></param>
         /// <param name="audioManager"></param>
-        /// <param name="channelName"></param>
-        /// <param name="systemName"></param>
-        /// <param name="dstId"></param>
+        /// <param name="channel"></param>
         /// <param name="pttToggleMode"></param>
-        public ChannelBox(SelectedChannelsManager selectedChannelsManager, AudioManager audioManager, string channelName, string systemName, string dstId, bool pttToggleMode = false)
+        public ChannelBox(SelectedChannelsManager selectedChannelsManager, AudioManager audioManager, Codeplug.Channel channel, bool pttToggleMode = false)
+            : this(selectedChannelsManager, audioManager,
+                  (channel ?? throw new ArgumentNullException(nameof(channel))).Name, channel.System, channel.Tgid, pttToggleMode, channel)
         {
+        }
+
+        /// <summary>
+        /// Initializes the local playback card without a network channel binding.
+        /// </summary>
+        /// <param name="selectedChannelsManager"></param>
+        /// <param name="audioManager"></param>
+        public ChannelBox(SelectedChannelsManager selectedChannelsManager, AudioManager audioManager)
+            : this(selectedChannelsManager, audioManager, MainWindow.PLAYBACKCHNAME, MainWindow.PLAYBACKSYS, MainWindow.PLAYBACKTG, false, null)
+        {
+        }
+
+        private ChannelBox(SelectedChannelsManager selectedChannelsManager, AudioManager audioManager, string channelName, string systemName, string dstId, bool pttToggleMode, Codeplug.Channel channel)
+        {
+            ConfiguredChannel = channel;
             InitializeComponent();
+            isEnabledForTransmit = IsEnabled;
+            IsEnabledChanged += (_, e) => isEnabledForTransmit = (bool)e.NewValue;
 
             this.InternalID = ChannelIdx;
             ChannelIdx++;
@@ -439,12 +938,13 @@ namespace dvmconsole.Controls
 
             flashingBackgroundManager = new FlashingBackgroundManager(this);
 
-            callHistoryWindow = new CallHistoryWindow(SettingsManager.Instance, MAX_CALL_HISTORY);
+            callHistoryWindow = new CallHistoryWindow(SettingsManager.Instance, CallHistoryWindow.MAX_CALL_HISTORY);
             callHistoryWindow.Title = $"Call History - Channel: {channelName}";
 
             ChannelName = channelName;
             ChannelMode = "P25";
             DstId = dstId;
+            AudioOutputKey = ResourceIdentity.Build(systemName, dstId);
             SystemName = $"System: {systemName}";
             LastSrcId = $"Last ID: {LastSrcId}";
 
@@ -454,6 +954,7 @@ namespace dvmconsole.Controls
 
             VolumeMeter.ViewModel = new VuMeterViewModel();
             VolumeMeter.ViewModel.Level = 0;
+            VolumeMeter.Visibility = Visibility.Collapsed;
 
             UpdateBackground();
 
@@ -470,9 +971,10 @@ namespace dvmconsole.Controls
             ChannelMarkerBtn.Background = GRAY_GRADIENT;
             ChannelCallHistoryBtn.Background = GRAY_GRADIENT;
 
+            ApplyCardSizeLayout();
             DisableControls();
 
-            if (SystemName == MainWindow.PLAYBACKSYS || ChannelName == MainWindow.PLAYBACKCHNAME || DstId == MainWindow.PLAYBACKTG)
+            if (IsLocalPlayback)
             {
                 PttButton.IsEnabled = false;
 
@@ -485,17 +987,20 @@ namespace dvmconsole.Controls
             }
 
             // initialize external AMBE vocoder
-            string codeBase = Assembly.GetExecutingAssembly().CodeBase;
-            UriBuilder uri = new UriBuilder(codeBase);
-            string path = Uri.UnescapeDataString(uri.Path);
+            string path = Assembly.GetExecutingAssembly().Location;
 
             // if the assembly executing directory contains the external DVSI USB-3000 interface DLL
             // setup the external vocoder code
-            if (File.Exists(Path.Combine(new string[] { Path.GetDirectoryName(path), "AMBE.DLL" })))
+            if (File.Exists(Path.Combine(Path.GetDirectoryName(path), "AMBE.DLL")))
             {
                 ExternalVocoderEnabled = true;
                 ExtFullRateVocoder = new AmbeVocoder();
-                ExtHalfRateVocoder = new AmbeVocoder(false);
+                try { ExtHalfRateVocoder = new AmbeVocoder(false); }
+                catch
+                {
+                    ExtFullRateVocoder.Dispose();
+                    throw;
+                }
             }
         }
 
@@ -504,10 +1009,10 @@ namespace dvmconsole.Controls
         /// </summary>
         private void EnableControls()
         {
-            PttButton.IsEnabled = true;
-            PageSelectButton.IsEnabled = true;
-            ChannelMarkerBtn.IsEnabled = true;
-            ChannelCallHistoryBtn.IsEnabled = true;
+            PttButton.IsEnabled = !IsRxOnly && !forceHidePttButton;
+            PageSelectButton.IsEnabled = !IsRxOnly && CardSize != ResourceCardSize.Small;
+            ChannelMarkerBtn.IsEnabled = !IsRxOnly && CardSize != ResourceCardSize.Small;
+            ChannelCallHistoryBtn.IsEnabled = CardSize != ResourceCardSize.Small;
 
             VolumeSlider.IsEnabled = true;
         }
@@ -530,8 +1035,266 @@ namespace dvmconsole.Controls
         /// </summary>
         public void HidePTTButton()
         {
+            forceHidePttButton = true;
             PttButton.IsEnabled = false;
             PttButton.Visibility = Visibility.Hidden;
+        }
+
+        /// <summary>
+        /// Parses a codeplug card_size value.
+        /// </summary>
+        /// <param name="value"></param>
+        /// <returns></returns>
+        public static ResourceCardSize ParseCardSize(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return ResourceCardSize.Normal;
+
+            return value.Trim().ToLowerInvariant() switch
+            {
+                "small" => ResourceCardSize.Small,
+                "large" => ResourceCardSize.Large,
+                _ => ResourceCardSize.Normal
+            };
+        }
+
+        /// <summary>
+        /// Applies fixed size modes without changing channel behavior.
+        /// </summary>
+        private void ApplyCardSizeLayout()
+        {
+            if (CardGrid == null)
+                return;
+
+            switch (CardSize)
+            {
+                case ResourceCardSize.Small:
+                    ApplySmallCardLayout();
+                    break;
+                case ResourceCardSize.Large:
+                    ApplyLargeCardLayout();
+                    break;
+                default:
+                    ApplyNormalCardLayout();
+                    break;
+            }
+
+            ApplyRxOnlyVisualState();
+            if (CardSize == ResourceCardSize.Small)
+                VolumeMeter.Visibility = Visibility.Collapsed;
+            UpdateDefaultVolumeMarker();
+            UpdateBackground();
+        }
+
+        private void ApplyNormalCardLayout()
+        {
+            Width = NORMAL_CARD_WIDTH;
+            Height = NORMAL_CARD_HEIGHT;
+            LeftColumn.Width = new GridLength(58);
+            RightColumn.Width = new GridLength(30);
+            TopSpacerRow.Height = new GridLength(2, GridUnitType.Star);
+            InfoRow.Height = new GridLength(51, GridUnitType.Star);
+            ControlsRow.Height = new GridLength(32.25);
+            BottomSpacerRow.Height = new GridLength(7.75);
+
+            VolumeMeter.Width = 260;
+            VolumeMeter.Height = 10;
+            VolumeMeter.Margin = new Thickness(0, -58, 0, 0);
+
+            InfoPanel.Width = 147;
+            InfoPanel.Margin = new Thickness(4, 5, 0, 4);
+            SetInfoFontSizes(12, 10);
+            SystemTextBlock.Visibility = Visibility.Visible;
+
+            PatchMemberIcon.Width = 28;
+            PatchMemberIcon.Height = 28;
+            PatchMemberIcon.Margin = new Thickness(0, 6, 6, 0);
+
+            PttButton.Width = 42;
+            PttButton.Height = 42;
+            PttButton.Margin = new Thickness(0, 9, 0, 0);
+            SetButtonImageSize(PttButton, 39, 40);
+
+            Grid.SetColumn(VolumeSliderBackground, 0);
+            Grid.SetColumnSpan(VolumeSliderBackground, 2);
+            VolumeSliderBackground.HorizontalAlignment = HorizontalAlignment.Left;
+            VolumeSliderBackground.Width = 116;
+            VolumeSliderBackground.Height = 40;
+            VolumeSliderBackground.Margin = new Thickness(6, -4, 0, 0);
+            Grid.SetColumn(VolumeSlider, 0);
+            Grid.SetColumnSpan(VolumeSlider, 2);
+            VolumeSlider.Margin = new Thickness(12, 0, 112, 0);
+            VolumeSlider.Height = 21;
+
+            BottomButtonsPanel.Margin = new Thickness(70, -8, -2, 0);
+            SetButtonSize(PageSelectButton, 38, 40, 32, 32);
+            SetButtonSize(ChannelMarkerBtn, 38, 40, 32, 32);
+            SetButtonSize(ChannelCallHistoryBtn, 38, 40, 32, 32);
+            ChannelMarkerBtn.Margin = new Thickness(5, 0, 0, 0);
+            ChannelCallHistoryBtn.Margin = new Thickness(5, 0, 0, 0);
+        }
+
+        private void ApplySmallCardLayout()
+        {
+            Width = SMALL_CARD_WIDTH;
+            Height = SMALL_CARD_HEIGHT;
+            LeftColumn.Width = new GridLength(42);
+            RightColumn.Width = new GridLength(24);
+            TopSpacerRow.Height = new GridLength(0);
+            InfoRow.Height = new GridLength(44);
+            ControlsRow.Height = new GridLength(20);
+            BottomSpacerRow.Height = new GridLength(0);
+
+            VolumeMeter.Width = 150;
+            VolumeMeter.Height = 4;
+            VolumeMeter.Margin = new Thickness(0, -21, 0, 0);
+
+            InfoPanel.Width = 86;
+            InfoPanel.Margin = new Thickness(2, 4, 0, 0);
+            SetInfoFontSizes(10, 8);
+            SystemTextBlock.Visibility = Visibility.Collapsed;
+
+            PatchMemberIcon.Width = 18;
+            PatchMemberIcon.Height = 18;
+            PatchMemberIcon.Margin = new Thickness(0, 4, 4, 0);
+
+            PttButton.Width = 32;
+            PttButton.Height = 32;
+            PttButton.Margin = new Thickness(0, 8, 0, 0);
+            SetButtonImageSize(PttButton, 30, 30);
+
+            Grid.SetColumn(VolumeSliderBackground, 0);
+            Grid.SetColumnSpan(VolumeSliderBackground, 3);
+            VolumeSliderBackground.Visibility = Visibility.Collapsed;
+            VolumeSliderBackground.Width = 0;
+            VolumeSliderBackground.Height = 0;
+            VolumeSliderBackground.Margin = new Thickness(0);
+            Grid.SetColumn(VolumeSlider, 0);
+            Grid.SetColumnSpan(VolumeSlider, 3);
+            VolumeSlider.Margin = new Thickness(18, -4, 18, 0);
+            VolumeSlider.Height = 16;
+            BottomButtonsPanel.Visibility = Visibility.Collapsed;
+        }
+
+        private void ApplyLargeCardLayout()
+        {
+            Width = LARGE_CARD_WIDTH;
+            Height = LARGE_CARD_HEIGHT;
+            LeftColumn.Width = new GridLength(78);
+            RightColumn.Width = new GridLength(44);
+            TopSpacerRow.Height = new GridLength(3, GridUnitType.Star);
+            InfoRow.Height = new GridLength(70, GridUnitType.Star);
+            ControlsRow.Height = new GridLength(46);
+            BottomSpacerRow.Height = new GridLength(8);
+
+            VolumeMeter.Width = 372;
+            VolumeMeter.Height = 12;
+            VolumeMeter.Margin = new Thickness(0, -88, 0, 0);
+
+            InfoPanel.Width = 210;
+            InfoPanel.Margin = new Thickness(8, 8, 0, 6);
+            SetInfoFontSizes(16, 12);
+            SystemTextBlock.Visibility = Visibility.Visible;
+
+            PatchMemberIcon.Width = 38;
+            PatchMemberIcon.Height = 38;
+            PatchMemberIcon.Margin = new Thickness(0, 9, 8, 0);
+
+            PttButton.Width = 60;
+            PttButton.Height = 60;
+            PttButton.Margin = new Thickness(0, 12, 0, 0);
+            SetButtonImageSize(PttButton, 56, 58);
+
+            Grid.SetColumn(VolumeSliderBackground, 0);
+            Grid.SetColumnSpan(VolumeSliderBackground, 2);
+            VolumeSliderBackground.HorizontalAlignment = HorizontalAlignment.Left;
+            VolumeSliderBackground.Width = 166;
+            VolumeSliderBackground.Height = 54;
+            VolumeSliderBackground.Margin = new Thickness(10, -6, 0, 0);
+            Grid.SetColumn(VolumeSlider, 0);
+            Grid.SetColumnSpan(VolumeSlider, 2);
+            VolumeSlider.Margin = new Thickness(20, 0, 158, 0);
+            VolumeSlider.Height = 30;
+
+            BottomButtonsPanel.Margin = new Thickness(104, -10, -2, 0);
+            SetButtonSize(PageSelectButton, 58, 54, 46, 46);
+            SetButtonSize(ChannelMarkerBtn, 58, 54, 46, 46);
+            SetButtonSize(ChannelCallHistoryBtn, 58, 54, 46, 46);
+            ChannelMarkerBtn.Margin = new Thickness(6, 0, 0, 0);
+            ChannelCallHistoryBtn.Margin = new Thickness(6, 0, 0, 0);
+        }
+
+        private void SetInfoFontSizes(double channelFontSize, double metadataFontSize)
+        {
+            ChannelTextBlock.FontSize = channelFontSize;
+            LastSrcIdTextBlock.FontSize = metadataFontSize;
+            SystemTextBlock.FontSize = metadataFontSize;
+            TarTextBlock.FontSize = metadataFontSize;
+            SelectableEncryptionTextBlock.FontSize = metadataFontSize;
+        }
+
+        private static void SetButtonSize(Button button, double width, double height, double imageWidth, double imageHeight)
+        {
+            button.Width = width;
+            button.Height = height;
+            SetButtonImageSize(button, imageWidth, imageHeight);
+        }
+
+        private static void SetButtonImageSize(Button button, double imageWidth, double imageHeight)
+        {
+            if (button.Content is Image image)
+            {
+                image.Width = imageWidth;
+                image.Height = imageHeight;
+                image.Stretch = Stretch.Uniform;
+                image.HorizontalAlignment = System.Windows.HorizontalAlignment.Center;
+                image.VerticalAlignment = VerticalAlignment.Center;
+                image.SnapsToDevicePixels = true;
+                image.Margin = new Thickness(0);
+            }
+        }
+
+        /// <summary>
+        /// Applies receive-only UI restrictions to transmit-only controls.
+        /// </summary>
+        private void ApplyRxOnlyVisualState()
+        {
+            if (PttButton == null || PageSelectButton == null || ChannelMarkerBtn == null)
+                return;
+
+            bool smallCard = CardSize == ResourceCardSize.Small;
+            Visibility pttVisibility = (IsRxOnly || forceHidePttButton) ? Visibility.Collapsed : Visibility.Visible;
+            Visibility txControlVisibility = (IsRxOnly || smallCard) ? Visibility.Collapsed : Visibility.Visible;
+            Visibility secondaryButtonVisibility = smallCard ? Visibility.Collapsed : Visibility.Visible;
+
+            PttButton.Visibility = pttVisibility;
+            PageSelectButton.Visibility = txControlVisibility;
+            ChannelMarkerBtn.Visibility = txControlVisibility;
+            ChannelCallHistoryBtn.Visibility = secondaryButtonVisibility;
+            BottomButtonsPanel.Visibility = secondaryButtonVisibility;
+            VolumeSliderBackground.Visibility = smallCard ? Visibility.Collapsed : Visibility.Visible;
+            VolumeSlider.Visibility = Visibility.Visible;
+
+            if (IsRxOnly)
+            {
+                CancelPendingPttRelease();
+                PttState = false;
+                PageState = false;
+                HoldState = false;
+                PttButton.IsEnabled = false;
+                PageSelectButton.IsEnabled = false;
+                ChannelMarkerBtn.IsEnabled = false;
+                PttButton.ToolTip = "RX-only resource";
+                PageSelectButton.ToolTip = "RX-only resource";
+                ChannelMarkerBtn.ToolTip = "RX-only resource";
+                return;
+            }
+
+            PttButton.ToolTip = "Push To Talk";
+            PageSelectButton.ToolTip = "Select for Alert Tone";
+            ChannelMarkerBtn.ToolTip = "Transmit Channel Marker";
+            if (IsSelected)
+                EnableControls();
         }
 
         /// <summary>
@@ -539,7 +1302,7 @@ namespace dvmconsole.Controls
         /// </summary>
         private void UpdatePTTColor()
         {
-            if (PttState)
+            if (IsOperatorTransmitting || PatchForwardingTxState)
             {
                 if (IsTxEncrypted)
                     PttButton.Background = ORANGE_GRADIENT;
@@ -573,25 +1336,67 @@ namespace dvmconsole.Controls
         }
 
         /// <summary>
+        /// Updates the selectable encryption badge state.
+        /// </summary>
+        private void UpdateSelectableEncryptionIndicator()
+        {
+            Dispatcher.Invoke(() =>
+            {
+                SelectableEncryptionVisibility = IsEncryptionSelectable ? Visibility.Visible : Visibility.Collapsed;
+                SelectableEncryptionForeground = IsTxEncrypted
+                    ? SELECTABLE_ENCRYPTION_ON_BRUSH
+                    : SELECTABLE_ENCRYPTION_OFF_BRUSH;
+                bool analog = string.Equals(ChannelMode, "ANALOG", StringComparison.OrdinalIgnoreCase);
+                SelectableEncryptionToolTip = analog
+                    ? IsTxEncrypted
+                        ? "Analog voice inversion: scrambled TX and descrambled RX. Click for clear mode."
+                        : "Analog voice inversion: clear TX and RX. Click for scrambled mode."
+                    : IsTxEncrypted
+                        ? "Selectable encryption: encrypted TX. Click to transmit clear."
+                        : "Selectable encryption: clear TX. Click to transmit encrypted.";
+            });
+        }
+
+        /// <summary>
         /// 
         /// </summary>
         private void UpdateBackground()
         {
-            if (SystemName == MainWindow.PLAYBACKSYS || ChannelName == MainWindow.PLAYBACKCHNAME || DstId == MainWindow.PLAYBACKTG)
+            if (IsLocalPlayback)
             {
-                ControlBorder.Background = IsSelected ? RED_GRADIENT : DARK_GRAY_GRADIENT;
-                SetVolumeMeterBg(ControlBorder.Background);
+                SetCardBackground(IsSelected ? RED_GRADIENT : DARK_GRAY_GRADIENT);
                 return;
             }
 
-            ControlBorder.Background = IsSelected ? BLUE_GRADIENT : DARK_GRAY_GRADIENT;
-            if (IsSelected)
-                if (IsPrimary)
-                    ControlBorder.BorderBrush = BORDER_GREEN.BorderBrush;
-                else
-                    ControlBorder.BorderBrush = BORDER_DEFAULT.BorderBrush;
+            if (IsReceivingEncrypted)
+            {
+                SetCardBackground(ORANGE_GRADIENT);
+            }
+            else if (IsReceiving)
+            {
+                SetCardBackground(GREEN_GRADIENT);
+            }
             else
-                ControlBorder.BorderBrush = BORDER_DEFAULT.BorderBrush;
+            {
+                SetCardBackground(IsSelected ? ConfiguredIdleBackground : DARK_GRAY_GRADIENT);
+            }
+
+            ControlBorder.BorderBrush = IsSelected && IsPrimary
+                ? BORDER_GREEN.BorderBrush
+                : FixedPttBorder ?? BORDER_DEFAULT.BorderBrush;
+
+        }
+
+        /// <summary>
+        /// Applies the card background, flattening gradients on small cards where the split is visually cramped.
+        /// </summary>
+        /// <param name="background"></param>
+        private void SetCardBackground(Brush background)
+        {
+            if (CardSize == ResourceCardSize.Small && background is LinearGradientBrush gradient && gradient.GradientStops.Count > 0)
+                ControlBorder.Background = new SolidColorBrush(gradient.GradientStops[0].Color);
+            else
+                ControlBorder.Background = background;
 
             SetVolumeMeterBg(ControlBorder.Background);
         }
@@ -626,9 +1431,17 @@ namespace dvmconsole.Controls
         /// <param name="channel"></param>
         /// <param name="srcId"></param>
         /// <param name="dstId"></param>
-        public void AddCall(string channel, int srcId, int dstId, string timestamp)
+        public CallEntry AddCall(string channel, int srcId, int dstId, string ridAlias, string timestamp, Task<TarRecordingMetadata> recording = null)
         {
-            callHistoryWindow.AddCall(channel, srcId, dstId, timestamp);
+            return callHistoryWindow.AddCall(channel, srcId, dstId, ridAlias, timestamp, recording);
+        }
+
+        /// <summary>
+        /// Clears active highlighting from this channel's local call history.
+        /// </summary>
+        public void ClearCallHistoryActivity()
+        {
+            callHistoryWindow.ClearChannelActivity(ChannelName);
         }
 
         /** WPF Events */
@@ -639,6 +1452,41 @@ namespace dvmconsole.Controls
         /// <param name="sender"></param>
         /// <param name="e"></param>
         private void ChannelBox_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (SuppressSelectionToggle)
+                return;
+
+            ProcessSelectionClick(e);
+        }
+
+        /// <summary>
+        /// Toggles selectable secure TX without changing channel selection.
+        /// </summary>
+        private void SelectableEncryptionTextBlock_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+
+            if (!IsEncryptionSelectable)
+                return;
+
+            if (PttState || PatchForwardingTxState)
+            {
+                bool analog = string.Equals(ChannelMode, "ANALOG", StringComparison.OrdinalIgnoreCase);
+                MessageBox.Show(analog ? "Voice inversion cannot be changed while transmitting." :
+                    "Encryption selection cannot be changed while transmitting.",
+                    analog ? "Selectable Voice Inversion" : "Selectable Encryption", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            IsTxEncrypted = !IsTxEncrypted;
+            SelectableEncryptionClicked?.Invoke(this, this);
+        }
+
+        /// <summary>
+        /// Applies channel selection/primary toggle behavior for a resource click.
+        /// </summary>
+        /// <param name="e"></param>
+        public void ProcessSelectionClick(MouseButtonEventArgs e)
         {
             if (IsSelected)
             {
@@ -656,14 +1504,12 @@ namespace dvmconsole.Controls
                         selectedChannelsManager.SetPrimaryChannel(this);
                         IsPrimary = true;
                     }
-                    // Shortcut return, do not run the rest of this method
+
                     return;
                 }
             }
-            
-            
+
             IsSelected = !IsSelected;
-            ControlBorder.Background = IsSelected ? BLUE_GRADIENT : DARK_GRAY_GRADIENT;
 
             if (IsSelected)
                 selectedChannelsManager.AddSelectedChannel(this);
@@ -677,18 +1523,144 @@ namespace dvmconsole.Controls
         /// <param name="pttState"></param>
         public void TriggerPTTState(bool pttState)
         {
-            if (!IsSelected)
-                return;
+            SetPttInput(legacyPttInput, pttState);
+        }
 
-            if (IsTxEncrypted && !Crypter.HasKey())
+        private void ApplyPttState(bool pttState)
+        {
+            if (pttState)
+            {
+                CancelPendingPttRelease();
+                if (PttState)
+                    return;
+            }
+
+            if (pttState && IsTxEncrypted && !HasLoadedTransmitKey())
             {
                 MessageBox.Show($"{ChannelName} {ERR_NO_LOADED_ENC_KEY}.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 PttState = false;
                 return;
             }
 
-            PttState = pttState;
-            PTTButtonClicked?.Invoke(null, this);
+            if (pttState)
+            {
+                PttState = true;
+                PTTButtonClicked?.Invoke(null, this);
+                return;
+            }
+
+            if (!PttState)
+                return;
+
+            BeginPttReleaseTail(() =>
+            {
+                PttState = false;
+                PTTButtonClicked?.Invoke(null, this);
+            });
+        }
+
+        /// <summary>
+        /// Updates the top-right indicator icon based on current state.
+        /// </summary>
+        /// <remarks>
+        /// Multi-select membership takes priority. Otherwise, in order: an enabled patch group on this console shows
+        /// the patch enabled icon; an active patch reported by another console through the FNE patch status registry
+        /// shows the remote patch icon; patch groups on this console that are all disabled show the patch disabled
+        /// icon; with no patches anywhere the icon is hidden.
+        /// </remarks>
+        private void UpdateIndicatorIcon()
+        {
+            Dispatcher.Invoke(() =>
+            {
+                if (IsMultiSelectMember)
+                {
+                    IndicatorIconSource = "/dvmconsole;component/Assets/msel_inactive.png";
+                    IndicatorIconToolTip = "Member of the current multi-select group";
+                    IndicatorIconVisibility = Visibility.Visible;
+                }
+                else if (IsPatchGroupActive || IsPatchedRemotely || IsPatchGroupMember)
+                {
+                    string defaultToolTip;
+                    if (IsPatchGroupActive)
+                    {
+                        IndicatorIconSource = "/dvmconsole;component/Assets/patch_edit_on.png";
+                        defaultToolTip = "Member of one or more enabled patch groups";
+                    }
+                    else if (IsPatchedRemotely)
+                    {
+                        IndicatorIconSource = "/dvmconsole;component/Assets/patch_remote_on.png";
+                        defaultToolTip = "Patched by another console";
+                    }
+                    else
+                    {
+                        IndicatorIconSource = "/dvmconsole;component/Assets/patch_edit_off.png";
+                        defaultToolTip = "Member of one or more patch groups";
+                    }
+
+                    IndicatorIconToolTip = !string.IsNullOrWhiteSpace(patchIndicatorToolTip) ? patchIndicatorToolTip : defaultToolTip;
+                    IndicatorIconVisibility = Visibility.Visible;
+                }
+                else
+                {
+                    IndicatorIconVisibility = Visibility.Collapsed;
+                }
+            });
+        }
+
+        /// <summary>
+        /// Sets the patch membership indicator state for this resource.
+        /// </summary>
+        /// <param name="isMember">Member of at least one patch group on this console.</param>
+        /// <param name="isActive">Member of at least one enabled patch group on this console.</param>
+        /// <param name="toolTip">Patch details to show on hover, or null for the default text.</param>
+        /// <param name="isPatchedRemotely">Another console reports an active patch containing this resource.</param>
+        public void SetPatchMembershipIndicator(bool isMember, bool isActive = false, string toolTip = null, bool isPatchedRemotely = false)
+        {
+            IsPatchGroupMember = isMember;
+            IsPatchGroupActive = isMember && isActive;
+            IsPatchedRemotely = isPatchedRemotely;
+            patchIndicatorToolTip = toolTip;
+            UpdateIndicatorIcon();
+        }
+
+        /// <summary>
+        /// Sets the multi-select indicator state for this resource.
+        /// </summary>
+        /// <param name="isMember"></param>
+        public void SetMultiSelectIndicator(bool isMember)
+        {
+            IsMultiSelectMember = isMember;
+            UpdateIndicatorIcon();
+        }
+
+        /// <summary>
+        /// Sets the TAR recording badge visibility for this resource.
+        /// </summary>
+        public void SetTarRecordingIndicator(bool isEnabled)
+        {
+            TarIndicatorVisibility = isEnabled ? Visibility.Visible : Visibility.Collapsed;
+            TarIndicatorToolTip = isEnabled
+                ? "TAR recording enabled for this channel"
+                : "TAR recording disabled for this channel";
+        }
+
+        /// <summary>
+        /// Sets the per-resource FNE connection warning badge.
+        /// </summary>
+        public void SetFneConnectionWarning(bool isDisconnected, string toolTip = null)
+        {
+            void Apply()
+            {
+                FneConnectionWarningVisibility = isDisconnected ? Visibility.Visible : Visibility.Collapsed;
+                FneConnectionWarningToolTip = string.IsNullOrWhiteSpace(toolTip)
+                    ? "FNE system disconnected. Transmit disabled."
+                    : toolTip;
+            }
+
+            if (Dispatcher.CheckAccess())
+                Apply();
+            else
+                Dispatcher.Invoke(Apply);
         }
 
         /// <summary>
@@ -698,87 +1670,66 @@ namespace dvmconsole.Controls
         /// <param name="e"></param>
         public void PttButton_Click(object sender, RoutedEventArgs e)
         {
-            if (!IsSelected)
-                return;
-
-            if (IsTxEncrypted && !Crypter.HasKey())
-            {
-                MessageBox.Show($"{ChannelName} {ERR_NO_LOADED_ENC_KEY}.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                PttState = false;
-                return;
-            }
-
-            PttState = !PttState;
-            PTTButtonClicked?.Invoke(sender, this);
+            SetPttInput(mousePttInput, !pttInputs.Contains(mousePttInput));
         }
 
         /// <summary>
-        /// 
+        /// Right-click latches the resource's mouse PTT in momentary mode.
         /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        /// <exception cref="NotImplementedException"></exception>
-        private async void PttButton_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
+        private void PttButton_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (pttToggleMode)
-                return;
-
-            if (PttState)
-                await Task.Delay(500);
-
-            PttButton_Click(sender, e);
+            if (!pttToggleMode)
+                PttButton_Click(sender, e);
         }
 
         /// <summary>
-        /// 
+        /// Mouse and keyboard PTT requests remain independent.
         /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        /// <exception cref="NotImplementedException"></exception>
-        private async void PttButton_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        private void PttButton_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (!IsSelected)
-                return;
-
-            if (IsTxEncrypted && !Crypter.HasKey())
-            {
-                MessageBox.Show($"{ChannelName} {ERR_NO_LOADED_ENC_KEY}.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                PttState = false;
-                return;
-            }
-
-            if (PttState)
-                await Task.Delay(500);
-
-            if (pttToggleMode)
-            {
-                // Toggle mode: toggle PttState and invoke clicked event
-                PttState = !PttState;
-                PTTButtonClicked?.Invoke(sender, this);
-            }
-            else
-            {
-                // Normal mode: set PttState to true and invoke pressed event
-                PTTButtonPressed?.Invoke(sender, this);
-                PttState = true;
-            }
+            SetPttInput(mousePttInput, pttToggleMode ? !pttInputs.Contains(mousePttInput) : true);
         }
 
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        /// <exception cref="NotImplementedException"></exception>
         private void PttButton_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            if (pttToggleMode)
-                return;
-            if (!IsSelected)
-                return;
+            if (!pttToggleMode)
+                SetPttInput(mousePttInput, false);
+        }
 
-            PTTButtonReleased?.Invoke(sender, this);
-            PttState = false;
+        private void CancelPendingPttRelease()
+        {
+            pendingPttReleaseCts?.Cancel();
+            pendingPttReleaseCts = null;
+        }
+
+        private async void BeginPttReleaseTail(Action releaseAction)
+        {
+            CancelPendingPttRelease();
+
+            CancellationTokenSource cts = new CancellationTokenSource();
+            pendingPttReleaseCts = cts;
+
+            try
+            {
+                if (PttReleaseTailMs > 0)
+                    await Task.Delay(PttReleaseTailMs, cts.Token);
+
+                if (cts.IsCancellationRequested || pendingPttReleaseCts != cts)
+                    return;
+
+                releaseAction?.Invoke();
+            }
+            catch (TaskCanceledException)
+            {
+                /* stub */
+            }
+            finally
+            {
+                if (pendingPttReleaseCts == cts)
+                    pendingPttReleaseCts = null;
+
+                cts.Dispose();
+            }
         }
 
         /// <summary>
@@ -788,6 +1739,8 @@ namespace dvmconsole.Controls
         /// <param name="e"></param>
         private void PageSelectButton_Click(object sender, RoutedEventArgs e)
         {
+            if (IsRxOnly)
+                return;
             if (!IsSelected) 
                 return;
 
@@ -802,7 +1755,73 @@ namespace dvmconsole.Controls
         /// <param name="e"></param>
         private void VolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
-            Volume = e.NewValue;
+            if (updatingVolumeSlider)
+                return;
+
+            double steppedValue = NormalizeVolume(e.NewValue);
+            if (Math.Abs(steppedValue - e.NewValue) > 0.0001)
+            {
+                updatingVolumeSlider = true;
+                VolumeSlider.Value = steppedValue;
+                updatingVolumeSlider = false;
+            }
+
+            Volume = steppedValue;
+        }
+
+        private void VolumeSlider_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            AdjustVolumeFromMouseWheel(e);
+        }
+
+        private void VolumeBox_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            AdjustVolumeFromMouseWheel(e);
+        }
+
+        private void AdjustVolumeFromMouseWheel(MouseWheelEventArgs e)
+        {
+            if (!VolumeSlider.IsEnabled)
+                return;
+
+            double direction = e.Delta > 0 ? VOLUME_STEP : -VOLUME_STEP;
+            VolumeSlider.Value = NormalizeVolume(VolumeSlider.Value + direction);
+            e.Handled = true;
+        }
+
+        private void VolumeSlider_Loaded(object sender, RoutedEventArgs e)
+        {
+            UpdateDefaultVolumeMarker();
+        }
+
+        private void VolumeSlider_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            UpdateDefaultVolumeMarker();
+        }
+
+        private static double NormalizeVolume(double value)
+        {
+            double steppedValue = Math.Round(value / VOLUME_STEP) * VOLUME_STEP;
+            return Math.Max(0.0, Math.Min(4.0, steppedValue));
+        }
+
+        private void UpdateDefaultVolumeMarker()
+        {
+            VolumeSlider.ApplyTemplate();
+
+            if (VolumeSlider.Template.FindName("PART_DefaultVolumeMarker", VolumeSlider) is not FrameworkElement marker)
+                return;
+
+            double sliderWidth = VolumeSlider.ActualWidth;
+            double range = VolumeSlider.Maximum - VolumeSlider.Minimum;
+            if (sliderWidth <= 0 || range <= 0)
+                return;
+
+            double percent = (DEFAULT_VOLUME - VolumeSlider.Minimum) / range;
+            double usableWidth = Math.Max(0, sliderWidth - (VOLUME_MARKER_TRACK_PADDING * 2));
+            double markerWidth = marker.Width > 0 ? marker.Width : 2.0;
+            double x = VOLUME_MARKER_TRACK_PADDING + (usableWidth * percent) - (markerWidth / 2.0);
+            marker.Margin = new Thickness(Math.Max(0, x), 0, 0, 0);
         }
 
         /// <summary>
@@ -812,6 +1831,8 @@ namespace dvmconsole.Controls
         /// <param name="e"></param>
         private void ChannelMarkerBtn_Click(object sender, RoutedEventArgs e)
         {
+            if (IsRxOnly)
+                return;
             if (!IsSelected) 
                 return;
 
@@ -830,32 +1851,6 @@ namespace dvmconsole.Controls
                 return;
 
             callHistoryWindow.Show();
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void PttButton_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
-        {
-            if (!IsSelected || PttState) 
-                return;
-
-            ((Button)sender).Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF3FA0FF"));
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void PttButton_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
-        {
-            if (!IsSelected || PttState) 
-                return;
-
-            ((Button)sender).Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFDDDDDD"));
         }
     } // public partial class ChannelBox : UserControl, INotifyPropertyChanged
 } // namespace dvmconsole.Controls

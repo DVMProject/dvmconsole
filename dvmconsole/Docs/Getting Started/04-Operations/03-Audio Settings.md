@@ -1,0 +1,126 @@
+# Audio Settings
+
+Open Audio Settings from:
+
+```
+Settings > Audio Settings
+```
+
+Audio Settings controls microphone input and local speaker output routing.
+
+The device backend selector changes which Windows audio devices are listed (WASAPI or MME). Device lists load asynchronously; Save remains disabled until loading finishes. Changing the list backend does not apply a new route until you save.
+
+---
+
+# Global Input Device
+
+The global input device is the microphone used for console transmit audio.
+
+Options include:
+
+- Windows Default Input
+- specific installed input devices
+
+If Windows Default Input is selected, the console follows the current Windows default microphone.
+
+If a specific device is selected, the console uses that device instead.
+
+If a saved device is missing, the console falls back to Windows default.
+
+---
+
+# Device Persistence
+
+Audio device selections are saved by device identity, not just by Windows device number.
+
+This helps prevent routing from jumping to the wrong microphone or speaker when USB audio devices are plugged in, unplugged, or reordered by Windows.
+
+If a saved device is temporarily unavailable, the console uses Windows Default until that device returns.
+
+---
+
+# Master Output Device
+
+The master output device is the default speaker/output device for resources.
+
+Options include:
+
+- Windows Default Output
+- specific installed output devices
+
+If Windows Default Output is selected, the console follows the current Windows default playback device.
+
+---
+
+# Per-Resource Output Overrides
+
+Audio Settings is organized by the same zones/tabs used on the main console.
+
+Each channel resource and web stream chip can use:
+
+```
+Default (Master Output)
+```
+
+or a specific output device override.
+
+Use default for most resources. Use overrides when a specific talkgroup must always play through a different speaker or audio interface.
+
+Web stream output overrides are keyed by stream name. Keep stream names stable if you want saved routing, volume, active startup state, and position to continue applying to the same stream.
+
+---
+
+# AGC
+
+The **Enable AGC for console microphone audio** checkbox controls console microphone automatic gain behavior.
+
+When enabled, the console applies its microphone AGC path before transmit.
+
+When disabled, only automatic gain control is bypassed. The configured microphone gain and EQ still apply.
+
+This setting is saved.
+
+## Microphone Gain, EQ, and Presets
+
+Microphone controls include input gain, low/mid/high EQ, and saved processing presets. Processing changes are previewed while this window is open, so they can affect microphone transmissions during the preview. **Save** keeps the settings; **Cancel** or closing the window restores the saved processing. Device routing changes are applied on Save, not during the processing preview.
+
+Per-resource routing identifies channels by system and talkgroup. Copies of the same resource share a route; identical TGIDs on different systems remain separate. Right-click a routing selector to fill the device choice up or down within the current zone.
+
+---
+
+# Mute RX Audio While Transmitting
+
+This setting is in the Settings menu, not the Audio Settings window:
+
+```
+Settings > Mute RX Audio While Transmitting
+```
+
+When enabled, local RX speaker playback is suppressed while the console is transmitting.
+
+This does not affect:
+
+- received network traffic
+- logs
+- RX card visual state
+- patch forwarding
+- transmit audio
+
+It only mutes local playback while TX is active.
+
+---
+
+# Stale Routing Cleanup
+
+When a codeplug is loaded, the console prunes saved per-resource settings that clearly refer to resources or talkgroups no longer present in the loaded codeplug.
+
+This helps keep the AppData settings JSON from accumulating stale audio routing, volume, and position entries.
+
+---
+
+# Tips
+
+- Use Windows Default devices unless a deployment needs fixed hardware routing.
+- Use the master output for the normal speaker path.
+- Use per-resource overrides sparingly so future troubleshooting is easier.
+- If audio is playing from the wrong device, check both the master output and the resource override.

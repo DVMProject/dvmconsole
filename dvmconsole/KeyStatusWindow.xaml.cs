@@ -80,13 +80,13 @@ namespace dvmconsole
             this.mainWindow = mainWindow;
             DataContext = this;
 
-            LoadKeyStatus();
+            RefreshKeyStatus();
         }
 
         /// <summary>
-        /// 
+        /// Refreshes the displayed status from the current channel keys.
         /// </summary>
-        private void LoadKeyStatus()
+        public void RefreshKeyStatus()
         {
             Dispatcher.Invoke(() =>
             {
@@ -109,21 +109,21 @@ namespace dvmconsole
                             continue;
                         }
 
-                        Codeplug.System system = Codeplug.GetSystemForChannel(channelBox.ChannelName);
+                        Codeplug.System system = Codeplug.GetSystemForChannel(channelBox.ConfiguredChannel);
                         if (system == null)
                         {
                             Log.WriteLine($"System not found for {channelBox.ChannelName}");
                             continue;
                         }
 
-                        Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channelBox.ChannelName);
+                        Codeplug.Channel cpgChannel = channelBox.ConfiguredChannel;
                         if (cpgChannel == null)
                         {
                             Log.WriteLine($"Channel not found for {channelBox.ChannelName}");
                             continue;
                         }
 
-                        if (cpgChannel.GetKeyId() == 0 || cpgChannel.GetAlgoId() == 0)
+                        if (!cpgChannel.HasEncryptionConfig())
                             continue;
 
                         if (channelBox.Crypter == null)
@@ -132,18 +132,29 @@ namespace dvmconsole
                             continue;
                         }
 
-                        bool hasKey = channelBox.Crypter.HasKey();
+                        bool isNxdn = cpgChannel.GetChannelMode() == Codeplug.ChannelMode.NXDN;
+                        bool isDmr = cpgChannel.GetChannelMode() == Codeplug.ChannelMode.DMR;
+                        bool hasKey = channelBox.HasLoadedTransmitKey();
 
                         KeyStatusItems.Add(new KeyStatusItem
                         {
                             ChannelName = channelBox.ChannelName,
-                            AlgId = $"0x{cpgChannel.GetAlgoId():X2}",
+                            AlgId = isNxdn ? $"NXDN {cpgChannel.GetNxdnCipherType()}" :
+                                isDmr ? DescribeDmrAlgorithm(cpgChannel.GetDmrAlgorithmId()) : $"0x{cpgChannel.GetAlgoId():X2}",
                             KeyId = $"0x{cpgChannel.GetKeyId():X4}",
-                            KeyStatus = hasKey ? "Key Available" : "No Key"
+                            KeyStatus = isDmr ? "Encryption unavailable in this build" : hasKey ? "Key Available" : "No Key"
                         });
                     }
                 }
             });
         }
+
+        private static string DescribeDmrAlgorithm(byte algorithmId) => algorithmId switch
+        {
+            1 => "DMR ARC4",
+            2 => "DMR DES-OFB",
+            5 => "DMR AES-256",
+            _ => $"DMR 0x{algorithmId:X2}"
+        };
     } // public partial class KeyStatusWindow : Window
 } // namespace dvmconsole

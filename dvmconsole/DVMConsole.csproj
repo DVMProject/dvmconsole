@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows7.0</TargetFramework>
+    <TargetFramework>net10.0-windows7.0</TargetFramework>
     <Nullable>disable</Nullable>
     <Deterministic>False</Deterministic>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -11,7 +11,9 @@
     <Configurations>Debug;Release;WIN32</Configurations>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Copyright>Copyright (c) 2025 Caleb, K4PHP and DVMProject (https://github.com/dvmproject) Authors.</Copyright>
-    <PlatformTarget>x86</PlatformTarget>
+    <PlatformTarget Condition="'$(Platform)' == 'x64'">x64</PlatformTarget>
+    <PlatformTarget Condition="'$(PlatformTarget)' == ''">x86</PlatformTarget>
+    <BuildTimestampUtc Condition="'$(BuildTimestampUtc)' == ''">$([System.DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ'))</BuildTimestampUtc>
     <PackageLicenseExpression>AGPL-3.0-only</PackageLicenseExpression>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
     <Title>Digital Voice Modem - Desktop Dispatch Console</Title>
@@ -23,11 +25,13 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/DVMProject/dvmconsole</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <AssemblyVersion>1.0.*</AssemblyVersion>
+    <Version>2.0.0</Version>
+    <AssemblyVersion>2.0.0.0</AssemblyVersion>
+    <FileVersion>2.0.0.0</FileVersion>
+    <InformationalVersion>R02A00</InformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>
-    <None Remove="alerttone.png" />
     <None Remove="Assets\alerttone.png" />
     <None Remove="Assets\AppIcon.ico" />
     <None Remove="Assets\audio.png" />
@@ -39,18 +43,84 @@
     <None Remove="Assets\config.png" />
     <None Remove="Assets\connection.png" />
     <None Remove="Assets\history.png" />
+    <None Remove="Assets\history_card.png" />
     <None Remove="Assets\instantptt.png" />
+    <None Remove="Assets\instantptt_toolbar.png" />
+    <None Remove="Assets\ind_transmit_busy.png" />
+    <None Remove="Assets\ind_transmit_callback_select.png" />
+    <None Remove="Assets\ind_transmit_select.png" />
     <None Remove="Assets\key.png" />
     <None Remove="Assets\page.png" />
+    <None Remove="Assets\patch_edit_off.png" />
+    <None Remove="Assets\patch_edit_on.png" />
+    <None Remove="Assets\patch_remote_on.png" />
+    <None Remove="Assets\msel_active.png" />
+    <None Remove="Assets\msel_inactive.png" />
     <None Remove="Assets\pageselect.png" />
     <None Remove="Assets\pttselect.png" />
     <None Remove="Assets\select.png" />
-    <None Remove="Assets\whackerlink-logo.png" />
-    <None Remove="Assets\WhackerLinkLogoV2.png" />
-    <None Remove="clearemerg.png" />
-    <None Remove="connection.png" />
-    <None Remove="page.png" />
-    <None Remove="whackerlink-logo.png" />
+    <None Remove="Assets\transmit_in_patch.png" />
+    <None Remove="Assets\transmit_in_msel.png" />
+    <None Remove="Assets\transmit_out_msel.png" />
+    <None Remove="Assets\transmit_out_patch.png" />
+    <None Remove="Docs\Getting Started\01-Overview.md" />
+    <None Remove="Docs\Getting Started\02-Building.md" />
+    <None Remove="Docs\Getting Started\03-Configurations\01-Codeplug Creation.md" />
+    <None Remove="Docs\Getting Started\03-Configurations\02-Encryption Keys.md" />
+    <None Remove="Docs\Getting Started\03-Configurations\03-RID Aliases.md" />
+    <None Remove="Docs\Getting Started\03-Configurations\04-Groups and Patching.md" />
+    <None Remove="Docs\Getting Started\03-Configurations\05-Talkgroup Audio Recorder.md" />
+    <None Remove="Docs\Getting Started\03-Configurations\07-DMR.md" />
+    <None Remove="Docs\Getting Started\03-Configurations\08-Analog.md" />
+    <None Remove="Docs\Getting Started\04-Operations\01-Console Operation.md" />
+    <None Remove="Docs\Getting Started\04-Operations\02-Settings Reference.md" />
+    <None Remove="Docs\Getting Started\04-Operations\03-Audio Settings.md" />
+    <None Remove="Docs\Getting Started\04-Operations\04-Alert Tones.md" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Docs\Getting Started\01-Overview.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Docs\Getting Started\02-Building.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Docs\Getting Started\03-Configurations\01-Codeplug Creation.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Docs\Getting Started\03-Configurations\02-Encryption Keys.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Docs\Getting Started\03-Configurations\03-RID Aliases.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Docs\Getting Started\03-Configurations\04-Groups and Patching.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Docs\Getting Started\03-Configurations\05-Talkgroup Audio Recorder.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Docs\Getting Started\03-Configurations\06-NXDN.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Docs\Getting Started\03-Configurations\07-DMR.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Docs\Getting Started\03-Configurations\08-Analog.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Docs\Getting Started\04-Operations\01-Console Operation.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Docs\Getting Started\04-Operations\02-Settings Reference.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Docs\Getting Started\04-Operations\03-Audio Settings.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Docs\Getting Started\04-Operations\04-Alert Tones.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>
@@ -81,6 +151,9 @@
     <None Include="..\README.md">
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
+      <Link>README.md</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </None>
   </ItemGroup>
 
@@ -89,6 +162,9 @@
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </Resource>
     <Resource Include="Assets\history.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\history_card.png">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </Resource>
     <Resource Include="Assets\key.png">
@@ -102,8 +178,9 @@
  
 
   <ItemGroup>
+    <PackageReference Include="Markdig" Version="1.1.1" />
     <PackageReference Include="MaterialDesignThemes" Version="5.2.1" />
-    <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="NAudio" Version="3.0.1" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="NWaves" Version="0.9.6" />
     <PackageReference Include="YamlDotNet" Version="16.2.0" />
@@ -112,6 +189,8 @@
   <ItemGroup>
     <ProjectReference Include="..\fnecore\fnecore.csproj" />
   </ItemGroup>
+
+  <Import Project="..\build\NativeRuntime.targets" />
 
   <ItemGroup>
     <Resource Include="Assets\channelmarker.png">
@@ -123,19 +202,55 @@
     <Resource Include="Assets\connection.png">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </Resource>
-    <Resource Include="Assets\logo.png">
-      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
-    </Resource>
     <Resource Include="Assets\instantptt.png">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </Resource>
+    <Resource Include="Assets\instantptt_toolbar.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\ind_transmit_busy.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\ind_transmit_callback_select.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\ind_transmit_select.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
     <Resource Include="Assets\page.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\patch_edit_off.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\patch_edit_on.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\patch_remote_on.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\msel_inactive.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\msel_active.png">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </Resource>
     <Resource Include="Assets\pageselect.png">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </Resource>
     <Resource Include="Assets\pttselect.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\transmit_in_patch.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\transmit_in_msel.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\transmit_out_msel.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\transmit_out_patch.png">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </Resource>
   </ItemGroup>
@@ -160,15 +275,34 @@
     <None Update="Audio\hold.wav">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="codeplugs\codeplug.yml">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
   </ItemGroup>
 
   <ItemGroup>
-    <Page Update="Controls\ChannelBox.xaml">
-      <CopyToOutputDirectory></CopyToOutputDirectory>
-    </Page>
+    <AssemblyMetadata Include="BuildTimestampUtc" Value="$(BuildTimestampUtc)" />
+    <Content Include="..\LICENSE;..\AUTHORS.md">
+      <Link>%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\fnecore\LICENSE;..\fnecore\AUTHORS.md">
+      <Link>licenses\FNECore-%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\configs\codeplug.example.yml;..\configs\alias.example.yml">
+      <Link>configs\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <!-- Private runtime state is never release content. Examples above are opt-in. -->
+    <None Update="codeplugs\**;**\*.ekc;**\*.clear;**\*.log;**\UserSettings.json;**\EkcCredentials\**;**\recordings\**">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+    </None>
+    <Content Update="codeplugs\**;**\*.ekc;**\*.clear;**\*.log;**\UserSettings.json;**\EkcCredentials\**;**\recordings\**">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+    </Content>
   </ItemGroup>
 
 </Project>

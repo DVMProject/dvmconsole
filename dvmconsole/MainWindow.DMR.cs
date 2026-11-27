@@ -10,14 +10,15 @@
 *   Copyright (C) 2024-2025 Caleb, K4PHP
 *   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
 *   Copyright (C) 2025 Lorenzo L Romero, K2LLR
+*   Copyright (C) 2026 C. Lovell, Dev_Ranger
 *
 */
 
 using System.Windows;
 
 using dvmconsole.Controls;
+using dvmconsole.DMR;
 
-using Constants = fnecore.Constants;
 using fnecore;
 using fnecore.DMR;
 
@@ -28,6 +29,35 @@ namespace dvmconsole
     /// </summary>
     public partial class MainWindow : Window
     {
+        private bool ValidateDmrTransmit(Codeplug.Channel config, ChannelBox channel = null, bool showWarning = false)
+        {
+            if (config.GetChannelMode() != Codeplug.ChannelMode.DMR)
+                return true;
+            try
+            {
+                Codeplug.System system = Codeplug.GetSystemForChannel(config);
+                if (!uint.TryParse(config.GetSourceRid(system), out uint rid) || rid is 0 or > 0xFFFFFF ||
+                    !uint.TryParse(config.Tgid, out uint tgid) || tgid is 0 or > 0xFFFFFF)
+                    throw new InvalidOperationException("DMR RID and TGID must be between 1 and 16777215.");
+                if (config.Slot is < 1 or > 2)
+                    throw new InvalidOperationException("DMR timeslot must be 1 or 2.");
+                channel ??= FindChannelBySystemAndTgid(config.System, config.Tgid);
+                if (channel != null && !channel.DmrEndTask.IsCompleted)
+                    throw new InvalidOperationException("The previous DMR call is still finishing. Try PTT again.");
+                if (config.GetDmrAlgorithmId() != 0)
+                    throw new InvalidOperationException("Encrypted DMR is unavailable in this build. Use a channel explicitly configured with algo: none.");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.WriteWarning($"DMR TX blocked on {config.Name}: {ex.Message}");
+                if (showWarning)
+                    Dispatcher.Invoke(() => MessageBox.Show(ex.Message, "DMR Transmit Unavailable",
+                        MessageBoxButton.OK, MessageBoxImage.Warning));
+                return false;
+            }
+        }
+
         /// <summary>
         /// Helper to encode and transmit PCM audio as DMR AMBE frames.
         /// </summary>
@@ -36,129 +66,116 @@ namespace dvmconsole
         /// <param name="channel"></param>
         /// <param name="cpgChannel"></param>
         /// <param name="system"></param>
-        private void DMREncodeAudioFrame(byte[] pcm, PeerSystem fne, ChannelBox channel, Codeplug.Channel cpgChannel, Codeplug.System system)
+        private void DMREncodeAudioFrame(byte[] pcm, PeerSystem fne, ChannelBox channel,
+            Codeplug.Channel config, Codeplug.System system, uint? sourceIdOverride = null)
         {
-            // make sure we have a valid stream ID
-            if (channel.TxStreamId == 0)
-                Log.WriteWarning($"({channel.SystemName}) DMRD: Traffic *VOICE FRAME    * Stream ID not set for traffic? Shouldn't happen.");
-
-            try
+            lock (channel.DmrSync)
             {
-                byte slot = (byte)(cpgChannel.Slot - 1);
-
-                byte[] data = null, dmrpkt = null;
-                channel.dmrN = (byte)(channel.dmrSeqNo % 6);
-                if (channel.ambeCount == FneSystemBase.AMBE_PER_SLOT)
+                uint stream = channel.TxStreamId;
+                if (stream == 0 || channel.DmrFailedStreamId == stream || !channel.DmrEndTask.IsCompleted)
+                    return;
+                try
                 {
-                    // is this the intitial sequence?
-                    if (channel.dmrSeqNo == 0)
+                    if (pcm.Length != PCM_SAMPLES_LENGTH)
+                        throw new ArgumentException("DMR requires 20 ms PCM chunks.");
+                    if (channel.DmrTx == null)
                     {
-                        channel.pktSeq = 0;
-
-                        // send DMR voice header
-                        data = new byte[FneSystemBase.DMR_FRAME_LENGTH_BYTES];
-
-                        // generate DMR LC
-                        LC dmrLC = new LC();
-                        dmrLC.FLCO = (byte)DMRFLCO.FLCO_GROUP;
-                        dmrLC.SrcId = uint.Parse(system.Rid);
-                        dmrLC.DstId = uint.Parse(cpgChannel.Tgid);
-                        channel.embeddedData.SetLC(dmrLC);
-
-                        // generate the Slot Type
-                        SlotType slotType = new SlotType();
-                        slotType.DataType = (byte)DMRDataType.VOICE_LC_HEADER;
-                        slotType.GetData(ref data);
-
-                        FullLC.Encode(dmrLC, ref data, DMRDataType.VOICE_LC_HEADER);
-
-                        // generate DMR network frame
-                        dmrpkt = new byte[FneSystemBase.DMR_PACKET_SIZE];
-                        fne.CreateDMRMessage(ref dmrpkt, uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), slot, FrameType.VOICE_SYNC, (byte)channel.dmrSeqNo, 0);
-                        Buffer.BlockCopy(data, 0, dmrpkt, 20, FneSystemBase.DMR_FRAME_LENGTH_BYTES);
-
-                        fne.peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_DMR), dmrpkt, channel.pktSeq, channel.TxStreamId);
-
-                        channel.dmrSeqNo++;
+                        uint source = sourceIdOverride ?? uint.Parse(config.GetSourceRid(system));
+                        if (config.GetDmrAlgorithmId() != 0 || channel.IsTxEncrypted)
+                            throw new InvalidOperationException("Encrypted DMR is unavailable; refusing clear fallback.");
+                        var call = new DMRCallData
+                        {
+                            SrcId = source, DstId = uint.Parse(config.Tgid),
+                            Slot = checked((byte)config.Slot), TxStreamID = stream
+                        };
+                        channel.DmrTx = new DmrTxCall(fne, call,
+                            samples => EncodeDmrCodeword(channel, samples),
+                            (packet, sequence) =>
+                            {
+                                if (!IsFneSystemConnected(system.Name))
+                                    throw new InvalidOperationException("The FNE disconnected during DMR transmit.");
+                                fne.SendDMRFrame(call, packet, sequence);
+                            });
                     }
-
-                    ushort curr = channel.pktSeq;
-                    ++channel.pktSeq;
-                    if (channel.pktSeq > (Constants.RtpCallEndSeq - 1))
-                        channel.pktSeq = 0;
-
-                    // send DMR voice
-                    data = new byte[FneSystemBase.DMR_FRAME_LENGTH_BYTES];
-
-                    Buffer.BlockCopy(channel.ambeBuffer, 0, data, 0, 13);
-                    data[13U] = (byte)(channel.ambeBuffer[13U] & 0xF0);
-                    data[19U] = (byte)(channel.ambeBuffer[13U] & 0x0F);
-                    Buffer.BlockCopy(channel.ambeBuffer, 14, data, 20, 13);
-
-                    FrameType frameType = FrameType.VOICE_SYNC;
-                    if (channel.dmrN == 0)
-                        frameType = FrameType.VOICE_SYNC;
-                    else
+                    short[] samples = new short[160];
+                    Buffer.BlockCopy(pcm, 0, samples, 0, pcm.Length);
+                    channel.DmrTx.Process(samples);
+                    Dispatcher.BeginInvoke(new Action(() =>
+                        UpdateVolumeMeterFromSamples(channel, samples, VolumeMeterSource.ConsoleTx)));
+                }
+                catch (Exception ex)
+                {
+                    Log.WriteError($"({system.Name}) DMR TX stopped: {ex.Message}");
+                    channel.DmrFailedStreamId = stream;
+                    EndDmrTransmission(channel, discardPending: true);
+                    Dispatcher.BeginInvoke(new Action(() =>
                     {
-                        frameType = FrameType.VOICE;
-
-                        byte lcss = channel.embeddedData.GetData(ref data, channel.dmrN);
-
-                        // generated embedded signalling
-                        EMB emb = new EMB();
-                        emb.ColorCode = 0;
-                        emb.LCSS = lcss;
-                        emb.Encode(ref data);
-                    }
-
-                    // generate DMR network frame
-                    dmrpkt = new byte[FneSystemBase.DMR_PACKET_SIZE];
-                    fne.CreateDMRMessage(ref dmrpkt, uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), 1, frameType, (byte)channel.dmrSeqNo, channel.dmrN);
-                    Buffer.BlockCopy(data, 0, dmrpkt, 20, FneSystemBase.DMR_FRAME_LENGTH_BYTES);
-
-                    fne.peer.SendMaster(new Tuple<byte, byte>(Constants.NET_FUNC_PROTOCOL, Constants.NET_PROTOCOL_SUBFUNC_DMR), dmrpkt, channel.pktSeq, channel.TxStreamId);
-
-                    channel.dmrSeqNo++;
-
-                    FneUtils.Memset(channel.ambeBuffer, 0, 27);
-                    channel.ambeCount = 0;
+                        if (channel.TxStreamId != stream)
+                            return;
+                        EndTarTxRecording(channel, system, config);
+                        channel.PttState = false;
+                        ResetChannel(channel);
+                    }));
                 }
-
-                int smpIdx = 0;
-                short[] samples = new short[FneSystemBase.MBE_SAMPLES_LENGTH];
-                for (int pcmIdx = 0; pcmIdx < pcm.Length; pcmIdx += 2)
-                {
-                    samples[smpIdx] = (short)((pcm[pcmIdx + 1] << 8) + pcm[pcmIdx + 0]);
-                    smpIdx++;
-                }
-
-                // encode PCM samples into AMBE codewords
-                byte[] ambe = null;
-
-                if (channel.ExternalVocoderEnabled)
-                {
-                    if (channel.ExtHalfRateVocoder == null)
-                        channel.ExtHalfRateVocoder = new AmbeVocoder(false);
-
-                    channel.ExtHalfRateVocoder.encode(samples, out ambe, true);
-                }
-                else
-                {
-                    if (channel.Encoder == null)
-                        channel.Encoder = new MBEEncoder(MBE_MODE.DMR_AMBE);
-
-                    ambe = new byte[FneSystemBase.AMBE_BUF_LEN];
-
-                    channel.Encoder.encode(samples, ambe);
-                }
-
-                Buffer.BlockCopy(ambe, 0, channel.ambeBuffer, channel.ambeCount * 9, FneSystemBase.AMBE_BUF_LEN);
-
-                channel.ambeCount++;
             }
-            catch (Exception ex)
+        }
+
+        private byte[] EncodeDmrCodeword(ChannelBox channel, short[] samples)
+        {
+            if (channel.ExternalVocoderEnabled)
             {
-                Log.StackTrace(ex, false);
+                channel.ExtHalfRateVocoder ??= new AmbeVocoder(false);
+                channel.ExtHalfRateVocoder.EncoderAgcEnabled = IsAudioInputAgcEnabled();
+                channel.ExtHalfRateVocoder.encode(samples, out byte[] encoded, true);
+                return encoded;
+            }
+            channel.Encoder ??= new MBEEncoder(MBE_MODE.DMR_AMBE);
+            byte[] ambe = new byte[DMRFrame.CodewordBytes];
+            channel.Encoder.encode(samples, ambe);
+            return ambe;
+        }
+
+        private void EndDmrTransmission(ChannelBox channel, bool discardPending = false)
+        {
+            lock (channel.DmrSync)
+            {
+                DmrTxCall call = channel.DmrTx;
+                if (call == null)
+                    return;
+                channel.DmrTx = null;
+                try
+                {
+                    if (discardPending)
+                        call.Abort();
+                    else
+                        call.End();
+                }
+                catch (Exception ex) { Log.WriteWarning($"DMR release: {ex.Message}"); }
+                channel.DmrEndTask = FinishDmrTransmissionAsync(call);
+            }
+        }
+
+        private static async Task FinishDmrTransmissionAsync(DmrTxCall call)
+        {
+            try { await call.Completion.ConfigureAwait(false); }
+            catch (Exception ex) { Log.WriteWarning($"DMR transmit worker: {ex.Message}"); }
+            finally { call.Dispose(); }
+        }
+
+        private void StopDmrChannels()
+        {
+            foreach (ChannelBox channel in GetAllCanvases().SelectMany(canvas => canvas.Children.OfType<ChannelBox>()))
+            {
+                Codeplug.Channel config = channel.ConfiguredChannel;
+                if (config?.GetChannelMode() != Codeplug.ChannelMode.DMR)
+                    continue;
+                Codeplug.System system = Codeplug.GetSystemForChannel(config);
+                SlotStatus status = FindActiveReceiveStatus(channel, config);
+                EndTarRxRecordingFromChannelState(system, config, channel, status, DateTime.Now);
+                EndTarTxRecording(channel, system, config);
+                EndDmrTransmission(channel, discardPending: true);
+                ClearReceiveState(channel, status);
+                ResetChannel(channel);
             }
         }
 
@@ -169,7 +186,7 @@ namespace dvmconsole
         /// <param name="e"></param>
         /// <param name="system"></param>
         /// <param name="channel"></param>
-        private void DMRDecodeAudioFrame(byte[] ambe, DMRDataReceivedEvent e, PeerSystem system, ChannelBox channel)
+        private void DMRDecodeAudioFrame(byte[] ambe, DMRDataReceivedEvent e, PeerSystem system, ChannelBox channel, string sourceSystemName)
         {
             try
             {
@@ -202,6 +219,7 @@ namespace dvmconsole
                         Log.WriteLine($"({system.SystemName}) DMRD: Traffic *VOICE FRAME    * PEER {e.PeerId} SRC_ID {e.SrcId} TGID {e.DstId} TS {e.Slot + 1} VC{e.n}.{n} ERRS {errs} [STREAM ID {e.StreamId}]");
                         // Log.Logger.Debug($"PARTIAL AMBE {FneUtils.HexDump(ambePartial)}");
                         // Log.Logger.Debug($"SAMPLE BUFFER {FneUtils.HexDump(samples)}");
+                        UpdateVolumeMeterFromSamples(channel, samples, VolumeMeterSource.RadioRx);
 
                         int pcmIdx = 0;
                         byte[] pcm = new byte[samples.Length * 2];
@@ -213,7 +231,10 @@ namespace dvmconsole
                         }
 
                         //Log.WriteLine($"PCM BYTE BUFFER {FneUtils.HexDump(pcm)}");
-                        audioManager.AddTalkgroupStream(e.DstId.ToString(), pcm);
+                        if (!ShouldMuteRxPlayback())
+                            audioManager.AddTalkgroupStream(channel.AudioOutputKey, pcm);
+                        AppendTarRxAudio(sourceSystemName, channel.DstId, e.StreamId, pcm);
+                        patchManager.HandleAudio(sourceSystemName, e.DstId.ToString(), e.StreamId, e.SrcId, pcm);
                     }
                 }
             }
@@ -229,56 +250,68 @@ namespace dvmconsole
         /// </summary>
         /// <param name="e"></param>
         /// <param name="pktTime"></param>
-        public void DMRDataReceived(DMRDataReceivedEvent e, DateTime pktTime)
+        public void DMRDataReceived(string sourceSystemName, DMRDataReceivedEvent e, DateTime pktTime)
         {
+            if (!DMRFrame.IsVoicePacket(e.Data) || e.CallType != CallType.GROUP || e.StreamId == 0)
+                return;
+            try
+            {
             Dispatcher.Invoke(() =>
             {
+                try
+                {
                 foreach (ChannelBox channel in selectedChannelsManager.GetSelectedChannels())
                 {
-                    if (channel.SystemName == PLAYBACKSYS || channel.ChannelName == PLAYBACKCHNAME || channel.DstId == PLAYBACKTG)
+                    if (channel.IsLocalPlayback)
                         continue;
 
-                    Codeplug.System system = Codeplug.GetSystemForChannel(channel.ChannelName);
-                    Codeplug.Channel cpgChannel = Codeplug.GetChannelByName(channel.ChannelName);
+                    Codeplug.System system = Codeplug.GetSystemForChannel(channel.ConfiguredChannel);
+                    Codeplug.Channel cpgChannel = channel.ConfiguredChannel;
+
+                    if (system == null || cpgChannel == null)
+                    {
+                        Log.WriteWarning($"{channel.ChannelName} could not be resolved while processing DMR RX traffic. {ERR_INVALID_CODEPLUG}.");
+                        continue;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(sourceSystemName) &&
+                        !ResourceIdentity.SystemMatches(system?.Name, sourceSystemName))
+                        continue;
 
                     if (cpgChannel.GetChannelMode() != Codeplug.ChannelMode.DMR)
                         continue;
 
                     PeerSystem handler = fneSystemManager.GetFneSystem(system.Name);
 
-                    if (!channel.IsEnabled || channel.Name == PLAYBACKCHNAME)
+                    if (!channel.IsEnabled)
                         continue;
 
                     if (cpgChannel.Tgid != e.DstId.ToString())
                         continue;
 
-                    if (channel.PttState)
+                    // FNECore receive events use zero-based slots; codeplugs use TS1/TS2.
+                    if (Math.Max(1, cpgChannel.Slot) != e.Slot + 1)
                         continue;
 
-                    if (!systemStatuses.ContainsKey(cpgChannel.Name + e.Slot))
-                        systemStatuses[cpgChannel.Name + e.Slot] = new SlotStatus();
+                    if (patchManager.IsPatchedTransmitStream(system.Name, cpgChannel.Tgid, e.StreamId))
+                        continue;
+
+                    if (channel.IsOperatorTransmitting)
+                        continue;
+
+                    string statusKey = ResourceIdentity.Build(system.Name, cpgChannel.Tgid) + $"|slot:{e.Slot}";
+                    if (!systemStatuses.ContainsKey(statusKey))
+                        systemStatuses[statusKey] = new SlotStatus();
 
                     if (channel.Decoder == null)
                         channel.Decoder = new MBEDecoder(MBE_MODE.DMR_AMBE);
 
-                    byte[] data = new byte[FneSystemBase.DMR_FRAME_LENGTH_BYTES];
-                    Buffer.BlockCopy(e.Data, 20, data, 0, FneSystemBase.DMR_FRAME_LENGTH_BYTES);
-                    byte bits = e.Data[15];
-
-                    channel.LastPktTime = pktTime;
-
-                    // is the Rx stream ID being Rx'ed on any of our other channels?
-                    bool duplicateRx = false;
-                    foreach (ChannelBox other in selectedChannelsManager.GetSelectedChannels())
-                    {
-                        if (other.InternalID == channel.InternalID)
-                            continue;
-                        if ((other.RxStreamId > 0 && other.RxStreamId == e.StreamId) && other.InternalID != channel.InternalID)
-                        {
-                            duplicateRx = true;
-                            break;
-                        }
-                    }
+                    // is the Rx stream ID being Rx'ed on another copy of this same resource?
+                    bool duplicateRx = selectedChannelsManager.GetSelectedChannels().Any(other =>
+                        other.InternalID != channel.InternalID &&
+                        other.RxStreamId > 0 &&
+                        other.RxStreamId == e.StreamId &&
+                        ChannelMatchesResource(other, system.Name, cpgChannel.Tgid));
 
                     // is this duplicate traffic?
                     if (((channel.PeerId > 0 && channel.RxStreamId > 0) && (e.PeerId != channel.PeerId && e.StreamId == channel.RxStreamId)) || duplicateRx)
@@ -288,117 +321,188 @@ namespace dvmconsole
                     }
 
                     // is the Rx stream ID any of our Tx stream IDs?
-                    List<bool> txChannels = new List<bool>();
-                    foreach (ChannelBox other in selectedChannelsManager.GetSelectedChannels())
-                        if (other.TxStreamId > 0 && other.TxStreamId == channel.RxStreamId)
-                            txChannels.Add(true);
+                    bool hasMatchingTxStream = selectedChannelsManager.GetSelectedChannels().Any(other =>
+                        other.TxStreamId > 0 &&
+                        other.TxStreamId == e.StreamId &&
+                        ChannelMatchesResource(other, system.Name, cpgChannel.Tgid));
 
                     // if we have a count of Tx channels this means we're sourcing traffic for the incoming stream ID
-                    if (txChannels.Count() > 0)
+                    if (hasMatchingTxStream)
                     {
                         Log.WriteLine($"({system.Name}) DMRD: Traffic *IGNORE TX TRAF * PEER {e.PeerId} CALL_START PEER ID {channel.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} ALGID {channel.algId} KID {channel.kId} [STREAM ID {e.StreamId}]");
                         continue;
                     }
 
+                    string alias = TryResolveSubscriberAlias(system, (int)e.SrcId);
+                    bool isConsoleRid = IsConsoleSourceRid(system, e.SrcId);
+
                     // is this a new call stream?
-                    if (e.StreamId != systemStatuses[cpgChannel.Name + e.Slot].RxStreamId)
+                    SlotStatus slotStatus = systemStatuses[statusKey];
+                    bool terminator = e.FrameType == FrameType.DATA_SYNC && e.DataType == DMRDataType.TERMINATOR_WITH_LC;
+                    ReceiveCallState.Transition transition = channel.RxCall.Evaluate(e.PeerId, e.StreamId,
+                        e.SrcId, terminator, allowSourceUpdate: false);
+                    if (transition == ReceiveCallState.Transition.Ignore)
+                        continue;
+                    bool isNewCallStream = transition == ReceiveCallState.Transition.Start || !channel.IsReceiving;
+                    DMRCallData dmrCall = isNewCallStream
+                        ? new DMRCallData
+                        {
+                            SrcId = e.SrcId, DstId = e.DstId, TxStreamID = e.StreamId,
+                            Slot = checked((byte)(e.Slot + 1))
+                        } : channel.DmrRx;
+                    byte[] clearAmbe = new byte[DMRFrame.VoiceBytes];
+                    int voiceLength = DMRFrame.Decode(dmrCall, e.Data, clearAmbe);
+                    if (!dmrCall.LastPacketAccepted)
                     {
+                        if (isNewCallStream)
+                            dmrCall.Dispose();
+                        continue;
+                    }
+                    if (isNewCallStream)
+                    {
+                        if (channel.RxStreamId != 0)
+                            EndReceiveCall(channel, system, cpgChannel, slotStatus, pktTime);
+                        channel.DmrRx = dmrCall;
+                    }
+                    channel.RxCall.Accept(e.PeerId, e.StreamId, e.SrcId);
+                    channel.LastPktTime = pktTime;
+                    channel.IsReceivingEncrypted = dmrCall.IsEncrypted;
+
+                    if (isNewCallStream)
+                    {
+                        patchManager.HandleCallStart(system.Name, cpgChannel.Tgid, e.StreamId, e.SrcId);
+
                         channel.IsReceiving = true;
+                        channel.IsReceivingEncrypted = dmrCall.IsEncrypted;
                         channel.PeerId = e.PeerId;
                         channel.RxStreamId = e.StreamId;
+                        channel.RxHistory = null;
                         
                         // Update tab audio indicator
                         Dispatcher.Invoke(() => UpdateTabAudioIndicatorForChannel(channel));
 
-                        systemStatuses[cpgChannel.Name + e.Slot].RxStart = pktTime;
-                        Log.WriteLine($"({system.Name}) DMRD: Traffic *CALL START     * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} TS {e.Slot} [STREAM ID {e.StreamId}]");
+                        slotStatus.RxStart = pktTime;
+                        Log.WriteLine($"({system.Name}) DMRD: Traffic *CALL START     * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} TS {e.Slot + 1} [STREAM ID {e.StreamId}]");
 
-                        // if we can, use the LC from the voice header as to keep all options intact
-                        if ((e.FrameType == FrameType.DATA_SYNC) && (e.DataType == DMRDataType.VOICE_LC_HEADER))
+                        slotStatus.DMR_RxLC = dmrCall.LinkControl ?? new LC
                         {
-                            LC lc = FullLC.Decode(data, DMRDataType.VOICE_LC_HEADER);
-                            systemStatuses[cpgChannel.Name + e.Slot].DMR_RxLC = lc;
+                            SrcId = e.SrcId, DstId = e.DstId
+                        };
+
+                        slotStatus.DMR_RxPILC = new PrivacyLC();
+                        Log.WriteLine($"({system.Name}) TS {e.Slot + 1} [STREAM ID {e.StreamId}] RX_LC {FneUtils.HexDump(slotStatus.DMR_RxLC.GetBytes())}");
+
+                        Task<TarRecordingMetadata> recording = BeginTarRxRecording(
+                            system,
+                            cpgChannel,
+                            e.StreamId,
+                            e.SrcId,
+                            alias,
+                            dmrCall.IsEncrypted,
+                            DescribeDmrEncryptionAlgorithm(dmrCall.AlgorithmId),
+                            NormalizeEncryptionKeyId(dmrCall.KeyId),
+                            pktTime);
+
+                        if (!isConsoleRid)
+                        {
+                            channel.RxHistory = new ReceivedCallHistory(e.StreamId,
+                                callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"), recording),
+                                channel.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, alias, DateTime.Now.ToString("HH:mm:ss"), recording));
                         }
-                        else // if we don't have a voice header; don't wait to decode it, just make a dummy header
-                            systemStatuses[cpgChannel.Name + e.Slot].DMR_RxLC = new LC()
-                            {
-                                SrcId = e.SrcId,
-                                DstId = e.DstId
-                            };
+                        channel.RxHistory?.SetActive(dmrCall.IsEncrypted);
 
-                        systemStatuses[cpgChannel.Name + e.Slot].DMR_RxPILC = new PrivacyLC();
-                        Log.WriteLine($"({system.Name}) TS {e.Slot + 1} [STREAM ID {e.StreamId}] RX_LC {FneUtils.HexDump(systemStatuses[cpgChannel.Name + e.Slot].DMR_RxLC.GetBytes())}");
-
-                        callHistoryWindow.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, DateTime.Now.ToString());
-                        channel.AddCall(cpgChannel.Name, (int)e.SrcId, (int)e.DstId, DateTime.Now.ToString());
-                        callHistoryWindow.ChannelKeyed(cpgChannel.Name, (int)e.SrcId, false); // TODO: Encrypted state
-
-                        channel.Background = ChannelBox.GREEN_GRADIENT;
                     }
+
+                    channel.RxHistory?.UpdateSource(e.StreamId, (int)e.SrcId, alias);
+                    channel.RxHistory?.UpdateEncryption(e.StreamId, dmrCall.IsEncrypted, dmrCall.KeyId);
+                    if (channel.IsReceiving && channel.RxStreamId == e.StreamId && !isConsoleRid)
+                        channel.LastSrcId = string.IsNullOrEmpty(alias) ? "Last ID: " + e.SrcId : "Last: " + alias;
 
                     // reset the channel state if we're not Rx
                     if (!channel.IsReceiving)
                     {
-                        channel.Background = ChannelBox.BLUE_GRADIENT;
                         channel.VolumeMeterLevel = 0;
                         continue;
                     }
 
-                    // if we can, use the PI LC from the PI voice header as to keep all options intact
-                    if ((e.FrameType == FrameType.DATA_SYNC) && (e.DataType == DMRDataType.VOICE_PI_HEADER))
-                    {
-                        PrivacyLC lc = FullLC.DecodePI(data);
-                        systemStatuses[cpgChannel.Name + e.Slot].DMR_RxPILC = lc;
-                        //Log.WriteLine($"({SystemName}) DMRD: Traffic *CALL PI PARAMS  * PEER {e.PeerId} DST_ID {e.DstId} TS {e.Slot + 1} ALGID {lc.AlgId} KID {lc.KId} [STREAM ID {e.StreamId}]");
-                        //Log.WriteLine($"({SystemName}) TS {e.Slot + 1} [STREAM ID {e.StreamId}] RX_PI_LC {FneUtils.HexDump(systemStatuses[cpgChannel.Name + e.Slot].DMR_RxPILC.GetBytes())}");
-                    }
+                    if (dmrCall.LinkControl is LC receivedControl)
+                        slotStatus.DMR_RxLC = receivedControl;
+                    if (dmrCall.IsEncrypted && dmrCall.FrameType == FrameType.DATA_SYNC &&
+                        dmrCall.DataType == DMRDataType.VOICE_PI_HEADER)
+                        Log.WriteWarning($"({system.Name}) Encrypted DMR receive is unavailable; audio is muted.");
 
-                    if ((e.FrameType == FrameType.DATA_SYNC) && (e.DataType == DMRDataType.TERMINATOR_WITH_LC) && (systemStatuses[cpgChannel.Name + e.Slot].RxType != FrameType.TERMINATOR))
+                    if (dmrCall.IsReleased)
                     {
-                        channel.IsReceiving = false;
-                        channel.PeerId = 0;
-                        channel.RxStreamId = 0;
+                        patchManager.HandleCallEnd(system.Name, cpgChannel.Tgid, e.StreamId);
+                        bool isEncrypted = dmrCall.IsEncrypted;
+                        EndTarRxRecording(
+                            system,
+                            cpgChannel,
+                            e.StreamId,
+                            e.SrcId,
+                            alias,
+                            isEncrypted,
+                            DescribeDmrEncryptionAlgorithm(dmrCall.AlgorithmId),
+                            NormalizeEncryptionKeyId(dmrCall.KeyId),
+                            pktTime);
+                        ClearReceiveState(channel, slotStatus);
+                        audioManager.ReleaseTalkgroupStream(channel.AudioOutputKey);
                         
                         // Update tab audio indicator
                         Dispatcher.Invoke(() => UpdateTabAudioIndicatorForChannel(channel));
 
-                        TimeSpan callDuration = pktTime - systemStatuses[cpgChannel.Name + e.Slot].RxStart;
+                        TimeSpan callDuration = pktTime - slotStatus.RxStart;
                         Log.WriteLine($"({system.Name}) DMRD: Traffic *CALL END       * PEER {e.PeerId} SYS {system.Name} SRC_ID {e.SrcId} TGID {e.DstId} TS {e.Slot} DUR {callDuration} [STREAM ID {e.StreamId}]");
-                        channel.Background = ChannelBox.BLUE_GRADIENT;
-                        channel.VolumeMeterLevel = 0;
-                        callHistoryWindow.ChannelUnkeyed(cpgChannel.Name, (int)e.SrcId);
+                        continue;
                     }
-
-                    string alias = string.Empty;
-
-                    try
-                    {
-                        alias = AliasTools.GetAliasByRid(system.RidAlias, (int)e.SrcId);
-                    }
-                    catch (Exception) { }
-
-                    if (string.IsNullOrEmpty(alias))
-                        channel.LastSrcId = "Last ID: " + e.SrcId;
-                    else
-                        channel.LastSrcId = "Last: " + alias;
 
                     if (e.FrameType == FrameType.VOICE_SYNC || e.FrameType == FrameType.VOICE)
                     {
-                        byte[] ambe = new byte[FneSystemBase.DMR_AMBE_LENGTH_BYTES];
-                        Buffer.BlockCopy(data, 0, ambe, 0, 14);
-                        ambe[13] &= 0xF0;
-                        ambe[13] |= (byte)(data[19] & 0x0F);
-                        Buffer.BlockCopy(data, 20, ambe, 14, 13);
-                        DMRDecodeAudioFrame(ambe, e, handler, channel);
+                        bool isEncrypted = dmrCall.IsEncrypted;
+                        if (dmrCall.AlgorithmId != 0)
+                        {
+                            slotStatus.DMR_RxPILC ??= new PrivacyLC();
+                            slotStatus.DMR_RxPILC.AlgId = dmrCall.AlgorithmId;
+                            slotStatus.DMR_RxPILC.KId = dmrCall.KeyId;
+                            slotStatus.DMR_RxPILC.FID = dmrCall.MFId;
+                        }
+                        EnsureTarRxRecording(
+                            system,
+                            cpgChannel,
+                            channel,
+                            e.PeerId,
+                            e.StreamId,
+                            e.SrcId,
+                            alias,
+                            isEncrypted,
+                            DescribeDmrEncryptionAlgorithm(dmrCall.AlgorithmId),
+                            NormalizeEncryptionKeyId(dmrCall.KeyId),
+                            pktTime,
+                            "DMR voice frame");
+                        channel.RxHistory?.SetActive(isEncrypted);
+                        if (voiceLength == DMRFrame.VoiceBytes)
+                            DMRDecodeAudioFrame(clearAmbe, e, handler, channel, system.Name);
                     }
 
-                    systemStatuses[cpgChannel.Name + e.Slot].RxRFS = e.SrcId;
-                    systemStatuses[cpgChannel.Name + e.Slot].RxType = e.FrameType;
-                    systemStatuses[cpgChannel.Name + e.Slot].RxTGId = e.DstId;
-                    systemStatuses[cpgChannel.Name + e.Slot].RxTime = pktTime;
-                    systemStatuses[cpgChannel.Name + e.Slot].RxStreamId = e.StreamId;
+                    slotStatus.RxRFS = e.SrcId;
+                    slotStatus.RxType = e.FrameType;
+                    slotStatus.RxTGId = e.DstId;
+                    slotStatus.RxTime = pktTime;
+                    slotStatus.RxStreamId = e.StreamId;
+                }
+                }
+                catch (Exception ex)
+                {
+                    Log.WriteError($"DMR RX dispatch exception: {ex.Message}");
+                    Log.StackTrace(ex, false);
                 }
             });
+            }
+            catch (Exception ex)
+            {
+                Log.WriteError($"DMR RX handler exception: {ex.Message}");
+                Log.StackTrace(ex, false);
+            }
         }
     } // public partial class MainWindow : Window
 } // namespace dvmconsole

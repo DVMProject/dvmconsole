@@ -1,0 +1,1156 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+/**
+* Digital Voice Modem - Desktop Dispatch Console
+* AGPLv3 Open Source. Use is subject to license terms.
+* DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+*
+* @package DVM / Desktop Dispatch Console
+* @license AGPLv3 License (https://opensource.org/licenses/AGPL-3.0)
+*
+*   Copyright (C) 2026 C. Lovell, Dev_Ranger
+*
+*/
+
+using System.Globalization;
+using System.IO;
+using System.Text;
+using System.Threading;
+
+using NAudio.Wave;
+using Newtonsoft.Json;
+
+namespace dvmconsole
+{
+    /// <summary>
+    /// Coordinates TAR session lifecycle, persistence, and retention cleanup.
+    /// </summary>
+    public sealed class TarManager
+    {
+        private const int SampleRate = 8000;
+        private const int BitsPerSample = 16;
+        private const int ChannelCount = 1;
+        private const short SilenceThreshold = 400;
+        private const int WindowSamples = 160; // 20ms at 8kHz
+        private const int TrimPaddingMs = 120;
+        private const string RecordingIndexFileName = "tar-recording-index.cache";
+
+        private readonly SettingsManager settingsManager;
+        private readonly object syncRoot = new object();
+        private readonly object indexSyncRoot = new object();
+        private readonly Dictionary<string, TarActiveSession> activeSessions = new Dictionary<string, TarActiveSession>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<TarActiveSession> finalizingSessions = new HashSet<TarActiveSession>();
+        private bool stopping;
+
+        private sealed class TarActiveSession
+        {
+            public string SessionKey { get; init; } = string.Empty;
+            public string ChannelName { get; init; } = string.Empty;
+            public TarRecordingMetadata Metadata { get; init; }
+            public TaskCompletionSource<TarRecordingMetadata> Completion { get; } = new TaskCompletionSource<TarRecordingMetadata>(TaskCreationOptions.RunContinuationsAsynchronously);
+            public TaskCompletionSource<bool> Finalized { get; } = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            public MemoryStream PcmBuffer { get; } = new MemoryStream();
+            public object SyncRoot { get; } = new object();
+            public bool AcceptingAudio { get; set; } = true;
+        }
+
+        private sealed class TarRecordingIndex
+        {
+            public int SchemaVersion { get; set; } = 1;
+            public List<TarRecordingIndexEntry> Entries { get; set; } = new List<TarRecordingIndexEntry>();
+        }
+
+        private sealed class TarRecordingIndexEntry
+        {
+            public string MetadataPath { get; set; } = string.Empty;
+            public DateTime MetadataLastWriteUtc { get; set; }
+            public string RecordingPath { get; set; } = string.Empty;
+            public DateTime? RecordingLastWriteUtc { get; set; }
+            public TarRecordingMetadata Metadata { get; set; }
+        }
+
+        public TarManager(SettingsManager settingsManager)
+        {
+            this.settingsManager = settingsManager;
+        }
+
+        public string GetConfiguredRecordingRoot()
+        {
+            return string.IsNullOrWhiteSpace(settingsManager.TarRecordingsRootPath)
+                ? SettingsManager.DefaultTarRecordingsPath
+                : settingsManager.TarRecordingsRootPath.Trim();
+        }
+
+        public Dictionary<string, TarChannelConfig> GetChannelConfigs()
+        {
+            return settingsManager.GetTarChannelConfigs();
+        }
+
+        public TarChannelConfig GetChannelConfig(string resourceKey, string legacyChannelName = null, string legacyTalkgroupId = null)
+        {
+            return settingsManager.GetTarChannelConfig(resourceKey, legacyChannelName, legacyTalkgroupId);
+        }
+
+        public TarChannelConfig GetChannelConfig(Codeplug.System system, Codeplug.Channel channel)
+        {
+            if (channel == null)
+                return settingsManager.GetTarChannelConfig(null);
+
+            string resourceKey = ResourceIdentity.Build(system?.Name ?? channel.System, channel.Tgid);
+            return GetChannelConfig(resourceKey, channel.Name, channel.Tgid);
+        }
+
+        public bool IsChannelEnabled(string systemName, string talkgroupId, string legacyChannelName = null)
+        {
+            string resourceKey = ResourceIdentity.Build(systemName, talkgroupId);
+            return GetChannelConfig(resourceKey, legacyChannelName, talkgroupId).Enabled;
+        }
+
+        /// <summary>
+        /// Starts or reuses an RX recording and returns its saved result for call history.
+        /// Returns null when recording is disabled or skipped; the result is null if no audio is saved.
+        /// </summary>
+        public Task<TarRecordingMetadata> StartRxRecording(
+            Codeplug.System system,
+            Codeplug.Channel channel,
+            uint streamId,
+            uint subscriberId,
+            string subscriberAlias,
+            bool isEncrypted,
+            string encryptionAlgorithm,
+            ushort? encryptionKeyId,
+            DateTime startTimeUtc)
+        {
+            TarActiveSession session = GetOrCreateRxSession(system, channel, streamId, subscriberId, subscriberAlias, isEncrypted, encryptionAlgorithm, encryptionKeyId, startTimeUtc);
+            return session?.Completion.Task;
+        }
+
+        public void AppendRxAudio(string systemName, string talkgroupId, uint streamId, byte[] pcmData)
+        {
+            AppendAudio(BuildRxSessionKey(systemName, talkgroupId, streamId), pcmData);
+        }
+
+        public bool HasRxRecording(string systemName, string talkgroupId, uint streamId)
+        {
+            string sessionKey = BuildRxSessionKey(systemName, talkgroupId, streamId);
+            lock (syncRoot)
+                return activeSessions.ContainsKey(sessionKey);
+        }
+
+        public void StopRxRecording(
+            Codeplug.System system,
+            Codeplug.Channel channel,
+            uint streamId,
+            uint subscriberId,
+            string subscriberAlias,
+            bool isEncrypted,
+            string encryptionAlgorithm,
+            ushort? encryptionKeyId,
+            DateTime endTimeUtc)
+        {
+            TarActiveSession session = RemoveSession(BuildRxSessionKey(system?.Name, channel?.Tgid, streamId));
+            if (session == null)
+                return;
+
+            if (subscriberId != 0)
+            {
+                session.Metadata.SubscriberId = subscriberId;
+                session.Metadata.SubscriberAlias = subscriberAlias?.Trim() ?? string.Empty;
+            }
+            UpdateEncryptionMetadata(session.Metadata, isEncrypted, encryptionAlgorithm, encryptionKeyId);
+            FinalizeSessionAsync(session, endTimeUtc);
+        }
+
+        /// <summary>
+        /// Starts or reuses a TX recording and returns its saved result for call history.
+        /// Returns null when recording is disabled or skipped; the result is null if no audio is saved.
+        /// </summary>
+        public Task<TarRecordingMetadata> StartTxRecording(
+            Codeplug.System system,
+            Codeplug.Channel channel,
+            uint streamId,
+            bool isEncrypted,
+            string encryptionAlgorithm,
+            ushort? encryptionKeyId,
+            DateTime startTimeUtc)
+        {
+            if (system == null || channel == null || streamId == 0)
+                return null;
+
+            TarChannelConfig config = GetChannelConfig(system, channel);
+            if (!config.Enabled)
+                return null;
+
+            if (!TryEnsureRecordingRoot(GetConfiguredRecordingRoot(), out _, out _))
+                return null;
+
+            string sessionKey = BuildTxSessionKey(system.Name, channel.Tgid, streamId);
+            lock (syncRoot)
+            {
+                if (stopping)
+                    return null;
+
+                if (activeSessions.TryGetValue(sessionKey, out TarActiveSession existingSession))
+                    return existingSession.Completion.Task;
+
+                uint? consoleId = TryParseUInt(channel.GetSourceRid(system));
+                TarRecordingMetadata metadata = new TarRecordingMetadata
+                {
+                    Direction = TarRecordingDirection.TX,
+                    RecordingSourceType = TarRecordingSourceType.ConsoleTx,
+                    Protocol = (channel.Mode ?? string.Empty).ToUpperInvariant(),
+                    UtcStartTime = NormalizeUtc(startTimeUtc),
+                    SystemName = system.Name ?? string.Empty,
+                    ChannelName = channel.Name ?? string.Empty,
+                    TalkgroupId = TryParseUInt(channel.Tgid),
+                    TalkgroupName = channel.Name ?? string.Empty,
+                    SubscriberId = consoleId,
+                    SubscriberAlias = ResolveConsoleDisplayName(system),
+                    ConsoleId = consoleId,
+                    ConsoleName = ResolveConsoleDisplayName(system),
+                    StreamId = streamId,
+                    RetentionDaysAtRecordTime = config.RetentionDays > 0 ? config.RetentionDays : null
+                };
+
+                UpdateEncryptionMetadata(metadata, isEncrypted, encryptionAlgorithm, encryptionKeyId);
+
+                activeSessions[sessionKey] = new TarActiveSession
+                {
+                    SessionKey = sessionKey,
+                    ChannelName = channel.Name ?? string.Empty,
+                    Metadata = metadata
+                };
+                return activeSessions[sessionKey].Completion.Task;
+            }
+        }
+
+        public void AppendTxAudio(string systemName, string talkgroupId, uint streamId, byte[] pcmData)
+        {
+            AppendAudio(BuildTxSessionKey(systemName, talkgroupId, streamId), pcmData);
+        }
+
+        public void StopTxRecording(
+            Codeplug.System system,
+            Codeplug.Channel channel,
+            uint streamId,
+            bool isEncrypted,
+            string encryptionAlgorithm,
+            ushort? encryptionKeyId,
+            DateTime endTimeUtc)
+        {
+            TarActiveSession session = RemoveSession(BuildTxSessionKey(system?.Name, channel?.Tgid, streamId));
+            if (session == null)
+                return;
+
+            if (system != null)
+            {
+                session.Metadata.ConsoleId = TryParseUInt(channel.GetSourceRid(system));
+                session.Metadata.ConsoleName = ResolveConsoleDisplayName(system);
+                session.Metadata.SubscriberId = session.Metadata.ConsoleId;
+                session.Metadata.SubscriberAlias = session.Metadata.ConsoleName;
+            }
+
+            UpdateEncryptionMetadata(session.Metadata, isEncrypted, encryptionAlgorithm, encryptionKeyId);
+            FinalizeSessionAsync(session, endTimeUtc);
+        }
+
+        /// <summary>
+        /// Stops accepting recordings and waits for active and already-finalizing sessions.
+        /// Finalizers do not use the UI dispatcher; do not hold a TAR lock while waiting.
+        /// </summary>
+        public void StopAllSessions()
+        {
+            List<TarActiveSession> sessions;
+            Task[] completions;
+            lock (syncRoot)
+            {
+                stopping = true;
+                sessions = activeSessions.Values.ToList();
+                foreach (TarActiveSession session in sessions)
+                {
+                    lock (session.SyncRoot)
+                        session.AcceptingAudio = false;
+                    finalizingSessions.Add(session);
+                }
+                activeSessions.Clear();
+                completions = finalizingSessions.Select(session => session.Finalized.Task).ToArray();
+            }
+
+            DateTime nowUtc = DateTime.UtcNow;
+            foreach (TarActiveSession session in sessions)
+                FinalizeSessionAsync(session, nowUtc);
+
+            Task.WhenAll(completions).GetAwaiter().GetResult();
+        }
+
+        /// <summary>
+        /// Allows recordings for rebuilt resources after StopAllSessions has drained
+        /// the old sessions and the caller has disconnected their producers.
+        /// Shutdown must leave the manager stopped instead of calling this method.
+        /// </summary>
+        public void ResumeRecording()
+        {
+            lock (syncRoot)
+            {
+                if (activeSessions.Count != 0 || finalizingSessions.Count != 0)
+                    throw new InvalidOperationException("TAR sessions must be drained before recording resumes.");
+
+                stopping = false;
+            }
+        }
+
+        public void RunRetentionMaintenanceAsync()
+        {
+            Task.Run(RunRetentionMaintenance);
+        }
+
+        public void RunRetentionMaintenance()
+        {
+            if (!TryEnsureRecordingRoot(GetConfiguredRecordingRoot(), out string rootPath, out _))
+                return;
+
+            Dictionary<string, TarChannelConfig> configs = GetChannelConfigs();
+            if (configs.Count == 0)
+                return;
+
+            List<string> deletedMetadataPaths = new List<string>();
+            foreach (TarRecordingMetadata metadata in LoadRecordings())
+            {
+                if (metadata == null || string.IsNullOrWhiteSpace(metadata.ChannelName))
+                    continue;
+
+                string configKey = ResourceIdentity.Build(metadata.SystemName, metadata.TalkgroupId?.ToString(CultureInfo.InvariantCulture));
+                if (string.IsNullOrWhiteSpace(configKey) || !configs.TryGetValue(configKey, out TarChannelConfig config))
+                    continue;
+
+                if (config.RetentionDays <= 0)
+                    continue;
+
+                if (metadata.UtcEndTime >= DateTime.UtcNow.AddDays(-config.RetentionDays))
+                    continue;
+
+                string sidecarPath = GetSidecarPath(metadata.FilePath);
+                lock (indexSyncRoot)
+                {
+                    if (DeleteRecording(rootPath, sidecarPath, out _))
+                        deletedMetadataPaths.Add(sidecarPath);
+                }
+            }
+
+            RemoveRecordingIndexEntries(rootPath, deletedMetadataPaths);
+        }
+
+        public List<TarRecordingMetadata> LoadRecordings(CancellationToken cancellationToken = default, bool rebuildIndex = false)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            List<TarRecordingMetadata> recordings = new List<TarRecordingMetadata>();
+            if (!TryEnsureRecordingRoot(GetConfiguredRecordingRoot(), out string rootPath, out _))
+                return recordings;
+
+            if (rebuildIndex)
+                return RebuildRecordingIndex(rootPath, cancellationToken);
+
+            Dictionary<string, TarRecordingIndexEntry> cachedEntries;
+            lock (indexSyncRoot)
+                cachedEntries = LoadRecordingIndex(rootPath, cancellationToken: cancellationToken);
+
+            if (cachedEntries.Count > 0)
+                return SortRecordings(cachedEntries.Values.Select(entry => entry.Metadata));
+
+            return RebuildRecordingIndex(rootPath, cancellationToken);
+        }
+
+        private List<TarRecordingMetadata> RebuildRecordingIndex(string rootPath, CancellationToken cancellationToken)
+        {
+            List<TarRecordingMetadata> recordings = new List<TarRecordingMetadata>();
+            IEnumerable<string> metadataFiles;
+            lock (indexSyncRoot)
+            {
+                try
+                {
+                    metadataFiles = Directory.EnumerateFiles(rootPath, "*.json", new EnumerationOptions
+                    {
+                        RecurseSubdirectories = true,
+                        AttributesToSkip = FileAttributes.ReparsePoint,
+                        IgnoreInaccessible = false
+                    }).Select(path =>
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        return path;
+                    }).ToList();
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    Log.WriteWarning($"Unable to scan TAR recordings: {ex.Message}");
+                    return recordings;
+                }
+
+                var checkedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                Dictionary<string, TarRecordingIndexEntry> cachedEntries = LoadRecordingIndex(rootPath, checkedDirectories, cancellationToken);
+                List<TarRecordingIndexEntry> updatedIndexEntries = new List<TarRecordingIndexEntry>();
+                bool indexChanged = false;
+
+                foreach (string metadataFile in metadataFiles)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!IsRecordingPathSafe(rootPath, metadataFile, checkedDirectories) ||
+                        !IsRecordingPathSafe(rootPath, Path.ChangeExtension(metadataFile, ".wav"), checkedDirectories))
+                    {
+                        indexChanged = true;
+                        continue;
+                    }
+
+                    TarRecordingMetadata metadata = null;
+                    FileInfo metadataInfo;
+                    try
+                    {
+                        metadataInfo = new FileInfo(metadataFile);
+                    }
+                    catch
+                    {
+                        indexChanged = true;
+                        continue;
+                    }
+
+                    if (cachedEntries.TryGetValue(metadataFile, out TarRecordingIndexEntry cachedEntry) &&
+                        cachedEntry.Metadata != null &&
+                        cachedEntry.MetadataLastWriteUtc == metadataInfo.LastWriteTimeUtc)
+                    {
+                        metadata = cachedEntry.Metadata;
+                        NormalizeMetadataPaths(metadataFile, metadata);
+                    }
+                    else
+                    {
+                        metadata = TryReadMetadata(metadataFile);
+                        indexChanged = true;
+                    }
+
+                    if (!TryBuildIndexEntry(metadataFile, metadata, out TarRecordingIndexEntry updatedEntry))
+                    {
+                        indexChanged = true;
+                        continue;
+                    }
+
+                    recordings.Add(updatedEntry.Metadata);
+                    updatedIndexEntries.Add(updatedEntry);
+                }
+
+                if (indexChanged || updatedIndexEntries.Count != cachedEntries.Count)
+                    SaveRecordingIndex(rootPath, updatedIndexEntries);
+            }
+
+            return SortRecordings(recordings);
+        }
+
+        /// <summary>
+        /// Deletes a recording pair in the current library. On failure, retains its
+        /// metadata/index entry for retry and returns an operator-readable reason.
+        /// </summary>
+        public bool DeleteRecording(TarRecordingMetadata metadata, out string errorMessage)
+        {
+            errorMessage = string.Empty;
+            if (metadata == null || string.IsNullOrWhiteSpace(metadata.FilePath) ||
+                !string.Equals(Path.GetExtension(metadata.FilePath), ".wav", StringComparison.OrdinalIgnoreCase))
+            {
+                errorMessage = "No valid TAR recording was selected.";
+                return false;
+            }
+
+            if (!TryEnsureRecordingRoot(GetConfiguredRecordingRoot(), out string rootPath, out errorMessage))
+                return false;
+
+            string sidecarPath = GetSidecarPath(metadata.FilePath);
+            lock (indexSyncRoot)
+            {
+                if (!DeleteRecording(rootPath, sidecarPath, out errorMessage))
+                    return false;
+
+                RemoveRecordingIndexEntries(rootPath, new[] { sidecarPath });
+                return true;
+            }
+        }
+
+        public static bool TryEnsureRecordingRoot(string rootPath, out string normalizedPath, out string errorMessage)
+        {
+            normalizedPath = string.IsNullOrWhiteSpace(rootPath)
+                ? SettingsManager.DefaultTarRecordingsPath
+                : rootPath.Trim();
+            errorMessage = string.Empty;
+
+            try
+            {
+                normalizedPath = Path.GetFullPath(normalizedPath);
+                Directory.CreateDirectory(normalizedPath);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                errorMessage = ex.Message;
+                return false;
+            }
+        }
+
+        private TarActiveSession GetOrCreateRxSession(
+            Codeplug.System system,
+            Codeplug.Channel channel,
+            uint streamId,
+            uint subscriberId,
+            string subscriberAlias,
+            bool isEncrypted,
+            string encryptionAlgorithm,
+            ushort? encryptionKeyId,
+            DateTime startTimeUtc)
+        {
+            if (system == null || channel == null || streamId == 0)
+                return null;
+
+            TarChannelConfig config = GetChannelConfig(system, channel);
+            if (!config.Enabled)
+                return null;
+
+            if (config.IgnoredSubscriberIds.Contains(subscriberId))
+            {
+                Log.WriteLine($"TAR RX skipped for {system.Name} TG {channel.Tgid} stream {streamId}: RID {subscriberId} is ignored for this resource.");
+                return null;
+            }
+
+            if (!TryEnsureRecordingRoot(GetConfiguredRecordingRoot(), out _, out _))
+            {
+                Log.WriteWarning($"TAR RX skipped for {system.Name} TG {channel.Tgid} stream {streamId}: recording root is unavailable.");
+                return null;
+            }
+
+            string sessionKey = BuildRxSessionKey(system.Name, channel.Tgid, streamId);
+            lock (syncRoot)
+            {
+                if (stopping)
+                    return null;
+
+                if (activeSessions.TryGetValue(sessionKey, out TarActiveSession existingSession))
+                    return existingSession;
+
+                TarRecordingMetadata metadata = new TarRecordingMetadata
+                {
+                    Direction = TarRecordingDirection.RX,
+                    RecordingSourceType = TarRecordingSourceType.InboundRadio,
+                    Protocol = (channel.Mode ?? string.Empty).ToUpperInvariant(),
+                    UtcStartTime = NormalizeUtc(startTimeUtc),
+                    SystemName = system.Name ?? string.Empty,
+                    ChannelName = channel.Name ?? string.Empty,
+                    TalkgroupId = TryParseUInt(channel.Tgid),
+                    TalkgroupName = channel.Name ?? string.Empty,
+                    SubscriberId = subscriberId,
+                    SubscriberAlias = subscriberAlias?.Trim() ?? string.Empty,
+                    ConsoleId = TryParseUInt(channel.GetSourceRid(system)),
+                    ConsoleName = ResolveConsoleDisplayName(system),
+                    StreamId = streamId,
+                    RetentionDaysAtRecordTime = config.RetentionDays > 0 ? config.RetentionDays : null
+                };
+
+                UpdateEncryptionMetadata(metadata, isEncrypted, encryptionAlgorithm, encryptionKeyId);
+
+                activeSessions[sessionKey] = new TarActiveSession
+                {
+                    SessionKey = sessionKey,
+                    ChannelName = channel.Name ?? string.Empty,
+                    Metadata = metadata
+                };
+
+                Log.WriteLine($"TAR RX started for {metadata.SystemName} TG {metadata.TalkgroupId} RID {subscriberId} stream {streamId}.");
+                return activeSessions[sessionKey];
+            }
+        }
+
+        private void AppendAudio(string sessionKey, byte[] pcmData)
+        {
+            if (string.IsNullOrWhiteSpace(sessionKey) || pcmData == null || pcmData.Length == 0)
+                return;
+
+            TarActiveSession session;
+            lock (syncRoot)
+            {
+                if (!activeSessions.TryGetValue(sessionKey, out session))
+                    return;
+            }
+
+            lock (session.SyncRoot)
+            {
+                if (!session.AcceptingAudio)
+                    return;
+
+                session.PcmBuffer.Write(pcmData, 0, pcmData.Length);
+            }
+        }
+
+        private TarActiveSession RemoveSession(string sessionKey)
+        {
+            if (string.IsNullOrWhiteSpace(sessionKey))
+                return null;
+
+            lock (syncRoot)
+            {
+                if (!activeSessions.TryGetValue(sessionKey, out TarActiveSession session))
+                    return null;
+
+                activeSessions.Remove(sessionKey);
+                // Register before releasing ownership, so shutdown cannot miss this finalizer.
+                lock (session.SyncRoot)
+                    session.AcceptingAudio = false;
+                finalizingSessions.Add(session);
+                return session;
+            }
+        }
+
+        private void FinalizeSessionAsync(TarActiveSession session, DateTime endTimeUtc)
+        {
+            Task.Run(() => FinalizeSession(session, endTimeUtc));
+        }
+
+        private void FinalizeSession(TarActiveSession session, DateTime endTimeUtc)
+        {
+            if (session?.Metadata == null)
+                return;
+
+            TarRecordingMetadata savedRecording = null;
+            try
+            {
+                if (!TryEnsureRecordingRoot(GetConfiguredRecordingRoot(), out string rootPath, out string error))
+                {
+                    Log.WriteWarning($"TAR recording skipped; recording root invalid: {error}");
+                    return;
+                }
+
+                byte[] pcmBytes;
+                lock (session.SyncRoot)
+                    pcmBytes = session.PcmBuffer.ToArray();
+
+                if (pcmBytes.Length == 0)
+                {
+                    Log.WriteWarning($"TAR finalize skipped for {session.ChannelName}: no PCM audio was captured for stream {session.Metadata.StreamId}.");
+                    return;
+                }
+
+                DateTime normalizedEndUtc = NormalizeUtc(endTimeUtc);
+                TarTrimResult trimResult = TrimSilence(pcmBytes);
+                if (trimResult.AudioBytes.Length == 0)
+                {
+                    Log.WriteWarning($"TAR finalize skipped for {session.ChannelName}: silence trim removed all audio for stream {session.Metadata.StreamId}.");
+                    return;
+                }
+
+                string dayFolder = Path.Combine(rootPath, session.Metadata.UtcStartTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+                string talkgroupFolder = Path.Combine(dayFolder, BuildTalkgroupFolderName(session.Metadata));
+                string hourFolder = Path.Combine(talkgroupFolder, session.Metadata.UtcStartTime.ToString("HH", CultureInfo.InvariantCulture));
+                Directory.CreateDirectory(hourFolder);
+
+                string fileBaseName = BuildRecordingBaseFileName(session.Metadata);
+                string wavPath = Path.Combine(hourFolder, fileBaseName + ".wav");
+                string metadataPath = Path.Combine(hourFolder, fileBaseName + ".json");
+
+                using (WaveFileWriter writer = new WaveFileWriter(wavPath, new WaveFormat(SampleRate, BitsPerSample, ChannelCount)))
+                    writer.Write(trimResult.AudioBytes, 0, trimResult.AudioBytes.Length);
+
+                FileInfo fileInfo = new FileInfo(wavPath);
+                session.Metadata.UtcEndTime = normalizedEndUtc;
+                session.Metadata.DurationMs = Math.Max(0, (long)Math.Round(trimResult.AudioBytes.Length / 16.0));
+                session.Metadata.FilePath = wavPath;
+                session.Metadata.FileName = Path.GetFileName(wavPath);
+                session.Metadata.FileSizeBytes = fileInfo.Exists ? fileInfo.Length : trimResult.AudioBytes.Length;
+                session.Metadata.SampleRate = SampleRate;
+                session.Metadata.BitsPerSample = BitsPerSample;
+                session.Metadata.ChannelCount = ChannelCount;
+                session.Metadata.TrimLeadMs = trimResult.TrimLeadMs;
+                session.Metadata.TrimTailMs = trimResult.TrimTailMs;
+
+                string json = JsonConvert.SerializeObject(session.Metadata, Formatting.Indented);
+                File.WriteAllText(metadataPath, json, Encoding.UTF8);
+                savedRecording = session.Metadata;
+                // History can play the closed WAV once its sidecar is saved, even during an index rebuild.
+                session.Completion.TrySetResult(savedRecording);
+                UpdateRecordingIndexEntry(rootPath, metadataPath, session.Metadata);
+                Log.WriteLine($"TAR recording saved: {session.Metadata.FileName}");
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    Log.WriteWarning($"TAR finalize failed for {session.ChannelName}: {ex.Message}");
+                    Log.StackTrace(ex, false);
+                }
+                catch
+                {
+                    // A failing log sink must not fault an otherwise unobserved finalizer task.
+                }
+            }
+            finally
+            {
+                lock (session.SyncRoot)
+                    session.PcmBuffer.Dispose();
+                lock (syncRoot)
+                {
+                    session.Completion.TrySetResult(savedRecording);
+                    finalizingSessions.Remove(session);
+                    // Shutdown/reload still waits for index maintenance and buffer cleanup.
+                    session.Finalized.TrySetResult(true);
+                }
+            }
+        }
+
+        private static TarRecordingMetadata TryReadMetadata(string metadataFile)
+        {
+            try
+            {
+                string json = File.ReadAllText(metadataFile);
+                TarRecordingMetadata metadata = JsonConvert.DeserializeObject<TarRecordingMetadata>(json);
+                if (metadata == null)
+                    return null;
+
+                NormalizeMetadataPaths(metadataFile, metadata);
+                return metadata;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static List<TarRecordingMetadata> SortRecordings(IEnumerable<TarRecordingMetadata> recordings)
+        {
+            return (recordings ?? Enumerable.Empty<TarRecordingMetadata>())
+                .Where(metadata => metadata != null && !string.IsNullOrWhiteSpace(metadata.FilePath))
+                .OrderByDescending(recording => recording.UtcStartTime)
+                .ThenBy(recording => recording.FileName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static bool TryBuildIndexEntry(string metadataFile, TarRecordingMetadata metadata, out TarRecordingIndexEntry entry)
+        {
+            entry = null;
+            if (metadata == null)
+                return false;
+
+            NormalizeMetadataPaths(metadataFile, metadata);
+            // A sidecar left after a partial deletion must remain visible for retry,
+            // even when its WAV has already been removed.
+            if (string.IsNullOrWhiteSpace(metadata.FilePath))
+                return false;
+
+            FileInfo metadataInfo;
+            try
+            {
+                metadataInfo = new FileInfo(metadataFile);
+                if (!metadataInfo.Exists)
+                    return false;
+            }
+            catch
+            {
+                return false;
+            }
+
+            entry = new TarRecordingIndexEntry
+            {
+                MetadataPath = metadataFile,
+                MetadataLastWriteUtc = metadataInfo.LastWriteTimeUtc,
+                RecordingPath = metadata.FilePath,
+                RecordingLastWriteUtc = TryGetLastWriteUtc(metadata.FilePath),
+                Metadata = metadata
+            };
+            return true;
+        }
+
+        private static void NormalizeMetadataPaths(string metadataFile, TarRecordingMetadata metadata)
+        {
+            if (metadata == null)
+                return;
+
+            // Sidecars move with their WAVs. Never follow a serialized absolute path
+            // back into an old library after the recordings have been copied.
+            metadata.FilePath = string.IsNullOrWhiteSpace(metadataFile)
+                ? string.Empty
+                : Path.ChangeExtension(Path.GetFullPath(metadataFile), ".wav");
+            metadata.FileName = Path.GetFileName(metadata.FilePath);
+        }
+
+        private void UpdateRecordingIndexEntry(string rootPath, string metadataPath, TarRecordingMetadata metadata)
+        {
+            if (!TryBuildIndexEntry(metadataPath, metadata, out TarRecordingIndexEntry entry))
+                return;
+
+            lock (indexSyncRoot)
+            {
+                Dictionary<string, TarRecordingIndexEntry> entries = LoadRecordingIndex(rootPath);
+                entries[metadataPath] = entry;
+                SaveRecordingIndex(rootPath, entries.Values);
+            }
+        }
+
+        private void RemoveRecordingIndexEntries(string rootPath, IEnumerable<string> metadataPaths)
+        {
+            if (string.IsNullOrWhiteSpace(rootPath) || metadataPaths == null)
+                return;
+
+            List<string> paths = metadataPaths
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (paths.Count == 0)
+                return;
+
+            lock (indexSyncRoot)
+            {
+                Dictionary<string, TarRecordingIndexEntry> entries = LoadRecordingIndex(rootPath);
+                bool removed = false;
+                foreach (string metadataPath in paths)
+                    removed |= entries.Remove(metadataPath);
+
+                if (!removed)
+                    return;
+
+                SaveRecordingIndex(rootPath, entries.Values);
+            }
+        }
+
+        private static Dictionary<string, TarRecordingIndexEntry> LoadRecordingIndex(string rootPath,
+            HashSet<string> checkedDirectories = null, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                checkedDirectories ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                string indexPath = Path.Combine(rootPath, RecordingIndexFileName);
+                if (!File.Exists(indexPath))
+                    return new Dictionary<string, TarRecordingIndexEntry>(StringComparer.OrdinalIgnoreCase);
+
+                string json = File.ReadAllText(indexPath);
+                TarRecordingIndex index = JsonConvert.DeserializeObject<TarRecordingIndex>(json);
+                List<TarRecordingIndexEntry> entries = (index?.Entries ?? new List<TarRecordingIndexEntry>())
+                    .Where(entry =>
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        return entry?.Metadata != null &&
+                        IsRecordingPathSafe(rootPath, entry.MetadataPath, checkedDirectories) &&
+                        File.Exists(entry.MetadataPath) &&
+                        string.Equals(Path.GetExtension(entry.MetadataPath), ".json", StringComparison.OrdinalIgnoreCase) &&
+                        IsRecordingPathSafe(rootPath, Path.ChangeExtension(entry.MetadataPath, ".wav"), checkedDirectories);
+                    })
+                    .ToList();
+                foreach (TarRecordingIndexEntry entry in entries)
+                {
+                    entry.MetadataPath = Path.GetFullPath(entry.MetadataPath);
+                    NormalizeMetadataPaths(entry.MetadataPath, entry.Metadata);
+                }
+
+                return entries
+                    .Where(entry => !string.IsNullOrWhiteSpace(entry?.MetadataPath) && entry.Metadata != null)
+                    .GroupBy(entry => entry.MetadataPath, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(group => group.Key, group => group.Last(), StringComparer.OrdinalIgnoreCase);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                Log.WriteWarning($"Unable to read TAR recording index: {ex.Message}");
+                return new Dictionary<string, TarRecordingIndexEntry>(StringComparer.OrdinalIgnoreCase);
+            }
+        }
+
+        private static void SaveRecordingIndex(string rootPath, IEnumerable<TarRecordingIndexEntry> entries)
+        {
+            try
+            {
+                string indexPath = Path.Combine(rootPath, RecordingIndexFileName);
+                TarRecordingIndex index = new TarRecordingIndex
+                {
+                    Entries = entries?.ToList() ?? new List<TarRecordingIndexEntry>()
+                };
+
+                string json = JsonConvert.SerializeObject(index, Formatting.None);
+                string tempPath = indexPath + ".tmp";
+                File.WriteAllText(tempPath, json, Encoding.UTF8);
+                File.Move(tempPath, indexPath, true);
+            }
+            catch (Exception ex)
+            {
+                Log.WriteWarning($"Unable to update TAR recording index: {ex.Message}");
+            }
+        }
+
+        private static DateTime? TryGetLastWriteUtc(string path)
+        {
+            try
+            {
+                return File.Exists(path) ? File.GetLastWriteTimeUtc(path) : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Rejects paths outside this library and links/junctions that could redirect
+        /// file operations, including linked ancestors of the configured root.
+        /// </summary>
+        private static bool IsRecordingPathSafe(string rootPath, string path, HashSet<string> checkedDirectories = null)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path))
+                    return false;
+
+                string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootPath));
+                string fullPath = Path.GetFullPath(path);
+                string prefix = Path.EndsInDirectorySeparator(root) ? root : root + Path.DirectorySeparatorChar;
+                if (!fullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    return false;
+
+                string current = fullPath;
+                List<string> directories = checkedDirectories == null ? null : new List<string>();
+                while (current != null)
+                {
+                    // Cache ancestors only within this scan; each leaf and every deletion is checked afresh.
+                    if (current != fullPath && checkedDirectories?.Contains(current) == true)
+                        break;
+                    try
+                    {
+                        if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                            return false;
+                        if (current != fullPath)
+                            directories?.Add(current);
+                    }
+                    catch (FileNotFoundException) { }
+                    catch (DirectoryNotFoundException) { }
+                    current = Path.GetDirectoryName(current);
+                }
+                if (directories != null)
+                    checkedDirectories.UnionWith(directories);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool DeleteRecording(string rootPath, string metadataPath, out string errorMessage)
+        {
+            errorMessage = string.Empty;
+            try
+            {
+                string wavPath = Path.ChangeExtension(metadataPath, ".wav");
+                if (!IsRecordingPathSafe(rootPath, metadataPath) || !IsRecordingPathSafe(rootPath, wavPath))
+                {
+                    errorMessage = "The recording is outside the current TAR library or uses a linked path. Refresh the library before retrying.";
+                    return false;
+                }
+
+                if (!File.Exists(metadataPath))
+                {
+                    errorMessage = "The recording metadata is missing. Refresh the TAR library before retrying.";
+                    return false;
+                }
+
+                // Keep the sidecar discoverable if the WAV is locked. If only the
+                // sidecar deletion fails, the remaining entry can still be retried.
+                File.Delete(wavPath);
+                File.Delete(metadataPath);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                errorMessage = $"Unable to finish deleting the recording: {ex.Message} The remaining TAR entry has been kept for retry.";
+                Log.WriteWarning(errorMessage);
+                return false;
+            }
+        }
+
+        private static string BuildRxSessionKey(string systemName, string talkgroupId, uint streamId)
+        {
+            return $"RX|{systemName?.Trim()}|{talkgroupId?.Trim()}|{streamId}";
+        }
+
+        private static string BuildTxSessionKey(string systemName, string talkgroupId, uint streamId)
+        {
+            return $"TX|{systemName?.Trim()}|{talkgroupId?.Trim()}|{streamId}";
+        }
+
+        private static string ResolveConsoleDisplayName(Codeplug.System system)
+        {
+            if (!string.IsNullOrWhiteSpace(system?.Identity))
+                return system.Identity.Trim();
+
+            return system?.Name?.Trim() ?? string.Empty;
+        }
+
+        private static uint? TryParseUInt(string value)
+        {
+            return uint.TryParse(value, out uint parsed) ? parsed : null;
+        }
+
+        private static DateTime NormalizeUtc(DateTime value)
+        {
+            if (value.Kind == DateTimeKind.Utc)
+                return value;
+            if (value.Kind == DateTimeKind.Local)
+                return value.ToUniversalTime();
+
+            return DateTime.SpecifyKind(value, DateTimeKind.Local).ToUniversalTime();
+        }
+
+        private static string BuildRecordingBaseFileName(TarRecordingMetadata metadata)
+        {
+            string timestamp = metadata.UtcStartTime.ToString("yyyyMMdd'T'HHmmss.fff'Z'", CultureInfo.InvariantCulture);
+            string system = SanitizeSegment(metadata.SystemName, 18);
+            string channel = SanitizeSegment(metadata.ChannelName, 18);
+            string tg = metadata.TalkgroupId.HasValue ? metadata.TalkgroupId.Value.ToString(CultureInfo.InvariantCulture) : "TG0";
+            string src = metadata.SubscriberId.HasValue ? metadata.SubscriberId.Value.ToString(CultureInfo.InvariantCulture) : "SRC0";
+            string shortId = string.IsNullOrWhiteSpace(metadata.RecordingId)
+                ? Guid.NewGuid().ToString("N")[..8]
+                : metadata.RecordingId[..Math.Min(8, metadata.RecordingId.Length)];
+
+            return $"{timestamp}_{metadata.Direction}_{system}_{channel}_TG{tg}_SRC{src}_{shortId}";
+        }
+
+        private static string BuildTalkgroupFolderName(TarRecordingMetadata metadata)
+        {
+            string talkgroupName = SanitizeSegment(metadata?.TalkgroupName, 48);
+            string talkgroupId = metadata?.TalkgroupId?.ToString(CultureInfo.InvariantCulture) ?? "0";
+            return $"{talkgroupName}_TG{talkgroupId}";
+        }
+
+        private static string SanitizeSegment(string value, int maxLength)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return "unknown";
+
+            StringBuilder builder = new StringBuilder();
+            foreach (char character in value.Trim())
+            {
+                if (Path.GetInvalidFileNameChars().Contains(character))
+                    continue;
+
+                if (char.IsLetterOrDigit(character))
+                    builder.Append(character);
+                else
+                    builder.Append('_');
+            }
+
+            string sanitized = builder.ToString().Trim('_');
+            if (string.IsNullOrWhiteSpace(sanitized))
+                sanitized = "unknown";
+
+            if (sanitized.Length > maxLength)
+                sanitized = sanitized[..maxLength];
+
+            return sanitized;
+        }
+
+        private static string GetSidecarPath(string wavPath)
+        {
+            return string.IsNullOrWhiteSpace(wavPath)
+                ? string.Empty
+                : Path.ChangeExtension(wavPath, ".json");
+        }
+
+        private static void UpdateEncryptionMetadata(TarRecordingMetadata metadata, bool isEncrypted, string encryptionAlgorithm, ushort? encryptionKeyId)
+        {
+            metadata.IsEncrypted = isEncrypted;
+            metadata.EncryptionAlgorithm = isEncrypted
+                ? (string.IsNullOrWhiteSpace(encryptionAlgorithm) ? "Unknown" : encryptionAlgorithm.Trim())
+                : string.Empty;
+            metadata.EncryptionKeyId = isEncrypted && encryptionKeyId.GetValueOrDefault() > 0
+                ? encryptionKeyId
+                : null;
+        }
+
+        private sealed class TarTrimResult
+        {
+            public byte[] AudioBytes { get; init; } = Array.Empty<byte>();
+            public int TrimLeadMs { get; init; }
+            public int TrimTailMs { get; init; }
+        }
+
+        private static TarTrimResult TrimSilence(byte[] pcmBytes)
+        {
+            if (pcmBytes == null || pcmBytes.Length < 2)
+            {
+                return new TarTrimResult
+                {
+                    AudioBytes = Array.Empty<byte>(),
+                    TrimLeadMs = 0,
+                    TrimTailMs = 0
+                };
+            }
+
+            int totalSamples = pcmBytes.Length / 2;
+            int firstActiveSample = FindFirstActiveSample(pcmBytes, totalSamples);
+            int lastActiveSample = FindLastActiveSample(pcmBytes, totalSamples);
+
+            if (firstActiveSample < 0 || lastActiveSample < firstActiveSample)
+            {
+                return new TarTrimResult
+                {
+                    AudioBytes = pcmBytes.ToArray(),
+                    TrimLeadMs = 0,
+                    TrimTailMs = 0
+                };
+            }
+
+            int paddingSamples = (SampleRate * TrimPaddingMs) / 1000;
+            int startSample = Math.Max(0, firstActiveSample - paddingSamples);
+            int endSample = Math.Min(totalSamples - 1, lastActiveSample + paddingSamples);
+
+            int startByte = startSample * 2;
+            int byteLength = ((endSample - startSample) + 1) * 2;
+            byte[] trimmedBytes = new byte[byteLength];
+            Buffer.BlockCopy(pcmBytes, startByte, trimmedBytes, 0, byteLength);
+
+            int trimLeadMs = (int)Math.Round(startSample * 1000.0 / SampleRate);
+            int trimTailSamples = Math.Max(0, totalSamples - endSample - 1);
+            int trimTailMs = (int)Math.Round(trimTailSamples * 1000.0 / SampleRate);
+
+            return new TarTrimResult
+            {
+                AudioBytes = trimmedBytes,
+                TrimLeadMs = trimLeadMs,
+                TrimTailMs = trimTailMs
+            };
+        }
+
+        private static int FindFirstActiveSample(byte[] pcmBytes, int totalSamples)
+        {
+            for (int sampleIndex = 0; sampleIndex < totalSamples; sampleIndex += WindowSamples)
+            {
+                int samplesToCheck = Math.Min(WindowSamples, totalSamples - sampleIndex);
+                if (WindowHasActivity(pcmBytes, sampleIndex, samplesToCheck))
+                    return sampleIndex;
+            }
+
+            return -1;
+        }
+
+        private static int FindLastActiveSample(byte[] pcmBytes, int totalSamples)
+        {
+            for (int sampleIndex = Math.Max(0, totalSamples - WindowSamples); sampleIndex >= 0; sampleIndex -= WindowSamples)
+            {
+                int samplesToCheck = Math.Min(WindowSamples, totalSamples - sampleIndex);
+                if (WindowHasActivity(pcmBytes, sampleIndex, samplesToCheck))
+                    return sampleIndex + samplesToCheck - 1;
+            }
+
+            return -1;
+        }
+
+        private static bool WindowHasActivity(byte[] pcmBytes, int startSample, int sampleCount)
+        {
+            int byteIndex = startSample * 2;
+            for (int i = 0; i < sampleCount; i++)
+            {
+                short sample = BitConverter.ToInt16(pcmBytes, byteIndex + (i * 2));
+                if (Math.Abs((int)sample) >= SilenceThreshold)
+                    return true;
+            }
+
+            return false;
+        }
+    }
+}

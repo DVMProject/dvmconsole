@@ -1,0 +1,64 @@
+<Project>
+  <!-- SPDX-License-Identifier: AGPL-3.0-only; DVMProject authors -->
+  <PropertyGroup>
+    <VocoderSourceDirectory Condition="'$(VocoderSourceDirectory)' == '' And Exists('$(ProjectDir)Native\$(PlatformTarget)\libvocoder.dll')">$(ProjectDir)Native\$(PlatformTarget)</VocoderSourceDirectory>
+    <VocoderSourceDirectory Condition="'$(VocoderSourceDirectory)' == '' And Exists('$(ProjectDir)libvocoder.dll')">$(ProjectDir)</VocoderSourceDirectory>
+    <VocoderSourceDirectory Condition="'$(VocoderSourceDirectory)' == '' And Exists('$(ProjectDir)bin\$(PlatformTarget)\$(Configuration)\$(TargetFramework)\libvocoder.dll')">$(ProjectDir)bin\$(PlatformTarget)\$(Configuration)\$(TargetFramework)</VocoderSourceDirectory>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(VocoderSourceDirectory)' != ''">
+    <Content Include="$(VocoderSourceDirectory)\libvocoder.dll" Condition="Exists('$(VocoderSourceDirectory)\libvocoder.dll')"
+             Link="libvocoder.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <ConsoleNativeRuntime Include="$(VocoderSourceDirectory)\libvocoder.dll" Condition="Exists('$(VocoderSourceDirectory)\libvocoder.dll')" />
+  </ItemGroup>
+
+  <UsingTask TaskName="ValidateConsoleNativeArchitecture" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <Files ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true" />
+      <Architecture ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System.IO" />
+      <Code Type="Method" Language="cs"><![CDATA[
+      public override bool Execute()
+      {
+        ushort expected = Architecture == "x86" ? (ushort)0x014c : (ushort)0x8664;
+        if (Architecture != "x86" && Architecture != "x64")
+        {
+            Log.LogError("Console native runtime requires an explicit x86 or x64 target.");
+            return false;
+        }
+        foreach (var file in Files)
+        {
+            try
+            {
+                using (var reader = new BinaryReader(File.OpenRead(file.ItemSpec)))
+                {
+                    if (reader.ReadUInt16() != 0x5a4d) throw new InvalidDataException("Missing MZ header.");
+                    reader.BaseStream.Position = 0x3c;
+                    int peOffset = reader.ReadInt32();
+                    if (peOffset < 64 || peOffset > reader.BaseStream.Length - 24) throw new InvalidDataException("Invalid PE offset.");
+                    reader.BaseStream.Position = peOffset;
+                    if (reader.ReadUInt32() != 0x4550) throw new InvalidDataException("Missing PE signature.");
+                    ushort machine = reader.ReadUInt16();
+                    if (machine != expected)
+                        Log.LogError("{0} has PE machine 0x{1:X4}; expected {2} (0x{3:X4}).", file.ItemSpec, machine, Architecture, expected);
+                }
+            }
+            catch (Exception ex) { Log.LogError("Cannot validate native DLL {0}: {1}", file.ItemSpec, ex.Message); }
+        }
+        return !Log.HasLoggedErrors;
+      }
+      ]]></Code>
+    </Task>
+  </UsingTask>
+
+  <Target Name="ValidateConsoleNativeRuntime" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true' And '@(ConsoleNativeRuntime)' != ''">
+    <ValidateConsoleNativeArchitecture Files="@(ConsoleNativeRuntime)" Architecture="$(PlatformTarget)" />
+  </Target>
+  <Target Name="RequireConsolePublishRuntime" BeforeTargets="ComputeFilesToPublish">
+    <Error Condition="'$(VocoderSourceDirectory)' == '' Or !Exists('$(VocoderSourceDirectory)\libvocoder.dll')"
+           Text="Publishing requires libvocoder.dll. Set VocoderSourceDirectory to a directory containing the matching native runtime." />
+    <ValidateConsoleNativeArchitecture Files="@(ConsoleNativeRuntime)" Architecture="$(PlatformTarget)" />
+  </Target>
+</Project>

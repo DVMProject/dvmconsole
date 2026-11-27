@@ -10,15 +10,18 @@
 *   Copyright (C) 2024-2025 Caleb, K4PHP
 *   Copyright (C) 2025 Bryan Biedenkapp, N2PLL
 *   Copyright (C) 2025 Steven Jennison, KD8RHO
+*   Copyright (C) 2026 C. Lovell, Dev_Ranger
 *
 */
 
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 
 using System.Windows.Forms;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 using fnecore.Utility;
 
@@ -29,15 +32,41 @@ namespace dvmconsole
     /// </summary>
     public class SettingsManager
     {
+        public const int WINDOWS_DEFAULT_AUDIO_DEVICE = -1;
+        public const string LEGACY_GLOBAL_INPUT_DEVICE_KEY = "GLOBAL_INPUT";
+        public const int MAX_TOOLBAR_CLOCKS = 8;
+        public const string DEFAULT_TOOLBAR_CLOCK_COLOR = "#3A3A3A";
+        public const double DEFAULT_CALL_HISTORY_WINDOW_WIDTH = 551;
+        public const double DEFAULT_CALL_HISTORY_WINDOW_HEIGHT = 450;
+        public const string TONE_PRESET_STEP_KIND_TONE = "tone";
+        public const string TONE_PRESET_STEP_KIND_HOLD = "hold";
+        public const double TONE_PRESET_MIN_DURATION_SECONDS = 0.25;
+        public const double TONE_PRESET_MAX_DURATION_SECONDS = 10.0;
+        public const string DTMF_PRESET_STEP_KIND_DIGIT = "digit";
+        public const string ALERT_TONE_SCHEDULE_MODE_ONCE = "once";
+        public const string ALERT_TONE_SCHEDULE_MODE_RECURRING = "recurring";
+        public const double ALERT_TONE_SCHEDULE_MIN_REPEAT_MINUTES = 1.0;
+        public const double AUDIO_INPUT_GAIN_MIN = 0.25;
+        public const double AUDIO_INPUT_GAIN_MAX = 3.0;
+        public const double AUDIO_INPUT_EQ_GAIN_DB_MIN = -12.0;
+        public const double AUDIO_INPUT_EQ_GAIN_DB_MAX = 12.0;
+
         public static readonly string UserAppData = Environment.GetFolderPath(
             Environment.SpecialFolder.ApplicationData);
+        public static readonly string DefaultTarRecordingsPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            "DVMConsole",
+            "TAR");
 
         public static readonly string RootAppDataPath = "DVMProject" + Path.DirectorySeparatorChar + "dvmconsole";
         public static string UserAppDataPath = UserAppData + Path.DirectorySeparatorChar + RootAppDataPath;
 
         private static string SettingsFilePath = UserAppDataPath + Path.DirectorySeparatorChar + "UserSettings.json";
+        private const string SETTINGS_TRANSFER_FORMAT = "dvmconsole-settings-transfer";
 
         private static SettingsManager _instance = null;
+        private readonly object persistenceSync = new object();
+        private bool resetPending;
 
         /*
         ** Properties
@@ -84,23 +113,248 @@ namespace dvmconsole
         /// 
         /// </summary>
         public Dictionary<string, ChannelPosition> AlertTonePositions { get; set; } = new Dictionary<string, ChannelPosition>();
+        /// <summary>
+        /// Saved web stream chip positions keyed by stream name.
+        /// </summary>
+        public Dictionary<string, ChannelPosition> WebStreamPositions { get; set; } = new Dictionary<string, ChannelPosition>();
+        /// <summary>
+        /// Saved tab assignment for alert tone widgets.
+        /// </summary>
+        public Dictionary<string, string> AlertToneTabs { get; set; } = new Dictionary<string, string>();
+        /// <summary>
+        /// Saved alert tone configurations using a stable ID.
+        /// </summary>
+        public List<AlertToneConfig> AlertTones { get; set; } = new List<AlertToneConfig>();
+        /// <summary>
+        /// Saved timed custom alert tone announcements.
+        /// </summary>
+        public List<AlertToneScheduleConfig> AlertToneSchedules { get; set; } = new List<AlertToneScheduleConfig>();
+        /// <summary>
+        /// Saved generated tone presets using a stable ID.
+        /// </summary>
+        public List<TonePresetConfig> TonePresets { get; set; } = new List<TonePresetConfig>();
+        /// <summary>
+        /// Saved DTMF presets using a stable ID.
+        /// </summary>
+        public List<DtmfPresetConfig> DtmfPresets { get; set; } = new List<DtmfPresetConfig>();
 
         /// <summary>
         /// 
         /// </summary>
         public Dictionary<string, int> ChannelOutputDevices { get; set; } = new Dictionary<string, int>();
+        /// <summary>
+        /// Stable per-resource output device identities keyed by talkgroup ID or stream name.
+        /// </summary>
+        public Dictionary<string, string> ChannelOutputDeviceKeys { get; set; } = new Dictionary<string, string>();
+        /// <summary>
+        /// Global input device override. -1 follows the current Windows default device.
+        /// </summary>
+        public int AudioInputDevice { get; set; } = WINDOWS_DEFAULT_AUDIO_DEVICE;
+        /// <summary>
+        /// Stable global input device identity. Empty or windows-default follows Windows default.
+        /// </summary>
+        public string AudioInputDeviceKey { get; set; } = AudioDeviceResolver.WINDOWS_DEFAULT_DEVICE_KEY;
+        /// <summary>
+        /// Master output device used by resources without a per-TG override. -1 follows Windows default.
+        /// </summary>
+        public int MasterOutputDevice { get; set; } = WINDOWS_DEFAULT_AUDIO_DEVICE;
+        /// <summary>
+        /// Stable master output device identity. Empty or windows-default follows Windows default.
+        /// </summary>
+        public string MasterOutputDeviceKey { get; set; } = AudioDeviceResolver.WINDOWS_DEFAULT_DEVICE_KEY;
+        /// <summary>
+        /// Enables simple console microphone automatic gain control.
+        /// </summary>
+        public bool AudioInputAgcEnabled { get; set; } = false;
+        /// <summary>
+        /// Console microphone gain applied before transmit encoding.
+        /// </summary>
+        public double AudioInputGain { get; set; } = 1.0;
+        /// <summary>
+        /// Low-band microphone EQ gain in dB.
+        /// </summary>
+        public double AudioInputEqLowGainDb { get; set; } = 0.0;
+        /// <summary>
+        /// Mid-band microphone EQ gain in dB.
+        /// </summary>
+        public double AudioInputEqMidGainDb { get; set; } = 0.0;
+        /// <summary>
+        /// High-band microphone EQ gain in dB.
+        /// </summary>
+        public double AudioInputEqHighGainDb { get; set; } = 0.0;
+        /// <summary>
+        /// Last selected/saved microphone processing preset name.
+        /// </summary>
+        public string AudioInputPresetName { get; set; } = string.Empty;
+        /// <summary>
+        /// User-defined microphone gain/EQ presets.
+        /// </summary>
+        public List<AudioInputPresetConfig> AudioInputPresets { get; set; } = new List<AudioInputPresetConfig>();
+        /// <summary>
+        /// Suppresses local RX speaker playback while the console is transmitting.
+        /// </summary>
+        public bool MuteRxAudioWhileTransmitting { get; set; } = false;
+        /// <summary>
+        /// Saved per-channel volume levels.
+        /// </summary>
+        public Dictionary<string, double> ChannelVolumes { get; set; } = new Dictionary<string, double>();
+        /// <summary>
+        /// Saved selectable encryption TX state keyed by system and talkgroup.
+        /// </summary>
+        public Dictionary<string, bool> SelectableEncryptionStates { get; set; } = new Dictionary<string, bool>();
+        /// <summary>
+        /// Saved web stream chip volumes keyed by stream name.
+        /// </summary>
+        public Dictionary<string, double> WebStreamVolumes { get; set; } = new Dictionary<string, double>();
+        /// <summary>
+        /// Root folder where TAR recordings are stored.
+        /// </summary>
+        public string TarRecordingsRootPath { get; set; } = DefaultTarRecordingsPath;
+        /// <summary>
+        /// TAR settings keyed by system/talkgroup resource identity.
+        /// </summary>
+        public Dictionary<string, TarChannelConfig> TarChannelConfigs { get; set; } = new Dictionary<string, TarChannelConfig>();
+        /// <summary>
+        /// Saved toolbar clock configuration rows.
+        /// </summary>
+        public List<ToolbarClockConfig> ToolbarClockConfigs { get; set; } = CreateDefaultToolbarClockConfigs();
+        /// <summary>
+        /// Saved toolbar clock configuration keyed by clock slot.
+        /// </summary>
+        public Dictionary<string, ToolbarClockConfig> ToolbarClockConfigSlots { get; set; } = new Dictionary<string, ToolbarClockConfig>();
+        /// <summary>
+        /// Flag indicating toolbar clocks should use 24-hour time.
+        /// </summary>
+        public bool ClockUse24HourTime { get; set; } = true;
+        /// <summary>
+        /// Flag indicating toolbar clocks should show seconds.
+        /// </summary>
+        public bool ClockShowSeconds { get; set; } = true;
+        /// <summary>
+        /// Saved patch group memberships scoped by codeplug context key.
+        /// </summary>
+        public Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> PatchGroupMemberships { get; set; } = new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>();
+        /// <summary>
+        /// Saved patch group one-way mode scoped by codeplug context key.
+        /// </summary>
+        public Dictionary<string, Dictionary<string, bool>> PatchGroupModes { get; set; } = new Dictionary<string, Dictionary<string, bool>>();
+        /// <summary>
+        /// Saved patch enabled state scoped by codeplug context key.
+        /// </summary>
+        public Dictionary<string, Dictionary<string, bool>> PatchGroupEnabledStates { get; set; } = new Dictionary<string, Dictionary<string, bool>>();
+
+        /// <summary>
+        /// Stored member identity for a patch talkgroup.
+        /// </summary>
+        public class PatchTalkgroupMember
+        {
+            public string SystemName { get; set; } = string.Empty;
+            public string Tgid { get; set; } = string.Empty;
+        }
+
+        /// <summary>
+        /// Persisted configuration for a custom alert tone widget.
+        /// </summary>
+        public class AlertToneConfig
+        {
+            public string Id { get; set; } = Guid.NewGuid().ToString("N");
+            public string DisplayName { get; set; } = string.Empty;
+            public string FilePath { get; set; } = string.Empty;
+            public string TabName { get; set; } = string.Empty;
+            public ChannelPosition Position { get; set; } = new ChannelPosition { X = 20, Y = 20 };
+        }
+
+        /// <summary>
+        /// Persisted timed announcement for a custom alert tone.
+        /// </summary>
+        public class AlertToneScheduleConfig
+        {
+            public string Id { get; set; } = Guid.NewGuid().ToString("N");
+            public string DisplayName { get; set; } = string.Empty;
+            public string AlertToneId { get; set; } = string.Empty;
+            public string TargetResourceKey { get; set; } = string.Empty;
+            public bool Enabled { get; set; } = true;
+            public string Mode { get; set; } = ALERT_TONE_SCHEDULE_MODE_ONCE;
+            public DateTime NextRunLocal { get; set; } = DateTime.Now.AddMinutes(5);
+            public double RepeatMinutes { get; set; } = 60.0;
+            public DateTime? LastRunUtc { get; set; }
+        }
+
+        /// <summary>
+        /// Persisted generated tone preset.
+        /// </summary>
+        public class TonePresetConfig
+        {
+            public string Id { get; set; } = Guid.NewGuid().ToString("N");
+            public string DisplayName { get; set; } = string.Empty;
+            public string TargetResourceKey { get; set; } = string.Empty;
+            public List<TonePresetStep> Steps { get; set; } = new List<TonePresetStep>();
+        }
+
+        /// <summary>
+        /// One generated tone step in a preset stack.
+        /// </summary>
+        public class TonePresetStep
+        {
+            public string Kind { get; set; } = TONE_PRESET_STEP_KIND_TONE;
+            public double FrequencyHz { get; set; } = 1000;
+            public double DurationSeconds { get; set; } = 1;
+        }
+
+        /// <summary>
+        /// Persisted DTMF preset.
+        /// </summary>
+        public class DtmfPresetConfig
+        {
+            public string Id { get; set; } = Guid.NewGuid().ToString("N");
+            public string DisplayName { get; set; } = string.Empty;
+            public string TargetResourceKey { get; set; } = string.Empty;
+            public List<DtmfPresetStep> Steps { get; set; } = new List<DtmfPresetStep>();
+        }
+
+        /// <summary>
+        /// Persisted microphone gain/EQ preset.
+        /// </summary>
+        public class AudioInputPresetConfig
+        {
+            public string Name { get; set; } = string.Empty;
+            public double Gain { get; set; } = 1.0;
+            public double LowGainDb { get; set; } = 0.0;
+            public double MidGainDb { get; set; } = 0.0;
+            public double HighGainDb { get; set; } = 0.0;
+        }
+
+        /// <summary>
+        /// One DTMF digit or hold step in a preset stack.
+        /// </summary>
+        public class DtmfPresetStep
+        {
+            public string Kind { get; set; } = DTMF_PRESET_STEP_KIND_DIGIT;
+            public string Digit { get; set; } = "1";
+            public double DurationSeconds { get; set; } = TONE_PRESET_MIN_DURATION_SECONDS;
+        }
+
+        /// <summary>
+        /// Persisted configuration for a toolbar clock slot.
+        /// </summary>
+        public class ToolbarClockConfig
+        {
+            public bool Enabled { get; set; } = false;
+            public int UtcOffsetHours { get; set; } = 0;
+            public string ColorHex { get; set; } = DEFAULT_TOOLBAR_CLOCK_COLOR;
+        }
 
         /// <summary>
         /// Flag indicating the PTT mode, Toggle PTT or Regular PTT.
         /// </summary>
-        public bool TogglePTTMode { get; set; } = true;
+        public bool TogglePTTMode { get; set; } = false;
 
         /// <summary>
         /// Flag indicating channel and other widgets are locked in place.
         /// </summary>
         public bool LockWidgets { get; set; } = true;
         /// <summary>
-        /// Flag indicating whether or not the call history window should be snapped to the right of the main window.
+        /// Flag indicating whether or not the event history window should be snapped to the right of the main window.
         /// </summary>
         public bool SnapCallHistoryToWindow { get; set; } = false;
 
@@ -116,7 +370,7 @@ namespace dvmconsole
         /// <summary>
         /// Flag indicating whether or not the window operates in dark mode.
         /// </summary>
-        public bool DarkMode { get; set; } = false;
+        public bool DarkMode { get; set; } = true;
         /// <summary>
         /// Last width of the console window.
         /// </summary>
@@ -138,6 +392,10 @@ namespace dvmconsole
         /// Full path to a user defined background image.
         /// </summary>
         public string UserBackgroundImage { get; set; } = null;
+        /// <summary>
+        /// Codeplug zones hidden from the main tab strip.
+        /// </summary>
+        public List<string> HiddenResourceZones { get; set; } = new List<string>();
 
         /// <summary>
         /// Flag enabling trace logging.
@@ -149,20 +407,281 @@ namespace dvmconsole
         /// </summary>
         public Keys GlobalPTTShortcut { get; set; } = Keys.None;
         /// <summary>
+        /// Fixed PTT slots saved separately for each codeplug path.
+        /// </summary>
+        public Dictionary<string, List<PttKeyBinding>> FixedPttBindingsByCodeplug { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>
         /// 
         /// </summary>
         public bool GlobalPTTKeysAllChannels { get; set; }
+        /// <summary>
+        ///
+        /// </summary>
+        public bool TalkPermitTone { get; set; } = false;
+        /// <summary>
+        /// Flag indicating whether patch enabled state should be restored on startup.
+        /// </summary>
+        public bool RetainPatchStateOnStartup { get; set; } = false;
+        /// <summary>
+        /// Flag indicating whether selected channels should be restored on startup.
+        /// </summary>
+        public bool RestoreSelectedChannelsOnStartup { get; set; } = false;
 
+        /// <summary>
+        /// Saved list of selected channel names to restore on startup.
+        /// </summary>
+        public List<string> SelectedChannels { get; set; } = new List<string>();
+        /// <summary>
+        /// Saved list of active web stream names to restore on startup.
+        /// </summary>
+        public List<string> SelectedWebStreams { get; set; } = new List<string>();
+        /// <summary>
+        /// Saved event history window position and size.
+        /// </summary>
+        public WindowPlacementConfig CallHistoryWindowPlacement { get; set; } = new WindowPlacementConfig
+        {
+            Width = DEFAULT_CALL_HISTORY_WINDOW_WIDTH,
+            Height = DEFAULT_CALL_HISTORY_WINDOW_HEIGHT
+        };
+        /// <summary>
+        /// Saved event history column order, visibility, and widths.
+        /// </summary>
+        public List<GridColumnConfig> CallHistoryColumns { get; set; } = CreateDefaultCallHistoryColumns();
         /*
         ** Methods
         */
 
         /// <summary>
+        /// Persisted floating window position and size.
+        /// </summary>
+        public class WindowPlacementConfig
+        {
+            public double? Left { get; set; }
+            public double? Top { get; set; }
+            public double Width { get; set; } = DEFAULT_CALL_HISTORY_WINDOW_WIDTH;
+            public double Height { get; set; } = DEFAULT_CALL_HISTORY_WINDOW_HEIGHT;
+        }
+
+        /// <summary>
+        /// Persisted data grid column display preferences.
+        /// </summary>
+        public class GridColumnConfig
+        {
+            public string Key { get; set; } = string.Empty;
+            public int DisplayIndex { get; set; }
+            public double Width { get; set; }
+            public bool Visible { get; set; } = true;
+        }
+
+        /// <summary>
+        /// Import/export category shown in the settings transfer window.
+        /// </summary>
+        public class SettingsTransferCategoryDefinition
+        {
+            public string Id { get; set; } = string.Empty;
+            public string DisplayName { get; set; } = string.Empty;
+            public string Description { get; set; } = string.Empty;
+            public List<string> PropertyNames { get; set; } = new List<string>();
+        }
+
+        public class SettingsTransferScope
+        {
+            public List<string> ZoneNames { get; set; } = new List<string>();
+            public List<string> ChannelResourceKeys { get; set; } = new List<string>();
+            public List<string> ChannelNames { get; set; } = new List<string>();
+            public List<string> TalkgroupIds { get; set; } = new List<string>();
+            public List<string> WebStreamNames { get; set; } = new List<string>();
+            public List<string> AlertToneIds { get; set; } = new List<string>();
+
+            [JsonIgnore]
+            public bool HasScope =>
+                ZoneNames?.Count > 0 ||
+                ChannelResourceKeys?.Count > 0 ||
+                ChannelNames?.Count > 0 ||
+                TalkgroupIds?.Count > 0 ||
+                WebStreamNames?.Count > 0 ||
+                AlertToneIds?.Count > 0;
+        }
+
+        private class SettingsTransferFile
+        {
+            public string Format { get; set; } = SETTINGS_TRANSFER_FORMAT;
+            public int Version { get; set; } = 1;
+            public DateTime ExportedUtc { get; set; } = DateTime.UtcNow;
+            public List<string> Categories { get; set; } = new List<string>();
+            public SettingsTransferScope Scope { get; set; }
+            public JObject Settings { get; set; } = new JObject();
+        }
+
+        private static readonly List<SettingsTransferCategoryDefinition> SETTINGS_TRANSFER_CATEGORIES = new List<SettingsTransferCategoryDefinition>
+        {
+            new SettingsTransferCategoryDefinition
+            {
+                Id = "layout",
+                DisplayName = "Console Layout",
+                Description = "Resource, system status, alert tone, web stream, tab visibility, window, canvas, and background placement.",
+                PropertyNames = new List<string>
+                {
+                    nameof(ChannelPositions),
+                    nameof(SystemStatusPositions),
+                    nameof(AlertTonePositions),
+                    nameof(WebStreamPositions),
+                    nameof(WindowWidth),
+                    nameof(WindowHeight),
+                    nameof(CanvasWidth),
+                    nameof(CanvasHeight),
+                    nameof(Maximized),
+                    nameof(UserBackgroundImage),
+                    nameof(HiddenResourceZones)
+                }
+            },
+            new SettingsTransferCategoryDefinition
+            {
+                Id = "audio",
+                DisplayName = "Audio Routing",
+                Description = "Input device, master output, per-resource output overrides, AGC, RX mute, and saved volumes.",
+                PropertyNames = new List<string>
+                {
+                    nameof(ChannelOutputDevices),
+                    nameof(ChannelOutputDeviceKeys),
+                    nameof(AudioInputDevice),
+                    nameof(AudioInputDeviceKey),
+                    nameof(MasterOutputDevice),
+                    nameof(MasterOutputDeviceKey),
+                    nameof(AudioInputAgcEnabled),
+                    nameof(AudioInputGain),
+                    nameof(AudioInputEqLowGainDb),
+                    nameof(AudioInputEqMidGainDb),
+                    nameof(AudioInputEqHighGainDb),
+                    nameof(AudioInputPresetName),
+                    nameof(AudioInputPresets),
+                    nameof(MuteRxAudioWhileTransmitting),
+                    nameof(ChannelVolumes),
+                    nameof(WebStreamVolumes)
+                }
+            },
+            new SettingsTransferCategoryDefinition
+            {
+                Id = "tar",
+                DisplayName = "Talkgroup Audio Recorder",
+                Description = "TAR recording folder, enabled TGs, retention, and ignored RID lists.",
+                PropertyNames = new List<string>
+                {
+                    nameof(TarRecordingsRootPath),
+                    nameof(TarChannelConfigs)
+                }
+            },
+            new SettingsTransferCategoryDefinition
+            {
+                Id = "groups",
+                DisplayName = "Groups and Patches",
+                Description = "Patch/multi-select memberships, one-way patch modes, and retained patch enabled state.",
+                PropertyNames = new List<string>
+                {
+                    nameof(PatchGroupMemberships),
+                    nameof(PatchGroupModes),
+                    nameof(PatchGroupEnabledStates)
+                }
+            },
+            new SettingsTransferCategoryDefinition
+            {
+                Id = "alerts",
+                DisplayName = "Alert Tones and Tone Presets",
+                Description = "Custom tone list, labels, file paths, tab assignments, tone positions, timed announcements, generated tone presets, and DTMF presets.",
+                PropertyNames = new List<string>
+                {
+                    nameof(AlertTones),
+                    nameof(AlertToneSchedules),
+                    nameof(AlertToneFilePaths),
+                    nameof(AlertToneTabs),
+                    nameof(AlertTonePositions),
+                    nameof(TonePresets),
+                    nameof(DtmfPresets)
+                }
+            },
+            new SettingsTransferCategoryDefinition
+            {
+                Id = "clocks",
+                DisplayName = "Toolbar Clocks",
+                Description = "Enabled clocks, UTC offsets, colors, 12/24-hour mode, and seconds display.",
+                PropertyNames = new List<string>
+                {
+                    nameof(ToolbarClockConfigs),
+                    nameof(ToolbarClockConfigSlots),
+                    nameof(ClockUse24HourTime),
+                    nameof(ClockShowSeconds)
+                }
+            },
+            new SettingsTransferCategoryDefinition
+            {
+                Id = "startup",
+                DisplayName = "Startup and Sticky State",
+                Description = "Last codeplug path, restored selected channels/web streams, patch state retention, and startup toggles.",
+                PropertyNames = new List<string>
+                {
+                    nameof(LastCodeplugPath),
+                    nameof(RestoreSelectedChannelsOnStartup),
+                    nameof(SelectedChannels),
+                    nameof(SelectedWebStreams),
+                    nameof(RetainPatchStateOnStartup)
+                }
+            },
+            new SettingsTransferCategoryDefinition
+            {
+                Id = "preferences",
+                DisplayName = "Operator Preferences",
+                Description = "Theme, widget visibility, PTT mode, lock widgets, talk permit tone, always-on-top, and trace logging.",
+                PropertyNames = new List<string>
+                {
+                    nameof(ShowSystemStatus),
+                    nameof(ShowChannels),
+                    nameof(ShowAlertTones),
+                    nameof(TogglePTTMode),
+                    nameof(LockWidgets),
+                    nameof(SnapCallHistoryToWindow),
+                    nameof(KeepWindowOnTop),
+                    nameof(DarkMode),
+                    nameof(TalkPermitTone),
+                    nameof(SaveTraceLog)
+                }
+            },
+            new SettingsTransferCategoryDefinition
+            {
+                Id = "call-history",
+                DisplayName = "Event History Window",
+                Description = "Event history window size, position, column order, and visible columns.",
+                PropertyNames = new List<string>
+                {
+                    nameof(CallHistoryWindowPlacement),
+                    nameof(CallHistoryColumns),
+                    nameof(SnapCallHistoryToWindow)
+                }
+            },
+            new SettingsTransferCategoryDefinition
+            {
+                Id = "keys-security",
+                DisplayName = "Keybinds and Selectable Encryption",
+                Description = "PTT keybinds and per-resource selectable encryption state.",
+                PropertyNames = new List<string>
+                {
+                    nameof(GlobalPTTShortcut),
+                    nameof(FixedPttBindingsByCodeplug),
+                    nameof(SelectableEncryptionStates)
+                }
+            }
+        };
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="SettingsManager"/> class.
         /// </summary>
-        public SettingsManager()
+        public SettingsManager() : this(true)
         {
-            _instance = this;
+        }
+
+        private SettingsManager(bool registerInstance)
+        {
+            if (registerInstance)
+                _instance = this;
         }
 
         /// <summary>
@@ -188,7 +707,9 @@ namespace dvmconsole
             try
             {
                 string json = File.ReadAllText(SettingsFilePath);
-                SettingsManager loadedSettings = JsonConvert.DeserializeObject<SettingsManager>(json);
+                SettingsManager loadedSettings = JsonConvert.DeserializeObject<SettingsManager>(json,
+                    new JsonSerializerSettings { ObjectCreationHandling = ObjectCreationHandling.Replace });
+                _instance = this;
 
                 if (loadedSettings != null)
                 {
@@ -201,11 +722,49 @@ namespace dvmconsole
                     SystemStatusPositions = loadedSettings.SystemStatusPositions ?? new Dictionary<string, ChannelPosition>();
                     AlertToneFilePaths = loadedSettings.AlertToneFilePaths ?? new List<string>();
                     AlertTonePositions = loadedSettings.AlertTonePositions ?? new Dictionary<string, ChannelPosition>();
+                    WebStreamPositions = loadedSettings.WebStreamPositions ?? new Dictionary<string, ChannelPosition>();
+                    AlertToneTabs = loadedSettings.AlertToneTabs ?? new Dictionary<string, string>();
+                    AlertTones = loadedSettings.AlertTones ?? new List<AlertToneConfig>();
+                    AlertToneSchedules = NormalizeAlertToneScheduleConfigs(loadedSettings.AlertToneSchedules);
+                    TonePresets = NormalizeTonePresetConfigs(loadedSettings.TonePresets);
+                    DtmfPresets = NormalizeDtmfPresetConfigs(loadedSettings.DtmfPresets);
                     ChannelOutputDevices = loadedSettings.ChannelOutputDevices ?? new Dictionary<string, int>();
+                    ChannelOutputDeviceKeys = loadedSettings.ChannelOutputDeviceKeys ?? new Dictionary<string, string>();
+                    AudioInputDevice = NormalizeAudioDeviceIndex(loadedSettings.AudioInputDevice);
+                    AudioInputDeviceKey = NormalizeAudioDeviceKey(loadedSettings.AudioInputDeviceKey);
+                    MasterOutputDevice = NormalizeAudioDeviceIndex(loadedSettings.MasterOutputDevice);
+                    MasterOutputDeviceKey = NormalizeAudioDeviceKey(loadedSettings.MasterOutputDeviceKey);
+                    AudioInputAgcEnabled = loadedSettings.AudioInputAgcEnabled;
+                    AudioInputGain = NormalizeAudioInputGain(loadedSettings.AudioInputGain);
+                    AudioInputEqLowGainDb = NormalizeAudioInputEqGainDb(loadedSettings.AudioInputEqLowGainDb);
+                    AudioInputEqMidGainDb = NormalizeAudioInputEqGainDb(loadedSettings.AudioInputEqMidGainDb);
+                    AudioInputEqHighGainDb = NormalizeAudioInputEqGainDb(loadedSettings.AudioInputEqHighGainDb);
+                    AudioInputPresetName = loadedSettings.AudioInputPresetName?.Trim() ?? string.Empty;
+                    AudioInputPresets = NormalizeAudioInputPresets(loadedSettings.AudioInputPresets);
+                    MuteRxAudioWhileTransmitting = loadedSettings.MuteRxAudioWhileTransmitting;
+                    MigrateLegacyAudioSettings();
+                    ChannelVolumes = loadedSettings.ChannelVolumes ?? new Dictionary<string, double>();
+                    SelectableEncryptionStates = loadedSettings.SelectableEncryptionStates ?? new Dictionary<string, bool>();
+                    WebStreamVolumes = loadedSettings.WebStreamVolumes ?? new Dictionary<string, double>();
+                    TarRecordingsRootPath = string.IsNullOrWhiteSpace(loadedSettings.TarRecordingsRootPath)
+                        ? DefaultTarRecordingsPath
+                        : loadedSettings.TarRecordingsRootPath.Trim();
+                    TarChannelConfigs = loadedSettings.TarChannelConfigs ?? new Dictionary<string, TarChannelConfig>();
+                    ToolbarClockConfigSlots = NormalizeToolbarClockConfigSlots(
+                        loadedSettings.ToolbarClockConfigSlots,
+                        loadedSettings.ToolbarClockConfigs);
+                    ToolbarClockConfigs = ToolbarClockConfigSlotsToList(ToolbarClockConfigSlots);
+                    ClockUse24HourTime = loadedSettings.ClockUse24HourTime;
+                    ClockShowSeconds = loadedSettings.ClockShowSeconds;
+                    PatchGroupMemberships = loadedSettings.PatchGroupMemberships ?? new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>();
+                    PatchGroupModes = loadedSettings.PatchGroupModes ?? new Dictionary<string, Dictionary<string, bool>>();
+                    PatchGroupEnabledStates = loadedSettings.PatchGroupEnabledStates ?? new Dictionary<string, Dictionary<string, bool>>();
                     TogglePTTMode = loadedSettings.TogglePTTMode;
                     LockWidgets = loadedSettings.LockWidgets;
                     SnapCallHistoryToWindow = loadedSettings.SnapCallHistoryToWindow;
                     KeepWindowOnTop = loadedSettings.KeepWindowOnTop;
+                    TalkPermitTone = loadedSettings.TalkPermitTone;
+                    RetainPatchStateOnStartup = loadedSettings.RetainPatchStateOnStartup;
                     Maximized = loadedSettings.Maximized;
                     DarkMode = loadedSettings.DarkMode;
                     WindowWidth = loadedSettings.WindowWidth;
@@ -227,9 +786,24 @@ namespace dvmconsole
                         CanvasHeight = WindowHeight;
 
                     UserBackgroundImage = loadedSettings.UserBackgroundImage;
+                    HiddenResourceZones = NormalizeHiddenResourceZones(loadedSettings.HiddenResourceZones);
 
                     SaveTraceLog = loadedSettings.SaveTraceLog;
                     GlobalPTTShortcut = loadedSettings.GlobalPTTShortcut;
+                    FixedPttBindingsByCodeplug = NormalizeFixedPttBindings(loadedSettings.FixedPttBindingsByCodeplug);
+                    RestoreSelectedChannelsOnStartup = loadedSettings.RestoreSelectedChannelsOnStartup;
+                    SelectedChannels = loadedSettings.SelectedChannels ?? new List<string>();
+                    SelectedWebStreams = loadedSettings.SelectedWebStreams ?? new List<string>();
+                    CallHistoryWindowPlacement = NormalizeWindowPlacement(
+                        loadedSettings.CallHistoryWindowPlacement,
+                        DEFAULT_CALL_HISTORY_WINDOW_WIDTH,
+                        DEFAULT_CALL_HISTORY_WINDOW_HEIGHT);
+                    CallHistoryColumns = NormalizeCallHistoryColumns(loadedSettings.CallHistoryColumns);
+
+                    if (AlertTones == null || AlertTones.Count == 0)
+                        AlertTones = MigrateLegacyAlertTones();
+
+                    SyncLegacyAlertToneState();
 
                     if (SaveTraceLog)
                         Log.SetupTextWriter(Environment.CurrentDirectory, "dvmconsole.log");
@@ -243,9 +817,7 @@ namespace dvmconsole
 
                     AssemblyProductAttribute asmProd = asm.GetCustomAttributes(typeof(AssemblyProductAttribute), false)[0] as AssemblyProductAttribute;
                     AssemblyCopyrightAttribute asmCopyright = asm.GetCustomAttributes(typeof(AssemblyCopyrightAttribute), false)[0] as AssemblyCopyrightAttribute;
-                    DateTime buildDate = new DateTime(2000, 1, 1).AddDays(asm.GetName().Version.Build).AddSeconds(asm.GetName().Version.Revision * 2);
-
-                    Log.WriteLine($"{asmProd.Product} {_SEM_VERSION.ToString()} (Built: {buildDate.ToShortDateString() + " at " + buildDate.ToShortTimeString()})");
+                    Log.WriteLine($"{asmProd.Product} {_SEM_VERSION.ToString()} (Built: {BuildInformation.GetTimestampText(asm)})");
                     Log.WriteLine($"{asmCopyright.Copyright}");
                     Log.WriteLine(">> Desktop Dispatch Console");
 
@@ -256,6 +828,7 @@ namespace dvmconsole
             }
             catch (Exception ex)
             {
+                _instance = this;
                 Log.WriteLine($"Error loading settings: {ex.Message}");
                 Log.StackTrace(ex, false);
                 return false;
@@ -267,19 +840,1068 @@ namespace dvmconsole
         /// </summary>
         public void SaveSettings()
         {
-            if (!Directory.Exists(UserAppDataPath))
-                Directory.CreateDirectory(UserAppDataPath);
+            lock (persistenceSync)
+            {
+                if (resetPending)
+                    return;
+                _instance = this;
+                try { WriteSettingsFile(JsonConvert.SerializeObject(this, Formatting.Indented)); }
+                catch (Exception ex)
+                {
+                    Log.WriteLine($"Error saving settings: {ex.Message}");
+                    Log.StackTrace(ex, false);
+                }
+            }
+        }
 
+        /// <summary>Replace the profile only after a complete new snapshot has been written.</summary>
+        private static void WriteSettingsFile(string json)
+        {
+            string directory = Path.GetDirectoryName(Path.GetFullPath(SettingsFilePath));
+            Directory.CreateDirectory(directory);
+            string temporaryPath = Path.Combine(directory, $"UserSettings.{Guid.NewGuid():N}.tmp");
             try
             {
-                string json = JsonConvert.SerializeObject(this, Formatting.Indented);
-                File.WriteAllText(SettingsFilePath, json);
+                File.WriteAllText(temporaryPath, json);
+                if (File.Exists(SettingsFilePath))
+                    File.Replace(temporaryPath, SettingsFilePath, null);
+                else
+                    File.Move(temporaryPath, SettingsFilePath);
             }
-            catch (Exception ex)
+            finally
             {
-                Log.WriteLine($"Error saving settings: {ex.Message}");
-                Log.StackTrace(ex, false);
+                try { if (File.Exists(temporaryPath)) File.Delete(temporaryPath); }
+                catch (Exception ex) { Log.WriteWarning($"Settings temporary-file cleanup failed: {ex.Message}"); }
             }
+        }
+
+        /// <summary>
+        /// Saves event history window geometry and column preferences.
+        /// </summary>
+        /// <param name="placement"></param>
+        /// <param name="columns"></param>
+        public void SaveCallHistoryWindowSettings(WindowPlacementConfig placement, IEnumerable<GridColumnConfig> columns)
+        {
+            CallHistoryWindowPlacement = NormalizeWindowPlacement(
+                placement,
+                DEFAULT_CALL_HISTORY_WINDOW_WIDTH,
+                DEFAULT_CALL_HISTORY_WINDOW_HEIGHT);
+            CallHistoryColumns = NormalizeCallHistoryColumns(columns);
+            SaveSettings();
+        }
+
+        private static WindowPlacementConfig NormalizeWindowPlacement(WindowPlacementConfig placement, double defaultWidth, double defaultHeight)
+        {
+            double width = placement?.Width ?? defaultWidth;
+            double height = placement?.Height ?? defaultHeight;
+
+            return new WindowPlacementConfig
+            {
+                Left = IsFinite(placement?.Left) ? placement.Left : null,
+                Top = IsFinite(placement?.Top) ? placement.Top : null,
+                Width = width > 0 ? width : defaultWidth,
+                Height = height > 0 ? height : defaultHeight
+            };
+        }
+
+        private static List<GridColumnConfig> CreateDefaultCallHistoryColumns()
+        {
+            return new List<GridColumnConfig>
+            {
+                new GridColumnConfig { Key = "Timestamp", DisplayIndex = 0, Width = 120, Visible = true },
+                new GridColumnConfig { Key = "Channel", DisplayIndex = 1, Width = 150, Visible = true },
+                new GridColumnConfig { Key = "RidAlias", DisplayIndex = 2, Width = 160, Visible = true },
+                new GridColumnConfig { Key = "Rid", DisplayIndex = 3, Width = 90, Visible = true },
+                new GridColumnConfig { Key = "Tgid", DisplayIndex = 4, Width = 80, Visible = true },
+                new GridColumnConfig { Key = "EncryptionKeyId", DisplayIndex = 5, Width = 115, Visible = true }
+            };
+        }
+
+        private static List<GridColumnConfig> NormalizeCallHistoryColumns(IEnumerable<GridColumnConfig> columns)
+        {
+            Dictionary<string, GridColumnConfig> savedColumns = (columns ?? Enumerable.Empty<GridColumnConfig>())
+                .Where(column => !string.IsNullOrWhiteSpace(column?.Key))
+                .GroupBy(column => column.Key.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.Last(), StringComparer.OrdinalIgnoreCase);
+
+            List<GridColumnConfig> defaults = CreateDefaultCallHistoryColumns();
+            List<GridColumnConfig> normalized = new List<GridColumnConfig>();
+            foreach (GridColumnConfig defaultColumn in defaults)
+            {
+                if (!savedColumns.TryGetValue(defaultColumn.Key, out GridColumnConfig savedColumn))
+                {
+                    normalized.Add(defaultColumn);
+                    continue;
+                }
+
+                normalized.Add(new GridColumnConfig
+                {
+                    Key = defaultColumn.Key,
+                    DisplayIndex = savedColumn.DisplayIndex,
+                    Width = savedColumn.Width > 0 ? savedColumn.Width : defaultColumn.Width,
+                    Visible = savedColumn.Visible
+                });
+            }
+
+            normalized = normalized
+                .OrderBy(column => column.DisplayIndex)
+                .Select((column, index) => new GridColumnConfig
+                {
+                    Key = column.Key,
+                    DisplayIndex = index,
+                    Width = column.Width,
+                    Visible = column.Visible
+                })
+                .ToList();
+
+            return normalized;
+        }
+
+        private static bool IsFinite(double? value)
+        {
+            return value.HasValue && !double.IsNaN(value.Value) && !double.IsInfinity(value.Value);
+        }
+
+        public static IReadOnlyList<SettingsTransferCategoryDefinition> GetSettingsTransferCategories()
+        {
+            return SETTINGS_TRANSFER_CATEGORIES;
+        }
+
+        public void ExportSettingsTransfer(string filePath, IEnumerable<string> categoryIds)
+        {
+            ExportSettingsTransfer(filePath, categoryIds, null);
+        }
+
+        public void ExportSettingsTransfer(string filePath, IEnumerable<string> categoryIds, SettingsTransferScope scope)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                throw new ArgumentException("Export path is required.", nameof(filePath));
+
+            List<SettingsTransferCategoryDefinition> selectedCategories = ResolveTransferCategories(categoryIds).ToList();
+            if (selectedCategories.Count == 0)
+                throw new InvalidOperationException("Select at least one settings category to export.");
+
+            SettingsTransferScope normalizedScope = BuildExportSettingsTransferScope(scope);
+            bool scopedTransfer = normalizedScope?.HasScope == true;
+            JObject settingsPayload = new JObject();
+            foreach (string propertyName in selectedCategories.SelectMany(c => c.PropertyNames).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                PropertyInfo property = typeof(SettingsManager).GetProperty(propertyName);
+                if (property == null || !property.CanRead)
+                    continue;
+
+                object value = property.GetValue(this);
+                if (scopedTransfer)
+                {
+                    if (!TryCreateScopedSettingsTransferToken(propertyName, value, normalizedScope, out JToken scopedToken))
+                        continue;
+
+                    settingsPayload[propertyName] = scopedToken;
+                }
+                else
+                {
+                    settingsPayload[propertyName] = value == null
+                        ? JValue.CreateNull()
+                        : JToken.FromObject(value);
+                }
+            }
+
+            SettingsTransferFile transferFile = new SettingsTransferFile
+            {
+                ExportedUtc = DateTime.UtcNow,
+                Categories = selectedCategories.Select(c => c.Id).ToList(),
+                Scope = scopedTransfer ? normalizedScope : null,
+                Settings = settingsPayload
+            };
+
+            string directory = Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrWhiteSpace(directory) && !Directory.Exists(directory))
+                Directory.CreateDirectory(directory);
+
+            File.WriteAllText(filePath, JsonConvert.SerializeObject(transferFile, Formatting.Indented));
+        }
+
+        public List<string> ImportSettingsTransfer(string filePath, IEnumerable<string> categoryIds)
+        {
+            return ImportSettingsTransfer(filePath, categoryIds, null);
+        }
+
+        public List<string> ImportSettingsTransfer(string filePath, IEnumerable<string> categoryIds, SettingsTransferScope scope)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                throw new ArgumentException("Import path is required.", nameof(filePath));
+            if (!File.Exists(filePath))
+                throw new FileNotFoundException("Settings transfer file was not found.", filePath);
+
+            SettingsTransferFile transferFile = JsonConvert.DeserializeObject<SettingsTransferFile>(File.ReadAllText(filePath));
+            if (transferFile == null || transferFile.Settings == null)
+                throw new InvalidOperationException("The selected file is not a valid settings transfer file.");
+            if (!string.Equals(transferFile.Format, SETTINGS_TRANSFER_FORMAT, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("The selected file is not a dvmconsole settings transfer file.");
+
+            HashSet<string> exportedCategories = new HashSet<string>(
+                transferFile.Categories ?? Enumerable.Empty<string>(),
+                StringComparer.OrdinalIgnoreCase);
+
+            List<SettingsTransferCategoryDefinition> selectedCategories = ResolveTransferCategories(categoryIds)
+                .Where(category => exportedCategories.Count == 0 || exportedCategories.Contains(category.Id))
+                .ToList();
+
+            if (selectedCategories.Count == 0)
+                throw new InvalidOperationException("None of the selected categories exist in this transfer file.");
+
+            SettingsTransferScope normalizedScope = BuildImportSettingsTransferScope(scope, transferFile.Scope);
+            bool scopedTransfer = normalizedScope?.HasScope == true;
+            lock (persistenceSync)
+            {
+                if (resetPending)
+                    throw new InvalidOperationException("Settings have been reset. Restart Console before importing settings.");
+
+                // Conversion and normalization operate on a detached snapshot, never on live settings.
+                SettingsManager candidate = new SettingsManager(false);
+                JsonConvert.PopulateObject(JsonConvert.SerializeObject(this), candidate,
+                    new JsonSerializerSettings { ObjectCreationHandling = ObjectCreationHandling.Replace });
+                Dictionary<string, HashSet<string>> patchGroups = null;
+                if (scopedTransfer && selectedCategories.Any(category => category.Id == "groups"))
+                {
+                    var memberships = transferFile.Settings.TryGetValue(nameof(PatchGroupMemberships), StringComparison.OrdinalIgnoreCase, out JToken membershipToken)
+                        ? membershipToken.ToObject<Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>>()
+                        : candidate.PatchGroupMemberships;
+                    patchGroups = GetPatchGroupNames(FilterPatchGroupMembershipsByScope(memberships, BuildScopeSet(normalizedScope.ChannelResourceKeys)));
+                }
+                if (scopedTransfer && selectedCategories.Any(category => category.Id == "alerts") &&
+                    transferFile.Settings.TryGetValue(nameof(AlertToneSchedules), StringComparison.OrdinalIgnoreCase, out JToken schedulesToken))
+                {
+                    HashSet<string> allowedToneIds = BuildScopeSet(transferFile.Scope?.AlertToneIds);
+                    foreach (AlertToneScheduleConfig schedule in FilterAlertToneSchedulesByScope(
+                        schedulesToken.ToObject<List<AlertToneScheduleConfig>>(), BuildScopeSet(normalizedScope.ChannelResourceKeys)))
+                    {
+                        if (!string.IsNullOrWhiteSpace(schedule.AlertToneId) &&
+                            (transferFile.Scope == null || allowedToneIds.Contains(schedule.AlertToneId.Trim())))
+                            normalizedScope.AlertToneIds.Add(schedule.AlertToneId.Trim());
+                    }
+                }
+                foreach (string propertyName in selectedCategories.SelectMany(c => c.PropertyNames).Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    if (!transferFile.Settings.TryGetValue(propertyName, StringComparison.OrdinalIgnoreCase, out JToken token))
+                        continue;
+
+                    PropertyInfo property = typeof(SettingsManager).GetProperty(propertyName);
+                    if (property == null || !property.CanWrite)
+                        continue;
+
+                    object value = ConvertSettingsTransferToken(token, property.PropertyType);
+                    if (scopedTransfer)
+                        candidate.ApplyScopedSettingsTransferValue(propertyName, value, normalizedScope, patchGroups);
+                    else
+                        property.SetValue(candidate, value);
+                }
+                if (!scopedTransfer && selectedCategories.Any(category => category.Id == "clocks") &&
+                    transferFile.Settings.TryGetValue(nameof(ToolbarClockConfigs), StringComparison.OrdinalIgnoreCase, out _) &&
+                    !transferFile.Settings.TryGetValue(nameof(ToolbarClockConfigSlots), StringComparison.OrdinalIgnoreCase, out _))
+                    candidate.ToolbarClockConfigSlots = null;
+
+                candidate.NormalizeImportedSettings();
+                WriteSettingsFile(JsonConvert.SerializeObject(candidate, Formatting.Indented));
+                foreach (PropertyInfo property in typeof(SettingsManager).GetProperties(BindingFlags.Instance | BindingFlags.Public)
+                    .Where(property => property.CanRead && property.CanWrite))
+                    property.SetValue(this, property.GetValue(candidate));
+                _instance = this;
+            }
+            return selectedCategories.Select(c => c.DisplayName).ToList();
+        }
+
+        private bool TryCreateScopedSettingsTransferToken(string propertyName, object sourceValue, SettingsTransferScope scope, out JToken token)
+        {
+            token = null;
+            if (!TryCreateScopedSettingsTransferValue(propertyName, sourceValue, scope, out object scopedValue))
+                return false;
+
+            token = scopedValue == null
+                ? JValue.CreateNull()
+                : JToken.FromObject(scopedValue);
+            return true;
+        }
+
+        private SettingsTransferScope BuildExportSettingsTransferScope(SettingsTransferScope scope)
+        {
+            SettingsTransferScope normalized = NormalizeSettingsTransferScope(scope);
+            if (normalized == null)
+                return null;
+
+            HashSet<string> alertToneIds = BuildScopeSet(normalized.AlertToneIds);
+            HashSet<string> channelResourceKeys = BuildScopeSet(normalized.ChannelResourceKeys);
+            foreach (AlertToneScheduleConfig schedule in FilterAlertToneSchedulesByScope(AlertToneSchedules, channelResourceKeys))
+            {
+                if (!string.IsNullOrWhiteSpace(schedule.AlertToneId))
+                    alertToneIds.Add(schedule.AlertToneId.Trim());
+            }
+
+            normalized.AlertToneIds = alertToneIds.ToList();
+            return normalized;
+        }
+
+        private static SettingsTransferScope BuildImportSettingsTransferScope(SettingsTransferScope requestedScope, SettingsTransferScope fileScope)
+        {
+            SettingsTransferScope normalizedRequested = NormalizeSettingsTransferScope(requestedScope);
+            SettingsTransferScope normalizedFile = NormalizeSettingsTransferScope(fileScope);
+            if (normalizedRequested == null)
+                return normalizedFile;
+
+            if (normalizedFile == null)
+                return normalizedRequested;
+
+            // Requested tabs may contain resources that were never exported; leave those untouched.
+            SettingsTransferScope intersection = new SettingsTransferScope
+            {
+                ZoneNames = normalizedRequested.ZoneNames.Intersect(normalizedFile.ZoneNames, StringComparer.OrdinalIgnoreCase).ToList(),
+                ChannelResourceKeys = normalizedRequested.ChannelResourceKeys.Intersect(normalizedFile.ChannelResourceKeys, StringComparer.OrdinalIgnoreCase).ToList(),
+                ChannelNames = normalizedRequested.ChannelNames.Intersect(normalizedFile.ChannelNames, StringComparer.OrdinalIgnoreCase).ToList(),
+                TalkgroupIds = normalizedRequested.TalkgroupIds.Intersect(normalizedFile.TalkgroupIds, StringComparer.OrdinalIgnoreCase).ToList(),
+                WebStreamNames = normalizedRequested.WebStreamNames.Intersect(normalizedFile.WebStreamNames, StringComparer.OrdinalIgnoreCase).ToList(),
+                AlertToneIds = normalizedRequested.AlertToneIds.Intersect(normalizedFile.AlertToneIds, StringComparer.OrdinalIgnoreCase).ToList()
+            };
+            if (!intersection.HasScope)
+                throw new InvalidOperationException("The selected zones contain no settings in this scoped transfer file.");
+            return intersection;
+        }
+
+        private bool TryCreateScopedSettingsTransferValue(string propertyName, object sourceValue, SettingsTransferScope scope, out object scopedValue,
+            Dictionary<string, HashSet<string>> patchGroups = null)
+        {
+            scopedValue = null;
+            scope = NormalizeSettingsTransferScope(scope);
+            if (scope?.HasScope != true)
+                return false;
+
+            HashSet<string> zoneNames = BuildScopeSet(scope.ZoneNames);
+            HashSet<string> channelResourceKeys = BuildScopeSet(scope.ChannelResourceKeys);
+            HashSet<string> channelNames = BuildScopeSet(scope.ChannelNames);
+            HashSet<string> talkgroupIds = BuildScopeSet(scope.TalkgroupIds);
+            HashSet<string> webStreamNames = BuildScopeSet(scope.WebStreamNames);
+            HashSet<string> channelSettingKeys = CombineScopeKeys(channelResourceKeys, channelNames, talkgroupIds);
+            HashSet<string> audioOutputKeys = CombineScopeKeys(channelResourceKeys, talkgroupIds, webStreamNames);
+
+            switch (propertyName)
+            {
+                case nameof(ChannelPositions):
+                    scopedValue = FilterDictionaryByKeys(sourceValue as Dictionary<string, ChannelPosition>, channelSettingKeys);
+                    return true;
+                case nameof(ChannelVolumes):
+                    scopedValue = FilterDictionaryByKeys(sourceValue as Dictionary<string, double>, channelSettingKeys);
+                    return true;
+                case nameof(ChannelOutputDevices):
+                    scopedValue = FilterDictionaryByKeys(sourceValue as Dictionary<string, int>, audioOutputKeys);
+                    return true;
+                case nameof(ChannelOutputDeviceKeys):
+                    scopedValue = FilterDictionaryByKeys(sourceValue as Dictionary<string, string>, audioOutputKeys);
+                    return true;
+                case nameof(TarChannelConfigs):
+                    scopedValue = FilterDictionaryByKeys(sourceValue as Dictionary<string, TarChannelConfig>, channelSettingKeys);
+                    return true;
+                case nameof(SelectableEncryptionStates):
+                    scopedValue = FilterDictionaryByKeys(sourceValue as Dictionary<string, bool>, channelResourceKeys);
+                    return true;
+                case nameof(WebStreamPositions):
+                    scopedValue = FilterDictionaryByKeys(sourceValue as Dictionary<string, ChannelPosition>, webStreamNames);
+                    return true;
+                case nameof(WebStreamVolumes):
+                    scopedValue = FilterDictionaryByKeys(sourceValue as Dictionary<string, double>, webStreamNames);
+                    return true;
+                case nameof(SelectedChannels):
+                    scopedValue = FilterListByKeys(sourceValue as List<string>, channelSettingKeys);
+                    return true;
+                case nameof(SelectedWebStreams):
+                    scopedValue = FilterListByKeys(sourceValue as List<string>, webStreamNames);
+                    return true;
+                case nameof(HiddenResourceZones):
+                    scopedValue = FilterListByKeys(sourceValue as List<string>, zoneNames);
+                    return true;
+                case nameof(AlertTones):
+                    scopedValue = FilterAlertTonesByScope(sourceValue as List<AlertToneConfig>, scope);
+                    return true;
+                case nameof(AlertToneSchedules):
+                    scopedValue = FilterAlertToneSchedulesByScope(sourceValue as List<AlertToneScheduleConfig>, channelResourceKeys);
+                    return true;
+                case nameof(TonePresets):
+                    scopedValue = FilterTonePresetsByScope(sourceValue as List<TonePresetConfig>, channelResourceKeys);
+                    return true;
+                case nameof(DtmfPresets):
+                    scopedValue = FilterDtmfPresetsByScope(sourceValue as List<DtmfPresetConfig>, channelResourceKeys);
+                    return true;
+                case nameof(PatchGroupMemberships):
+                    scopedValue = FilterPatchGroupMembershipsByScope(
+                        sourceValue as Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>,
+                        channelResourceKeys);
+                    return true;
+                case nameof(PatchGroupModes):
+                    scopedValue = FilterNestedBoolDictionaryByGroupNames(
+                        sourceValue as Dictionary<string, Dictionary<string, bool>>,
+                        patchGroups ?? GetScopedPatchGroupNames(channelResourceKeys));
+                    return true;
+                case nameof(PatchGroupEnabledStates):
+                    scopedValue = FilterNestedBoolDictionaryByGroupNames(
+                        sourceValue as Dictionary<string, Dictionary<string, bool>>,
+                        patchGroups ?? GetScopedPatchGroupNames(channelResourceKeys));
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private void ApplyScopedSettingsTransferValue(string propertyName, object importedValue, SettingsTransferScope scope,
+            Dictionary<string, HashSet<string>> patchGroups = null)
+        {
+            if (!TryCreateScopedSettingsTransferValue(propertyName, importedValue, scope, out object scopedValue, patchGroups))
+                return;
+
+            scope = NormalizeSettingsTransferScope(scope);
+            HashSet<string> zoneNames = BuildScopeSet(scope.ZoneNames);
+            HashSet<string> channelResourceKeys = BuildScopeSet(scope.ChannelResourceKeys);
+            HashSet<string> channelNames = BuildScopeSet(scope.ChannelNames);
+            HashSet<string> talkgroupIds = BuildScopeSet(scope.TalkgroupIds);
+            HashSet<string> webStreamNames = BuildScopeSet(scope.WebStreamNames);
+            HashSet<string> channelSettingKeys = CombineScopeKeys(channelResourceKeys, channelNames, talkgroupIds);
+            HashSet<string> audioOutputKeys = CombineScopeKeys(channelResourceKeys, talkgroupIds, webStreamNames);
+
+            switch (propertyName)
+            {
+                case nameof(ChannelPositions):
+                    ChannelPositions = MergeDictionaryByKeys(ChannelPositions, scopedValue as Dictionary<string, ChannelPosition>, channelSettingKeys);
+                    break;
+                case nameof(ChannelVolumes):
+                    ChannelVolumes = MergeDictionaryByKeys(ChannelVolumes, scopedValue as Dictionary<string, double>, channelSettingKeys);
+                    break;
+                case nameof(ChannelOutputDevices):
+                    ChannelOutputDevices = MergeDictionaryByKeys(ChannelOutputDevices, scopedValue as Dictionary<string, int>, audioOutputKeys);
+                    break;
+                case nameof(ChannelOutputDeviceKeys):
+                    ChannelOutputDeviceKeys = MergeDictionaryByKeys(ChannelOutputDeviceKeys, scopedValue as Dictionary<string, string>, audioOutputKeys);
+                    break;
+                case nameof(TarChannelConfigs):
+                    TarChannelConfigs = MergeDictionaryByKeys(TarChannelConfigs, scopedValue as Dictionary<string, TarChannelConfig>, channelSettingKeys);
+                    break;
+                case nameof(SelectableEncryptionStates):
+                    SelectableEncryptionStates = MergeDictionaryByKeys(SelectableEncryptionStates, scopedValue as Dictionary<string, bool>, channelResourceKeys);
+                    break;
+                case nameof(WebStreamPositions):
+                    WebStreamPositions = MergeDictionaryByKeys(WebStreamPositions, scopedValue as Dictionary<string, ChannelPosition>, webStreamNames);
+                    break;
+                case nameof(WebStreamVolumes):
+                    WebStreamVolumes = MergeDictionaryByKeys(WebStreamVolumes, scopedValue as Dictionary<string, double>, webStreamNames);
+                    break;
+                case nameof(SelectedChannels):
+                    SelectedChannels = MergeListByKeys(SelectedChannels, scopedValue as List<string>, channelSettingKeys);
+                    break;
+                case nameof(SelectedWebStreams):
+                    SelectedWebStreams = MergeListByKeys(SelectedWebStreams, scopedValue as List<string>, webStreamNames);
+                    break;
+                case nameof(HiddenResourceZones):
+                    HiddenResourceZones = MergeListByKeys(HiddenResourceZones, scopedValue as List<string>, zoneNames);
+                    break;
+                case nameof(AlertTones):
+                    AlertTones = MergeAlertTonesByScope(AlertTones, scopedValue as List<AlertToneConfig>, scope);
+                    SyncLegacyAlertToneState();
+                    break;
+                case nameof(AlertToneSchedules):
+                    AlertToneSchedules = MergeAlertToneSchedulesByScope(AlertToneSchedules, scopedValue as List<AlertToneScheduleConfig>, channelResourceKeys);
+                    break;
+                case nameof(TonePresets):
+                    TonePresets = MergeTonePresetsByScope(TonePresets, scopedValue as List<TonePresetConfig>, channelResourceKeys);
+                    break;
+                case nameof(DtmfPresets):
+                    DtmfPresets = MergeDtmfPresetsByScope(DtmfPresets, scopedValue as List<DtmfPresetConfig>, channelResourceKeys);
+                    break;
+                case nameof(PatchGroupMemberships):
+                    PatchGroupMemberships = MergePatchGroupMembershipsByScope(
+                        PatchGroupMemberships,
+                        scopedValue as Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>,
+                        channelResourceKeys);
+                    break;
+                case nameof(PatchGroupModes):
+                    PatchGroupModes = MergeNestedBoolDictionaryByGroupNames(
+                        PatchGroupModes,
+                        scopedValue as Dictionary<string, Dictionary<string, bool>>,
+                        GetNestedBoolGroupNames(scopedValue as Dictionary<string, Dictionary<string, bool>>));
+                    break;
+                case nameof(PatchGroupEnabledStates):
+                    PatchGroupEnabledStates = MergeNestedBoolDictionaryByGroupNames(
+                        PatchGroupEnabledStates,
+                        scopedValue as Dictionary<string, Dictionary<string, bool>>,
+                        GetNestedBoolGroupNames(scopedValue as Dictionary<string, Dictionary<string, bool>>));
+                    break;
+            }
+        }
+
+        private static SettingsTransferScope NormalizeSettingsTransferScope(SettingsTransferScope scope)
+        {
+            if (scope == null)
+                return null;
+
+            SettingsTransferScope normalized = new SettingsTransferScope
+            {
+                ZoneNames = NormalizeScopeList(scope.ZoneNames),
+                ChannelResourceKeys = NormalizeScopeList(scope.ChannelResourceKeys),
+                ChannelNames = NormalizeScopeList(scope.ChannelNames),
+                TalkgroupIds = NormalizeScopeList(scope.TalkgroupIds),
+                WebStreamNames = NormalizeScopeList(scope.WebStreamNames),
+                AlertToneIds = NormalizeScopeList(scope.AlertToneIds)
+            };
+
+            return normalized.HasScope ? normalized : null;
+        }
+
+        private static List<string> NormalizeScopeList(IEnumerable<string> values)
+        {
+            return (values ?? Enumerable.Empty<string>())
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static HashSet<string> BuildScopeSet(IEnumerable<string> values)
+        {
+            return new HashSet<string>(NormalizeScopeList(values), StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static HashSet<string> CombineScopeKeys(params IEnumerable<string>[] keySets)
+        {
+            HashSet<string> keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (IEnumerable<string> keySet in keySets ?? Array.Empty<IEnumerable<string>>())
+            {
+                foreach (string key in NormalizeScopeList(keySet))
+                    keys.Add(key);
+            }
+
+            return keys;
+        }
+
+        private static Dictionary<string, TValue> FilterDictionaryByKeys<TValue>(Dictionary<string, TValue> source, HashSet<string> scopedKeys)
+        {
+            return (source ?? new Dictionary<string, TValue>())
+                .Where(kvp => !string.IsNullOrWhiteSpace(kvp.Key) && scopedKeys.Contains(kvp.Key.Trim()))
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static List<string> FilterListByKeys(IEnumerable<string> source, HashSet<string> scopedKeys)
+        {
+            return (source ?? Enumerable.Empty<string>())
+                .Where(value => !string.IsNullOrWhiteSpace(value) && scopedKeys.Contains(value.Trim()))
+                .Select(value => value.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static Dictionary<string, TValue> MergeDictionaryByKeys<TValue>(
+            Dictionary<string, TValue> current,
+            Dictionary<string, TValue> incoming,
+            HashSet<string> scopedKeys)
+        {
+            Dictionary<string, TValue> merged = new Dictionary<string, TValue>(
+                current ?? new Dictionary<string, TValue>(),
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (string key in merged.Keys.Where(key => scopedKeys.Contains(key)).ToList())
+                merged.Remove(key);
+
+            foreach (KeyValuePair<string, TValue> kvp in incoming ?? new Dictionary<string, TValue>())
+            {
+                if (!string.IsNullOrWhiteSpace(kvp.Key) && scopedKeys.Contains(kvp.Key.Trim()))
+                    merged[kvp.Key] = kvp.Value;
+            }
+
+            return merged;
+        }
+
+        private static List<string> MergeListByKeys(IEnumerable<string> current, IEnumerable<string> incoming, HashSet<string> scopedKeys)
+        {
+            List<string> merged = (current ?? Enumerable.Empty<string>())
+                .Where(value => !string.IsNullOrWhiteSpace(value) && !scopedKeys.Contains(value.Trim()))
+                .Select(value => value.Trim())
+                .ToList();
+
+            merged.AddRange((incoming ?? Enumerable.Empty<string>())
+                .Where(value => !string.IsNullOrWhiteSpace(value) && scopedKeys.Contains(value.Trim()))
+                .Select(value => value.Trim()));
+
+            return merged
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static List<AlertToneConfig> FilterAlertTonesByScope(IEnumerable<AlertToneConfig> source, SettingsTransferScope scope)
+        {
+            HashSet<string> zoneNames = BuildScopeSet(scope.ZoneNames);
+            HashSet<string> alertToneIds = BuildScopeSet(scope.AlertToneIds);
+
+            return (source ?? Enumerable.Empty<AlertToneConfig>())
+                .Where(tone =>
+                    tone != null &&
+                    ((!string.IsNullOrWhiteSpace(tone.TabName) && zoneNames.Contains(tone.TabName.Trim())) ||
+                     (!string.IsNullOrWhiteSpace(tone.Id) && alertToneIds.Contains(tone.Id.Trim()))))
+                .Select(tone => new AlertToneConfig
+                {
+                    Id = tone.Id,
+                    DisplayName = tone.DisplayName,
+                    FilePath = tone.FilePath,
+                    TabName = tone.TabName,
+                    Position = tone.Position
+                })
+                .ToList();
+        }
+
+        private static List<AlertToneScheduleConfig> FilterAlertToneSchedulesByScope(IEnumerable<AlertToneScheduleConfig> source, HashSet<string> channelResourceKeys)
+        {
+            return (source ?? Enumerable.Empty<AlertToneScheduleConfig>())
+                .Where(schedule => schedule != null &&
+                                   !string.IsNullOrWhiteSpace(schedule.TargetResourceKey) &&
+                                   channelResourceKeys.Contains(schedule.TargetResourceKey.Trim()))
+                .Select(schedule => new AlertToneScheduleConfig
+                {
+                    Id = schedule.Id,
+                    DisplayName = schedule.DisplayName,
+                    AlertToneId = schedule.AlertToneId,
+                    TargetResourceKey = schedule.TargetResourceKey,
+                    Enabled = schedule.Enabled,
+                    Mode = schedule.Mode,
+                    NextRunLocal = schedule.NextRunLocal,
+                    RepeatMinutes = schedule.RepeatMinutes,
+                    LastRunUtc = schedule.LastRunUtc
+                })
+                .ToList();
+        }
+
+        private static List<TonePresetConfig> FilterTonePresetsByScope(IEnumerable<TonePresetConfig> source, HashSet<string> channelResourceKeys)
+        {
+            return (source ?? Enumerable.Empty<TonePresetConfig>())
+                .Where(config => config != null &&
+                                 !string.IsNullOrWhiteSpace(config.TargetResourceKey) &&
+                                 channelResourceKeys.Contains(config.TargetResourceKey.Trim()))
+                .Select(config => new TonePresetConfig
+                {
+                    Id = config.Id,
+                    DisplayName = config.DisplayName,
+                    TargetResourceKey = config.TargetResourceKey,
+                    Steps = config.Steps
+                })
+                .ToList();
+        }
+
+        private static List<DtmfPresetConfig> FilterDtmfPresetsByScope(IEnumerable<DtmfPresetConfig> source, HashSet<string> channelResourceKeys)
+        {
+            return (source ?? Enumerable.Empty<DtmfPresetConfig>())
+                .Where(config => config != null &&
+                                 !string.IsNullOrWhiteSpace(config.TargetResourceKey) &&
+                                 channelResourceKeys.Contains(config.TargetResourceKey.Trim()))
+                .Select(config => new DtmfPresetConfig
+                {
+                    Id = config.Id,
+                    DisplayName = config.DisplayName,
+                    TargetResourceKey = config.TargetResourceKey,
+                    Steps = config.Steps
+                })
+                .ToList();
+        }
+
+        private static List<AlertToneConfig> MergeAlertTonesByScope(
+            IEnumerable<AlertToneConfig> current,
+            IEnumerable<AlertToneConfig> incoming,
+            SettingsTransferScope scope)
+        {
+            HashSet<string> zoneNames = BuildScopeSet(scope.ZoneNames);
+            List<AlertToneConfig> scopedTones = FilterAlertTonesByScope(incoming, scope);
+            HashSet<string> incomingIds = BuildScopeSet(scopedTones.Select(tone => tone.Id));
+            List<AlertToneConfig> merged = (current ?? Enumerable.Empty<AlertToneConfig>())
+                .Where(tone => tone == null ||
+                               (!incomingIds.Contains(tone.Id ?? string.Empty) &&
+                                (string.IsNullOrWhiteSpace(tone.TabName) || !zoneNames.Contains(tone.TabName.Trim()))))
+                .ToList();
+
+            merged.AddRange(scopedTones);
+            return merged;
+        }
+
+        private static List<AlertToneScheduleConfig> MergeAlertToneSchedulesByScope(
+            IEnumerable<AlertToneScheduleConfig> current,
+            IEnumerable<AlertToneScheduleConfig> incoming,
+            HashSet<string> channelResourceKeys)
+        {
+            List<AlertToneScheduleConfig> merged = (current ?? Enumerable.Empty<AlertToneScheduleConfig>())
+                .Where(schedule => schedule == null ||
+                                   string.IsNullOrWhiteSpace(schedule.TargetResourceKey) ||
+                                   !channelResourceKeys.Contains(schedule.TargetResourceKey.Trim()))
+                .ToList();
+
+            merged.AddRange(FilterAlertToneSchedulesByScope(incoming, channelResourceKeys));
+            return merged;
+        }
+
+        private static List<TonePresetConfig> MergeTonePresetsByScope(
+            IEnumerable<TonePresetConfig> current,
+            IEnumerable<TonePresetConfig> incoming,
+            HashSet<string> channelResourceKeys)
+        {
+            List<TonePresetConfig> merged = (current ?? Enumerable.Empty<TonePresetConfig>())
+                .Where(config => config == null ||
+                                 string.IsNullOrWhiteSpace(config.TargetResourceKey) ||
+                                 !channelResourceKeys.Contains(config.TargetResourceKey.Trim()))
+                .ToList();
+
+            merged.AddRange(FilterTonePresetsByScope(incoming, channelResourceKeys));
+            return merged;
+        }
+
+        private static List<DtmfPresetConfig> MergeDtmfPresetsByScope(
+            IEnumerable<DtmfPresetConfig> current,
+            IEnumerable<DtmfPresetConfig> incoming,
+            HashSet<string> channelResourceKeys)
+        {
+            List<DtmfPresetConfig> merged = (current ?? Enumerable.Empty<DtmfPresetConfig>())
+                .Where(config => config == null ||
+                                 string.IsNullOrWhiteSpace(config.TargetResourceKey) ||
+                                 !channelResourceKeys.Contains(config.TargetResourceKey.Trim()))
+                .ToList();
+
+            merged.AddRange(FilterDtmfPresetsByScope(incoming, channelResourceKeys));
+            return merged;
+        }
+
+        private Dictionary<string, HashSet<string>> GetScopedPatchGroupNames(HashSet<string> channelResourceKeys)
+        {
+            return GetPatchGroupNames(FilterPatchGroupMembershipsByScope(PatchGroupMemberships, channelResourceKeys));
+        }
+
+        private static Dictionary<string, HashSet<string>> GetPatchGroupNames(Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> memberships)
+        {
+            return (memberships ?? new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>())
+                .ToDictionary(context => context.Key, context => BuildScopeSet(context.Value?.Keys), StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static Dictionary<string, HashSet<string>> GetNestedBoolGroupNames(Dictionary<string, Dictionary<string, bool>> values)
+        {
+            return (values ?? new Dictionary<string, Dictionary<string, bool>>())
+                .ToDictionary(context => context.Key, context => BuildScopeSet(context.Value?.Keys), StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> FilterPatchGroupMembershipsByScope(
+            Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> source,
+            HashSet<string> channelResourceKeys)
+        {
+            Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> filtered =
+                new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (KeyValuePair<string, Dictionary<string, List<PatchTalkgroupMember>>> context in source ?? new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>())
+            {
+                Dictionary<string, List<PatchTalkgroupMember>> scopedGroups = new Dictionary<string, List<PatchTalkgroupMember>>(StringComparer.OrdinalIgnoreCase);
+                foreach (KeyValuePair<string, List<PatchTalkgroupMember>> group in context.Value ?? new Dictionary<string, List<PatchTalkgroupMember>>())
+                {
+                    List<PatchTalkgroupMember> scopedMembers = (group.Value ?? new List<PatchTalkgroupMember>())
+                        .Where(member => IsPatchMemberInScope(member, channelResourceKeys))
+                        .Select(member => new PatchTalkgroupMember
+                        {
+                            SystemName = member.SystemName,
+                            Tgid = member.Tgid
+                        })
+                        .ToList();
+
+                    if (scopedMembers.Count > 0 && !string.IsNullOrWhiteSpace(group.Key))
+                        scopedGroups[group.Key] = scopedMembers;
+                }
+
+                if (scopedGroups.Count > 0 && !string.IsNullOrWhiteSpace(context.Key))
+                    filtered[context.Key] = scopedGroups;
+            }
+
+            return filtered;
+        }
+
+        private static Dictionary<string, Dictionary<string, bool>> FilterNestedBoolDictionaryByGroupNames(
+            Dictionary<string, Dictionary<string, bool>> source,
+            Dictionary<string, HashSet<string>> groupNames)
+        {
+            Dictionary<string, Dictionary<string, bool>> filtered =
+                new Dictionary<string, Dictionary<string, bool>>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (KeyValuePair<string, Dictionary<string, bool>> context in source ?? new Dictionary<string, Dictionary<string, bool>>())
+            {
+                if (!groupNames.TryGetValue(context.Key, out HashSet<string> contextGroups))
+                    continue;
+                Dictionary<string, bool> scopedGroups = (context.Value ?? new Dictionary<string, bool>())
+                    .Where(kvp => !string.IsNullOrWhiteSpace(kvp.Key) && contextGroups.Contains(kvp.Key.Trim()))
+                    .ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase);
+
+                if (scopedGroups.Count > 0 && !string.IsNullOrWhiteSpace(context.Key))
+                    filtered[context.Key] = scopedGroups;
+            }
+
+            return filtered;
+        }
+
+        private static Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> MergePatchGroupMembershipsByScope(
+            Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> current,
+            Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> incoming,
+            HashSet<string> channelResourceKeys)
+        {
+            Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> original = ClonePatchGroupMemberships(current);
+            Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> merged = ClonePatchGroupMemberships(original);
+
+            foreach (Dictionary<string, List<PatchTalkgroupMember>> groups in merged.Values)
+            {
+                foreach (string groupName in groups.Keys.ToList())
+                {
+                    groups[groupName] = (groups[groupName] ?? new List<PatchTalkgroupMember>())
+                        .Where(member => !IsPatchMemberInScope(member, channelResourceKeys))
+                        .ToList();
+
+                    if (groups[groupName].Count == 0)
+                        groups.Remove(groupName);
+                }
+            }
+
+            foreach (KeyValuePair<string, Dictionary<string, List<PatchTalkgroupMember>>> context in incoming ?? new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>())
+            {
+                if (!merged.TryGetValue(context.Key, out Dictionary<string, List<PatchTalkgroupMember>> groups))
+                {
+                    groups = new Dictionary<string, List<PatchTalkgroupMember>>(StringComparer.OrdinalIgnoreCase);
+                    merged[context.Key] = groups;
+                }
+
+                foreach (KeyValuePair<string, List<PatchTalkgroupMember>> group in context.Value ?? new Dictionary<string, List<PatchTalkgroupMember>>())
+                {
+                    List<PatchTalkgroupMember> scopedMembers = (group.Value ?? new List<PatchTalkgroupMember>())
+                        .Where(member => IsPatchMemberInScope(member, channelResourceKeys))
+                        .ToList();
+                    if (scopedMembers.Count == 0)
+                        continue;
+
+                    List<PatchTalkgroupMember> previousMembers = null;
+                    if (original.TryGetValue(context.Key, out Dictionary<string, List<PatchTalkgroupMember>> previousGroups))
+                        previousGroups.TryGetValue(group.Key, out previousMembers);
+
+                    // Member order determines the one-way source; keep unselected members in place.
+                    Queue<PatchTalkgroupMember> replacements = new Queue<PatchTalkgroupMember>(NormalizePatchMembers(scopedMembers));
+                    List<PatchTalkgroupMember> combined = new List<PatchTalkgroupMember>();
+                    foreach (PatchTalkgroupMember member in previousMembers ?? new List<PatchTalkgroupMember>())
+                    {
+                        if (!IsPatchMemberInScope(member, channelResourceKeys))
+                            combined.Add(member);
+                        else if (replacements.Count > 0)
+                            combined.Add(replacements.Dequeue());
+                    }
+                    combined.AddRange(replacements);
+                    groups[group.Key] = NormalizePatchMembers(combined);
+                }
+            }
+
+            return merged
+                .Where(context => context.Value?.Count > 0)
+                .ToDictionary(context => context.Key, context => context.Value, StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static Dictionary<string, Dictionary<string, bool>> MergeNestedBoolDictionaryByGroupNames(
+            Dictionary<string, Dictionary<string, bool>> current,
+            Dictionary<string, Dictionary<string, bool>> incoming,
+            Dictionary<string, HashSet<string>> groupNames)
+        {
+            Dictionary<string, Dictionary<string, bool>> merged =
+                CloneNestedBoolDictionary(current);
+
+            foreach (KeyValuePair<string, Dictionary<string, bool>> context in incoming ?? new Dictionary<string, Dictionary<string, bool>>())
+            {
+                if (!groupNames.TryGetValue(context.Key, out HashSet<string> contextGroups))
+                    continue;
+                if (!merged.TryGetValue(context.Key, out Dictionary<string, bool> groups))
+                {
+                    groups = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                    merged[context.Key] = groups;
+                }
+
+                foreach (KeyValuePair<string, bool> group in context.Value ?? new Dictionary<string, bool>())
+                {
+                    if (!string.IsNullOrWhiteSpace(group.Key) && contextGroups.Contains(group.Key.Trim()))
+                        groups[group.Key] = group.Value;
+                }
+            }
+
+            return merged;
+        }
+
+        private static Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> ClonePatchGroupMemberships(
+            Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> source)
+        {
+            Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>> clone =
+                new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (KeyValuePair<string, Dictionary<string, List<PatchTalkgroupMember>>> context in source ?? new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>())
+            {
+                Dictionary<string, List<PatchTalkgroupMember>> groups = new Dictionary<string, List<PatchTalkgroupMember>>(StringComparer.OrdinalIgnoreCase);
+                foreach (KeyValuePair<string, List<PatchTalkgroupMember>> group in context.Value ?? new Dictionary<string, List<PatchTalkgroupMember>>())
+                    groups[group.Key] = NormalizePatchMembers(group.Value);
+
+                clone[context.Key] = groups;
+            }
+
+            return clone;
+        }
+
+        private static Dictionary<string, Dictionary<string, bool>> CloneNestedBoolDictionary(Dictionary<string, Dictionary<string, bool>> source)
+        {
+            Dictionary<string, Dictionary<string, bool>> clone =
+                new Dictionary<string, Dictionary<string, bool>>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (KeyValuePair<string, Dictionary<string, bool>> context in source ?? new Dictionary<string, Dictionary<string, bool>>())
+                clone[context.Key] = new Dictionary<string, bool>(context.Value ?? new Dictionary<string, bool>(), StringComparer.OrdinalIgnoreCase);
+
+            return clone;
+        }
+
+        private static bool IsPatchMemberInScope(PatchTalkgroupMember member, HashSet<string> channelResourceKeys)
+        {
+            if (member == null)
+                return false;
+
+            string resourceKey = ResourceIdentity.Build(member.SystemName, member.Tgid);
+            return !string.IsNullOrWhiteSpace(resourceKey) && channelResourceKeys.Contains(resourceKey);
+        }
+
+        private static IEnumerable<SettingsTransferCategoryDefinition> ResolveTransferCategories(IEnumerable<string> categoryIds)
+        {
+            HashSet<string> selectedIds = new HashSet<string>(
+                categoryIds?.Where(id => !string.IsNullOrWhiteSpace(id)).Select(id => id.Trim()) ?? Enumerable.Empty<string>(),
+                StringComparer.OrdinalIgnoreCase);
+
+            if (selectedIds.Count == 0)
+                yield break;
+
+            foreach (SettingsTransferCategoryDefinition category in SETTINGS_TRANSFER_CATEGORIES)
+            {
+                if (selectedIds.Contains(category.Id))
+                    yield return category;
+            }
+        }
+
+        private static object ConvertSettingsTransferToken(JToken token, Type targetType)
+        {
+            if (token == null || token.Type == JTokenType.Null)
+            {
+                Type nullableType = Nullable.GetUnderlyingType(targetType);
+                if (!targetType.IsValueType || nullableType != null)
+                    return null;
+
+                return Activator.CreateInstance(targetType);
+            }
+
+            return token.ToObject(targetType);
+        }
+
+        private void NormalizeImportedSettings()
+        {
+            FixedPttBindingsByCodeplug = NormalizeFixedPttBindings(FixedPttBindingsByCodeplug);
+            ChannelPositions ??= new Dictionary<string, ChannelPosition>();
+            SystemStatusPositions ??= new Dictionary<string, ChannelPosition>();
+            AlertToneFilePaths ??= new List<string>();
+            AlertTonePositions ??= new Dictionary<string, ChannelPosition>();
+            WebStreamPositions ??= new Dictionary<string, ChannelPosition>();
+            AlertToneTabs ??= new Dictionary<string, string>();
+            AlertTones ??= new List<AlertToneConfig>();
+            AlertToneSchedules = NormalizeAlertToneScheduleConfigs(AlertToneSchedules);
+            TonePresets = NormalizeTonePresetConfigs(TonePresets);
+            DtmfPresets = NormalizeDtmfPresetConfigs(DtmfPresets);
+            ChannelOutputDevices ??= new Dictionary<string, int>();
+            ChannelOutputDeviceKeys ??= new Dictionary<string, string>();
+            ChannelVolumes ??= new Dictionary<string, double>();
+            SelectableEncryptionStates ??= new Dictionary<string, bool>();
+            WebStreamVolumes ??= new Dictionary<string, double>();
+            TarChannelConfigs ??= new Dictionary<string, TarChannelConfig>();
+            PatchGroupMemberships ??= new Dictionary<string, Dictionary<string, List<PatchTalkgroupMember>>>();
+            PatchGroupModes ??= new Dictionary<string, Dictionary<string, bool>>();
+            PatchGroupEnabledStates ??= new Dictionary<string, Dictionary<string, bool>>();
+            SelectedChannels ??= new List<string>();
+            SelectedWebStreams ??= new List<string>();
+
+            AudioInputDevice = NormalizeAudioDeviceIndex(AudioInputDevice);
+            AudioInputDeviceKey = NormalizeAudioDeviceKey(AudioInputDeviceKey);
+            MasterOutputDevice = NormalizeAudioDeviceIndex(MasterOutputDevice);
+            MasterOutputDeviceKey = NormalizeAudioDeviceKey(MasterOutputDeviceKey);
+            AudioInputGain = NormalizeAudioInputGain(AudioInputGain);
+            AudioInputEqLowGainDb = NormalizeAudioInputEqGainDb(AudioInputEqLowGainDb);
+            AudioInputEqMidGainDb = NormalizeAudioInputEqGainDb(AudioInputEqMidGainDb);
+            AudioInputEqHighGainDb = NormalizeAudioInputEqGainDb(AudioInputEqHighGainDb);
+            AudioInputPresetName = AudioInputPresetName?.Trim() ?? string.Empty;
+            AudioInputPresets = NormalizeAudioInputPresets(AudioInputPresets);
+            MigrateLegacyAudioSettings();
+
+            TarRecordingsRootPath = string.IsNullOrWhiteSpace(TarRecordingsRootPath)
+                ? DefaultTarRecordingsPath
+                : TarRecordingsRootPath.Trim();
+            ToolbarClockConfigSlots = NormalizeToolbarClockConfigSlots(ToolbarClockConfigSlots, ToolbarClockConfigs);
+            ToolbarClockConfigs = ToolbarClockConfigSlotsToList(ToolbarClockConfigSlots);
+            CallHistoryWindowPlacement = NormalizeWindowPlacement(
+                CallHistoryWindowPlacement,
+                DEFAULT_CALL_HISTORY_WINDOW_WIDTH,
+                DEFAULT_CALL_HISTORY_WINDOW_HEIGHT);
+            CallHistoryColumns = NormalizeCallHistoryColumns(CallHistoryColumns);
+            HiddenResourceZones = NormalizeHiddenResourceZones(HiddenResourceZones);
+
+            if (AlertTones.Count == 0)
+                AlertTones = MigrateLegacyAlertTones();
+            SyncLegacyAlertToneState();
+        }
+
+        private static Dictionary<string, List<PttKeyBinding>> NormalizeFixedPttBindings(Dictionary<string, List<PttKeyBinding>> bindings)
+        {
+            var result = new Dictionary<string, List<PttKeyBinding>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in bindings ?? new())
+                if (!string.IsNullOrWhiteSpace(entry.Key))
+                    result[entry.Key] = entry.Value ?? new();
+            return result;
+        }
+
+        public List<string> GetHiddenResourceZones()
+        {
+            HiddenResourceZones = NormalizeHiddenResourceZones(HiddenResourceZones);
+            return HiddenResourceZones.ToList();
+        }
+
+        public void SaveHiddenResourceZones(IEnumerable<string> zoneNames)
+        {
+            HiddenResourceZones = NormalizeHiddenResourceZones(zoneNames);
+            SaveSettings();
+        }
+
+        public bool IsResourceZoneHidden(string zoneName)
+        {
+            if (string.IsNullOrWhiteSpace(zoneName))
+                return false;
+
+            return GetHiddenResourceZones().Contains(zoneName.Trim(), StringComparer.OrdinalIgnoreCase);
+        }
+
+        public void PruneHiddenResourceZones(IEnumerable<string> validZoneNames)
+        {
+            HashSet<string> validZones = new HashSet<string>(
+                validZoneNames?.Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => name.Trim()) ?? Enumerable.Empty<string>(),
+                StringComparer.OrdinalIgnoreCase);
+
+            List<string> normalized = NormalizeHiddenResourceZones(HiddenResourceZones)
+                .Where(zoneName => validZones.Contains(zoneName))
+                .ToList();
+
+            if (HiddenResourceZones.SequenceEqual(normalized, StringComparer.OrdinalIgnoreCase))
+                return;
+
+            HiddenResourceZones = normalized;
+            SaveSettings();
+        }
+
+        private static List<string> NormalizeHiddenResourceZones(IEnumerable<string> zoneNames)
+        {
+            return (zoneNames ?? Enumerable.Empty<string>())
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Select(name => name.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
 
         /// <summary>
@@ -287,8 +1909,13 @@ namespace dvmconsole
         /// </summary>
         public void Reset()
         {
-            if (File.Exists(SettingsFilePath))
-                File.Delete(SettingsFilePath);
+            lock (persistenceSync)
+            {
+                if (File.Exists(SettingsFilePath))
+                    File.Delete(SettingsFilePath);
+                // Open editors and shutdown callbacks must not recreate the deleted profile.
+                resetPending = true;
+            }
         }
 
         /// <summary>
@@ -317,6 +1944,536 @@ namespace dvmconsole
         }
 
         /// <summary>
+        /// Returns a normalized copy of persisted alert tone configs.
+        /// </summary>
+        public List<AlertToneConfig> GetAlertToneConfigs()
+        {
+            if (AlertTones == null || AlertTones.Count == 0)
+                AlertTones = MigrateLegacyAlertTones();
+
+            List<AlertToneConfig> normalized = AlertTones
+                .Where(t => !string.IsNullOrWhiteSpace(t?.FilePath))
+                .Select(t => new AlertToneConfig
+                {
+                    Id = string.IsNullOrWhiteSpace(t.Id) ? Guid.NewGuid().ToString("N") : t.Id,
+                    DisplayName = string.IsNullOrWhiteSpace(t.DisplayName) ? Path.GetFileNameWithoutExtension(t.FilePath) : t.DisplayName,
+                    FilePath = t.FilePath,
+                    TabName = t.TabName ?? string.Empty,
+                    Position = t.Position ?? new ChannelPosition { X = 20, Y = 20 }
+                })
+                .ToList();
+
+            AlertTones = normalized
+                .Select(t => new AlertToneConfig
+                {
+                    Id = t.Id,
+                    DisplayName = t.DisplayName,
+                    FilePath = t.FilePath,
+                    TabName = t.TabName,
+                    Position = t.Position
+                })
+                .ToList();
+            SyncLegacyAlertToneState();
+
+            return normalized
+                .Select(t => new AlertToneConfig
+                {
+                    Id = t.Id,
+                    DisplayName = t.DisplayName,
+                    FilePath = t.FilePath,
+                    TabName = t.TabName,
+                    Position = t.Position
+                })
+                .ToList();
+        }
+
+        /// <summary>
+        /// Saves the current alert tone configurations and keeps legacy fields in sync.
+        /// </summary>
+        public void SaveAlertToneConfigs(IEnumerable<AlertToneConfig> configs)
+        {
+            AlertTones = (configs ?? Enumerable.Empty<AlertToneConfig>())
+                .Where(t => !string.IsNullOrWhiteSpace(t?.FilePath))
+                .Select(t => new AlertToneConfig
+                {
+                    Id = string.IsNullOrWhiteSpace(t.Id) ? Guid.NewGuid().ToString("N") : t.Id,
+                    DisplayName = string.IsNullOrWhiteSpace(t.DisplayName) ? Path.GetFileNameWithoutExtension(t.FilePath) : t.DisplayName.Trim(),
+                    FilePath = t.FilePath.Trim(),
+                    TabName = t.TabName?.Trim() ?? string.Empty,
+                    Position = t.Position ?? new ChannelPosition { X = 20, Y = 20 }
+                })
+                .ToList();
+
+            SyncLegacyAlertToneState();
+            SaveSettings();
+        }
+
+        /// <summary>
+        /// Returns a normalized copy of persisted timed alert announcements.
+        /// </summary>
+        public List<AlertToneScheduleConfig> GetAlertToneScheduleConfigs()
+        {
+            AlertToneSchedules = NormalizeAlertToneScheduleConfigs(AlertToneSchedules);
+            return CopyAlertToneScheduleConfigs(AlertToneSchedules);
+        }
+
+        /// <summary>
+        /// Saves timed alert announcements.
+        /// </summary>
+        public void SaveAlertToneScheduleConfigs(IEnumerable<AlertToneScheduleConfig> configs)
+        {
+            AlertToneSchedules = NormalizeAlertToneScheduleConfigs(configs);
+            SaveSettings();
+        }
+
+        private static List<AlertToneScheduleConfig> NormalizeAlertToneScheduleConfigs(IEnumerable<AlertToneScheduleConfig> configs)
+        {
+            return (configs ?? Enumerable.Empty<AlertToneScheduleConfig>())
+                .Where(config => config != null)
+                .Select(config =>
+                {
+                    string mode = NormalizeAlertToneScheduleMode(config.Mode);
+                    return new AlertToneScheduleConfig
+                    {
+                        Id = string.IsNullOrWhiteSpace(config.Id) ? Guid.NewGuid().ToString("N") : config.Id,
+                        DisplayName = string.IsNullOrWhiteSpace(config.DisplayName) ? "Timed Announcement" : config.DisplayName.Trim(),
+                        AlertToneId = config.AlertToneId?.Trim() ?? string.Empty,
+                        TargetResourceKey = config.TargetResourceKey?.Trim() ?? string.Empty,
+                        Enabled = config.Enabled,
+                        Mode = mode,
+                        NextRunLocal = NormalizeScheduleDateTime(config.NextRunLocal),
+                        RepeatMinutes = Math.Max(ALERT_TONE_SCHEDULE_MIN_REPEAT_MINUTES, config.RepeatMinutes),
+                        LastRunUtc = config.LastRunUtc
+                    };
+                })
+                .Where(config => !string.IsNullOrWhiteSpace(config.AlertToneId) && !string.IsNullOrWhiteSpace(config.TargetResourceKey))
+                .ToList();
+        }
+
+        public static string NormalizeAlertToneScheduleMode(string mode)
+        {
+            return string.Equals(mode, ALERT_TONE_SCHEDULE_MODE_RECURRING, StringComparison.OrdinalIgnoreCase)
+                ? ALERT_TONE_SCHEDULE_MODE_RECURRING
+                : ALERT_TONE_SCHEDULE_MODE_ONCE;
+        }
+
+        private static DateTime NormalizeScheduleDateTime(DateTime value)
+        {
+            if (value == default)
+                return DateTime.Now.AddMinutes(5);
+
+            return DateTime.SpecifyKind(value, DateTimeKind.Local);
+        }
+
+        private static List<AlertToneScheduleConfig> CopyAlertToneScheduleConfigs(IEnumerable<AlertToneScheduleConfig> configs)
+        {
+            return NormalizeAlertToneScheduleConfigs(configs)
+                .Select(config => new AlertToneScheduleConfig
+                {
+                    Id = config.Id,
+                    DisplayName = config.DisplayName,
+                    AlertToneId = config.AlertToneId,
+                    TargetResourceKey = config.TargetResourceKey,
+                    Enabled = config.Enabled,
+                    Mode = config.Mode,
+                    NextRunLocal = config.NextRunLocal,
+                    RepeatMinutes = config.RepeatMinutes,
+                    LastRunUtc = config.LastRunUtc
+                })
+                .ToList();
+        }
+
+        /// <summary>
+        /// Updates an alert tone position by stable config ID.
+        /// </summary>
+        public void UpdateAlertTonePositionById(string alertToneId, double x, double y)
+        {
+            if (string.IsNullOrWhiteSpace(alertToneId))
+                return;
+
+            AlertToneConfig tone = GetAlertToneConfigs()
+                .FirstOrDefault(t => string.Equals(t.Id, alertToneId, StringComparison.OrdinalIgnoreCase));
+            if (tone == null)
+                return;
+
+            tone.Position = new ChannelPosition { X = x, Y = y };
+            SaveAlertToneConfigs(GetAlertToneConfigs()
+                .Select(t => string.Equals(t.Id, tone.Id, StringComparison.OrdinalIgnoreCase) ? tone : t));
+        }
+
+        private List<AlertToneConfig> MigrateLegacyAlertTones()
+        {
+            return (AlertToneFilePaths ?? new List<string>())
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(path => new AlertToneConfig
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    DisplayName = Path.GetFileNameWithoutExtension(path),
+                    FilePath = path,
+                    TabName = AlertToneTabs.TryGetValue(path, out string tabName) ? tabName : string.Empty,
+                    Position = AlertTonePositions.TryGetValue(path, out ChannelPosition position)
+                        ? position
+                        : new ChannelPosition { X = 20, Y = 20 }
+                })
+                .ToList();
+        }
+
+        private void SyncLegacyAlertToneState()
+        {
+            AlertToneFilePaths = AlertTones
+                .Where(t => !string.IsNullOrWhiteSpace(t?.FilePath))
+                .Select(t => t.FilePath)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            AlertTonePositions = AlertTones
+                .Where(t => !string.IsNullOrWhiteSpace(t?.FilePath))
+                .GroupBy(t => t.FilePath, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.Last().Position ?? new ChannelPosition { X = 20, Y = 20 },
+                    StringComparer.OrdinalIgnoreCase);
+
+            AlertToneTabs = AlertTones
+                .Where(t => !string.IsNullOrWhiteSpace(t?.FilePath))
+                .GroupBy(t => t.FilePath, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.Last().TabName ?? string.Empty,
+                    StringComparer.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Returns a normalized copy of generated tone presets.
+        /// </summary>
+        public List<TonePresetConfig> GetTonePresetConfigs()
+        {
+            TonePresets = NormalizeTonePresetConfigs(TonePresets);
+            return CopyTonePresetConfigs(TonePresets);
+        }
+
+        /// <summary>
+        /// Saves generated tone presets.
+        /// </summary>
+        public void SaveTonePresetConfigs(IEnumerable<TonePresetConfig> configs)
+        {
+            TonePresets = NormalizeTonePresetConfigs(configs);
+            SaveSettings();
+        }
+
+        private static List<TonePresetConfig> NormalizeTonePresetConfigs(IEnumerable<TonePresetConfig> configs)
+        {
+            return (configs ?? Enumerable.Empty<TonePresetConfig>())
+                .Where(config => config != null)
+                .Select(config => new TonePresetConfig
+                {
+                    Id = string.IsNullOrWhiteSpace(config.Id) ? Guid.NewGuid().ToString("N") : config.Id,
+                    DisplayName = string.IsNullOrWhiteSpace(config.DisplayName) ? "Tone Preset" : config.DisplayName.Trim(),
+                    TargetResourceKey = config.TargetResourceKey?.Trim() ?? string.Empty,
+                    Steps = NormalizeTonePresetSteps(config.Steps)
+                })
+                .Where(config => config.Steps.Count > 0)
+                .ToList();
+        }
+
+        private static List<TonePresetStep> NormalizeTonePresetSteps(IEnumerable<TonePresetStep> steps)
+        {
+            return (steps ?? Enumerable.Empty<TonePresetStep>())
+                .Where(step => step != null)
+                .Select(step =>
+                {
+                    string kind = NormalizeTonePresetStepKind(step.Kind);
+                    return new TonePresetStep
+                    {
+                        Kind = kind,
+                        FrequencyHz = kind == TONE_PRESET_STEP_KIND_HOLD ? 0 : Math.Clamp(step.FrequencyHz, 1, 4000),
+                        DurationSeconds = Math.Clamp(step.DurationSeconds, TONE_PRESET_MIN_DURATION_SECONDS, TONE_PRESET_MAX_DURATION_SECONDS)
+                    };
+                })
+                .ToList();
+        }
+
+        private static string NormalizeTonePresetStepKind(string kind)
+        {
+            return string.Equals(kind, TONE_PRESET_STEP_KIND_HOLD, StringComparison.OrdinalIgnoreCase)
+                ? TONE_PRESET_STEP_KIND_HOLD
+                : TONE_PRESET_STEP_KIND_TONE;
+        }
+
+        private static List<TonePresetConfig> CopyTonePresetConfigs(IEnumerable<TonePresetConfig> configs)
+        {
+            return NormalizeTonePresetConfigs(configs)
+                .Select(config => new TonePresetConfig
+                {
+                    Id = config.Id,
+                    DisplayName = config.DisplayName,
+                    TargetResourceKey = config.TargetResourceKey,
+                    Steps = config.Steps
+                        .Select(step => new TonePresetStep
+                        {
+                            Kind = step.Kind,
+                            FrequencyHz = step.FrequencyHz,
+                            DurationSeconds = step.DurationSeconds
+                        })
+                        .ToList()
+                })
+                .ToList();
+        }
+
+        /// <summary>
+        /// Returns a normalized copy of DTMF presets.
+        /// </summary>
+        public List<DtmfPresetConfig> GetDtmfPresetConfigs()
+        {
+            DtmfPresets = NormalizeDtmfPresetConfigs(DtmfPresets);
+            return CopyDtmfPresetConfigs(DtmfPresets);
+        }
+
+        /// <summary>
+        /// Saves DTMF presets.
+        /// </summary>
+        public void SaveDtmfPresetConfigs(IEnumerable<DtmfPresetConfig> configs)
+        {
+            DtmfPresets = NormalizeDtmfPresetConfigs(configs);
+            SaveSettings();
+        }
+
+        private static List<DtmfPresetConfig> NormalizeDtmfPresetConfigs(IEnumerable<DtmfPresetConfig> configs)
+        {
+            return (configs ?? Enumerable.Empty<DtmfPresetConfig>())
+                .Where(config => config != null)
+                .Select(config => new DtmfPresetConfig
+                {
+                    Id = string.IsNullOrWhiteSpace(config.Id) ? Guid.NewGuid().ToString("N") : config.Id,
+                    DisplayName = string.IsNullOrWhiteSpace(config.DisplayName) ? "DTMF Preset" : config.DisplayName.Trim(),
+                    TargetResourceKey = config.TargetResourceKey?.Trim() ?? string.Empty,
+                    Steps = NormalizeDtmfPresetSteps(config.Steps)
+                })
+                .Where(config => config.Steps.Count > 0)
+                .ToList();
+        }
+
+        private static List<DtmfPresetStep> NormalizeDtmfPresetSteps(IEnumerable<DtmfPresetStep> steps)
+        {
+            return (steps ?? Enumerable.Empty<DtmfPresetStep>())
+                .Where(step => step != null)
+                .Select(step =>
+                {
+                    bool isHold = string.Equals(step.Kind, TONE_PRESET_STEP_KIND_HOLD, StringComparison.OrdinalIgnoreCase);
+                    return new DtmfPresetStep
+                    {
+                        Kind = isHold ? TONE_PRESET_STEP_KIND_HOLD : DTMF_PRESET_STEP_KIND_DIGIT,
+                        Digit = isHold ? string.Empty : NormalizeDtmfDigit(step.Digit),
+                        DurationSeconds = Math.Clamp(step.DurationSeconds, TONE_PRESET_MIN_DURATION_SECONDS, TONE_PRESET_MAX_DURATION_SECONDS)
+                    };
+                })
+                .ToList();
+        }
+
+        private static string NormalizeDtmfDigit(string digit)
+        {
+            string normalizedDigit = (digit ?? string.Empty).Trim().ToUpperInvariant();
+            if (normalizedDigit.Length > 1)
+                normalizedDigit = normalizedDigit.Substring(0, 1);
+
+            return normalizedDigit.Length == 1 && "0123456789*#ABCD".Contains(normalizedDigit)
+                ? normalizedDigit
+                : "1";
+        }
+
+        private static List<DtmfPresetConfig> CopyDtmfPresetConfigs(IEnumerable<DtmfPresetConfig> configs)
+        {
+            return NormalizeDtmfPresetConfigs(configs)
+                .Select(config => new DtmfPresetConfig
+                {
+                    Id = config.Id,
+                    DisplayName = config.DisplayName,
+                    TargetResourceKey = config.TargetResourceKey,
+                    Steps = config.Steps
+                        .Select(step => new DtmfPresetStep
+                        {
+                            Kind = step.Kind,
+                            Digit = step.Digit,
+                            DurationSeconds = step.DurationSeconds
+                        })
+                        .ToList()
+                })
+                .ToList();
+        }
+
+        public static double NormalizeAudioInputGain(double gain)
+        {
+            return double.IsNaN(gain) || double.IsInfinity(gain)
+                ? 1.0
+                : Math.Clamp(gain, AUDIO_INPUT_GAIN_MIN, AUDIO_INPUT_GAIN_MAX);
+        }
+
+        public static double NormalizeAudioInputEqGainDb(double gainDb)
+        {
+            return double.IsNaN(gainDb) || double.IsInfinity(gainDb)
+                ? 0.0
+                : Math.Clamp(gainDb, AUDIO_INPUT_EQ_GAIN_DB_MIN, AUDIO_INPUT_EQ_GAIN_DB_MAX);
+        }
+
+        public static List<AudioInputPresetConfig> NormalizeAudioInputPresets(IEnumerable<AudioInputPresetConfig> presets)
+        {
+            return (presets ?? Enumerable.Empty<AudioInputPresetConfig>())
+                .Where(preset => preset != null)
+                .Select(preset => new AudioInputPresetConfig
+                {
+                    Name = string.IsNullOrWhiteSpace(preset.Name) ? "Mic Preset" : preset.Name.Trim(),
+                    Gain = NormalizeAudioInputGain(preset.Gain),
+                    LowGainDb = NormalizeAudioInputEqGainDb(preset.LowGainDb),
+                    MidGainDb = NormalizeAudioInputEqGainDb(preset.MidGainDb),
+                    HighGainDb = NormalizeAudioInputEqGainDb(preset.HighGainDb)
+                })
+                .GroupBy(preset => preset.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.Last())
+                .OrderBy(preset => preset.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Returns a normalized copy of toolbar clock configuration rows.
+        /// </summary>
+        public List<ToolbarClockConfig> GetToolbarClockConfigs()
+        {
+            ToolbarClockConfigSlots = NormalizeToolbarClockConfigSlots(ToolbarClockConfigSlots, ToolbarClockConfigs);
+            ToolbarClockConfigs = ToolbarClockConfigSlotsToList(ToolbarClockConfigSlots);
+            return CopyToolbarClockConfigs(ToolbarClockConfigs);
+        }
+
+        /// <summary>
+        /// Saves toolbar clock configuration rows.
+        /// </summary>
+        public void SaveToolbarClockConfigs(IEnumerable<ToolbarClockConfig> configs)
+        {
+            ToolbarClockConfigs = NormalizeToolbarClockConfigs(configs);
+            ToolbarClockConfigSlots = ToolbarClockConfigsToSlots(ToolbarClockConfigs);
+            SaveSettings();
+        }
+
+        /// <summary>
+        /// Saves all toolbar clock display settings.
+        /// </summary>
+        public void SaveToolbarClockSettings(IEnumerable<ToolbarClockConfig> configs, bool use24HourTime, bool showSeconds)
+        {
+            ToolbarClockConfigs = NormalizeToolbarClockConfigs(configs);
+            ToolbarClockConfigSlots = ToolbarClockConfigsToSlots(ToolbarClockConfigs);
+            ClockUse24HourTime = use24HourTime;
+            ClockShowSeconds = showSeconds;
+            SaveSettings();
+        }
+
+        private static List<ToolbarClockConfig> CreateDefaultToolbarClockConfigs()
+        {
+            return Enumerable.Range(0, MAX_TOOLBAR_CLOCKS)
+                .Select(_ => new ToolbarClockConfig())
+                .ToList();
+        }
+
+        private static Dictionary<string, ToolbarClockConfig> CreateDefaultToolbarClockConfigSlots()
+        {
+            return ToolbarClockConfigsToSlots(CreateDefaultToolbarClockConfigs());
+        }
+
+        private static List<ToolbarClockConfig> NormalizeToolbarClockConfigs(IEnumerable<ToolbarClockConfig> configs)
+        {
+            List<ToolbarClockConfig> normalized = (configs ?? Enumerable.Empty<ToolbarClockConfig>())
+                .Take(MAX_TOOLBAR_CLOCKS)
+                .Select(config => new ToolbarClockConfig
+                {
+                    Enabled = config?.Enabled == true,
+                    UtcOffsetHours = NormalizeToolbarClockOffset(config?.UtcOffsetHours ?? 0),
+                    ColorHex = NormalizeToolbarClockColor(config?.ColorHex)
+                })
+                .ToList();
+
+            while (normalized.Count < MAX_TOOLBAR_CLOCKS)
+                normalized.Add(new ToolbarClockConfig());
+
+            return normalized;
+        }
+
+        private static Dictionary<string, ToolbarClockConfig> NormalizeToolbarClockConfigSlots(
+            IDictionary<string, ToolbarClockConfig> slots,
+            IEnumerable<ToolbarClockConfig> fallbackConfigs)
+        {
+            Dictionary<string, ToolbarClockConfig> normalized = new Dictionary<string, ToolbarClockConfig>(StringComparer.OrdinalIgnoreCase);
+            List<ToolbarClockConfig> fallback = NormalizeToolbarClockConfigs(fallbackConfigs);
+
+            for (int i = 0; i < MAX_TOOLBAR_CLOCKS; i++)
+            {
+                string slotKey = (i + 1).ToString();
+                ToolbarClockConfig source = null;
+
+                if (slots != null && slots.TryGetValue(slotKey, out ToolbarClockConfig slotConfig))
+                    source = slotConfig;
+                else if (i < fallback.Count)
+                    source = fallback[i];
+
+                normalized[slotKey] = NormalizeToolbarClockConfig(source);
+            }
+
+            return normalized;
+        }
+
+        private static Dictionary<string, ToolbarClockConfig> ToolbarClockConfigsToSlots(IEnumerable<ToolbarClockConfig> configs)
+        {
+            List<ToolbarClockConfig> normalized = NormalizeToolbarClockConfigs(configs);
+            Dictionary<string, ToolbarClockConfig> slots = new Dictionary<string, ToolbarClockConfig>(StringComparer.OrdinalIgnoreCase);
+
+            for (int i = 0; i < MAX_TOOLBAR_CLOCKS; i++)
+                slots[(i + 1).ToString()] = NormalizeToolbarClockConfig(normalized.ElementAtOrDefault(i));
+
+            return slots;
+        }
+
+        private static List<ToolbarClockConfig> ToolbarClockConfigSlotsToList(IDictionary<string, ToolbarClockConfig> slots)
+        {
+            return Enumerable.Range(1, MAX_TOOLBAR_CLOCKS)
+                .Select(slot => slots != null && slots.TryGetValue(slot.ToString(), out ToolbarClockConfig config)
+                    ? NormalizeToolbarClockConfig(config)
+                    : new ToolbarClockConfig())
+                .ToList();
+        }
+
+        private static List<ToolbarClockConfig> CopyToolbarClockConfigs(IEnumerable<ToolbarClockConfig> configs)
+        {
+            return NormalizeToolbarClockConfigs(configs)
+                .Select(NormalizeToolbarClockConfig)
+                .ToList();
+        }
+
+        private static ToolbarClockConfig NormalizeToolbarClockConfig(ToolbarClockConfig config)
+        {
+            return new ToolbarClockConfig
+            {
+                Enabled = config?.Enabled == true,
+                UtcOffsetHours = NormalizeToolbarClockOffset(config?.UtcOffsetHours ?? 0),
+                ColorHex = NormalizeToolbarClockColor(config?.ColorHex)
+            };
+        }
+
+        private static int NormalizeToolbarClockOffset(int offsetHours)
+        {
+            return Math.Max(-12, Math.Min(14, offsetHours));
+        }
+
+        private static string NormalizeToolbarClockColor(string colorHex)
+        {
+            if (string.IsNullOrWhiteSpace(colorHex))
+                return DEFAULT_TOOLBAR_CLOCK_COLOR;
+
+            string trimmed = colorHex.Trim();
+            if (!trimmed.StartsWith("#") || (trimmed.Length != 7 && trimmed.Length != 9))
+                return DEFAULT_TOOLBAR_CLOCK_COLOR;
+
+            return trimmed.ToUpperInvariant();
+        }
+
+        /// <summary>
         /// 
         /// </summary>
         /// <param name="channelName"></param>
@@ -324,7 +2481,55 @@ namespace dvmconsole
         /// <param name="y"></param>
         public void UpdateChannelPosition(string channelName, double x, double y)
         {
+            if (string.IsNullOrWhiteSpace(channelName))
+                return;
+
             ChannelPositions[channelName] = new ChannelPosition { X = x, Y = y };
+            SaveSettings();
+        }
+
+        /// <summary>
+        /// Gets a saved channel position by stable resource key with legacy channel-name fallback.
+        /// </summary>
+        public bool TryGetChannelPosition(string resourceKey, string legacyChannelName, out ChannelPosition position)
+        {
+            position = null;
+
+            if (ChannelPositions == null)
+                return false;
+
+            if (!string.IsNullOrWhiteSpace(resourceKey) &&
+                ChannelPositions.TryGetValue(resourceKey, out position))
+                return true;
+
+            if (!string.IsNullOrWhiteSpace(legacyChannelName) &&
+                ChannelPositions.TryGetValue(legacyChannelName, out position))
+                return true;
+
+            return false;
+        }
+
+        /// <summary>
+        /// Saves a web stream chip position.
+        /// </summary>
+        public void UpdateWebStreamPosition(string streamName, double x, double y)
+        {
+            if (string.IsNullOrWhiteSpace(streamName))
+                return;
+
+            WebStreamPositions[streamName] = new ChannelPosition { X = x, Y = y };
+            SaveSettings();
+        }
+
+        /// <summary>
+        /// Saves a web stream chip volume.
+        /// </summary>
+        public void UpdateWebStreamVolume(string streamName, double volume)
+        {
+            if (string.IsNullOrWhiteSpace(streamName))
+                return;
+
+            WebStreamVolumes[streamName] = Math.Max(0.0, Math.Min(4.0, volume));
             SaveSettings();
         }
 
@@ -345,10 +2550,572 @@ namespace dvmconsole
         /// </summary>
         /// <param name="channelName"></param>
         /// <param name="deviceIndex"></param>
-        public void UpdateChannelOutputDevice(string channelName, int deviceIndex)
+        public void UpdateChannelOutputDevice(string channelName, int deviceIndex, string deviceKey = null)
         {
-            ChannelOutputDevices[channelName] = deviceIndex;
+            if (string.IsNullOrWhiteSpace(channelName))
+                return;
+
+            ChannelOutputDevices[channelName] = NormalizeAudioDeviceIndex(deviceIndex);
+            ChannelOutputDeviceKeys[channelName] = NormalizeAudioDeviceKey(
+                string.IsNullOrWhiteSpace(deviceKey)
+                    ? AudioDeviceResolver.GetOutputDeviceKey(deviceIndex)
+                    : deviceKey);
             SaveSettings();
+        }
+
+        public void RemoveChannelOutputDevice(string channelName)
+        {
+            if (string.IsNullOrWhiteSpace(channelName))
+                return;
+
+            bool removed = ChannelOutputDevices.Remove(channelName);
+            removed |= ChannelOutputDeviceKeys.Remove(channelName);
+            if (removed)
+                SaveSettings();
+        }
+
+        public void UpdateAudioInputDevice(int deviceIndex, string deviceKey = null)
+        {
+            AudioInputDevice = NormalizeAudioDeviceIndex(deviceIndex);
+            AudioInputDeviceKey = NormalizeAudioDeviceKey(
+                string.IsNullOrWhiteSpace(deviceKey)
+                    ? AudioDeviceResolver.GetInputDeviceKey(deviceIndex)
+                    : deviceKey);
+            SaveSettings();
+        }
+
+        public void UpdateMasterOutputDevice(int deviceIndex, string deviceKey = null)
+        {
+            MasterOutputDevice = NormalizeAudioDeviceIndex(deviceIndex);
+            MasterOutputDeviceKey = NormalizeAudioDeviceKey(
+                string.IsNullOrWhiteSpace(deviceKey)
+                    ? AudioDeviceResolver.GetOutputDeviceKey(deviceIndex)
+                    : deviceKey);
+            SaveSettings();
+        }
+
+        public static int NormalizeAudioDeviceIndex(int deviceIndex)
+        {
+            return deviceIndex < WINDOWS_DEFAULT_AUDIO_DEVICE ? WINDOWS_DEFAULT_AUDIO_DEVICE : deviceIndex;
+        }
+
+        public static string NormalizeAudioDeviceKey(string deviceKey)
+        {
+            return string.IsNullOrWhiteSpace(deviceKey)
+                ? AudioDeviceResolver.WINDOWS_DEFAULT_DEVICE_KEY
+                : deviceKey.Trim();
+        }
+
+        private void MigrateLegacyAudioSettings()
+        {
+            if (ChannelOutputDevices == null)
+                ChannelOutputDevices = new Dictionary<string, int>();
+            if (ChannelOutputDeviceKeys == null)
+                ChannelOutputDeviceKeys = new Dictionary<string, string>();
+
+            if (AudioDeviceResolver.IsWindowsDefault(AudioInputDeviceKey) && AudioInputDevice != WINDOWS_DEFAULT_AUDIO_DEVICE)
+                AudioInputDeviceKey = NormalizeAudioDeviceKey(AudioDeviceResolver.GetInputDeviceKey(AudioInputDevice));
+
+            if (AudioDeviceResolver.IsWindowsDefault(MasterOutputDeviceKey) && MasterOutputDevice != WINDOWS_DEFAULT_AUDIO_DEVICE)
+                MasterOutputDeviceKey = NormalizeAudioDeviceKey(AudioDeviceResolver.GetOutputDeviceKey(MasterOutputDevice));
+
+            foreach (KeyValuePair<string, int> kvp in ChannelOutputDevices.ToList())
+            {
+                if (string.IsNullOrWhiteSpace(kvp.Key) || ChannelOutputDeviceKeys.ContainsKey(kvp.Key))
+                    continue;
+
+                string deviceKey = AudioDeviceResolver.GetOutputDeviceKey(kvp.Value);
+                if (!string.IsNullOrWhiteSpace(deviceKey))
+                    ChannelOutputDeviceKeys[kvp.Key] = NormalizeAudioDeviceKey(deviceKey);
+            }
+
+            if (ChannelOutputDevices.TryGetValue(LEGACY_GLOBAL_INPUT_DEVICE_KEY, out int legacyInputDevice))
+            {
+                AudioInputDevice = NormalizeAudioDeviceIndex(legacyInputDevice);
+                AudioInputDeviceKey = NormalizeAudioDeviceKey(AudioDeviceResolver.GetInputDeviceKey(AudioInputDevice));
+                ChannelOutputDevices.Remove(LEGACY_GLOBAL_INPUT_DEVICE_KEY);
+            }
+        }
+
+        /// <summary>
+        /// Saves a per-channel volume level.
+        /// </summary>
+        public void UpdateChannelVolume(string channelName, double volume)
+        {
+            if (string.IsNullOrWhiteSpace(channelName))
+                return;
+
+            ChannelVolumes[channelName] = volume;
+            SaveSettings();
+        }
+
+        /// <summary>
+        /// Gets a saved channel volume by stable resource key with legacy channel-name fallback.
+        /// </summary>
+        public bool TryGetChannelVolume(string resourceKey, string legacyChannelName, out double volume)
+        {
+            volume = 0;
+
+            if (ChannelVolumes == null)
+                return false;
+
+            if (!string.IsNullOrWhiteSpace(resourceKey) &&
+                ChannelVolumes.TryGetValue(resourceKey, out volume))
+                return true;
+
+            if (!string.IsNullOrWhiteSpace(legacyChannelName) &&
+                ChannelVolumes.TryGetValue(legacyChannelName, out volume))
+                return true;
+
+            return false;
+        }
+
+        /// <summary>
+        /// Returns the saved selectable encryption state for a system/talkgroup pair.
+        /// </summary>
+        public bool GetSelectableEncryptionState(string stateKey, bool defaultValue)
+        {
+            if (string.IsNullOrWhiteSpace(stateKey) || SelectableEncryptionStates == null)
+                return defaultValue;
+
+            return SelectableEncryptionStates.TryGetValue(stateKey, out bool enabled)
+                ? enabled
+                : defaultValue;
+        }
+
+        /// <summary>
+        /// Saves the selectable encryption state for a system/talkgroup pair.
+        /// </summary>
+        public void UpdateSelectableEncryptionState(string stateKey, bool encrypted)
+        {
+            if (string.IsNullOrWhiteSpace(stateKey))
+                return;
+
+            SelectableEncryptionStates ??= new Dictionary<string, bool>();
+            SelectableEncryptionStates[stateKey] = encrypted;
+            SaveSettings();
+        }
+
+        /// <summary>
+        /// Returns a normalized copy of the TAR channel configuration map.
+        /// </summary>
+        public Dictionary<string, TarChannelConfig> GetTarChannelConfigs()
+        {
+            Dictionary<string, TarChannelConfig> copy = new Dictionary<string, TarChannelConfig>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, TarChannelConfig> kvp in TarChannelConfigs ?? new Dictionary<string, TarChannelConfig>())
+            {
+                string configKey = kvp.Key?.Trim();
+                if (string.IsNullOrWhiteSpace(configKey))
+                    continue;
+
+                copy[configKey] = NormalizeTarChannelConfig(kvp.Value);
+            }
+
+            return copy;
+        }
+
+        /// <summary>
+        /// Gets TAR settings for a resource key, returning defaults if no saved entry exists.
+        /// </summary>
+        public TarChannelConfig GetTarChannelConfig(string configKey, string legacyChannelName = null, string legacyTalkgroupId = null)
+        {
+            if (string.IsNullOrWhiteSpace(configKey) && string.IsNullOrWhiteSpace(legacyChannelName) && string.IsNullOrWhiteSpace(legacyTalkgroupId))
+                return NormalizeTarChannelConfig(null);
+
+            if (TarChannelConfigs != null &&
+                !string.IsNullOrWhiteSpace(configKey) &&
+                TarChannelConfigs.TryGetValue(configKey, out TarChannelConfig config))
+                return NormalizeTarChannelConfig(config);
+
+            if (TarChannelConfigs != null &&
+                !string.IsNullOrWhiteSpace(legacyTalkgroupId) &&
+                TarChannelConfigs.TryGetValue(legacyTalkgroupId, out TarChannelConfig legacyTalkgroupConfig))
+                return NormalizeTarChannelConfig(legacyTalkgroupConfig);
+
+            if (TarChannelConfigs != null &&
+                !string.IsNullOrWhiteSpace(legacyChannelName) &&
+                TarChannelConfigs.TryGetValue(legacyChannelName, out TarChannelConfig legacyConfig))
+                return NormalizeTarChannelConfig(legacyConfig);
+
+            return NormalizeTarChannelConfig(null);
+        }
+
+        /// <summary>
+        /// Saves TAR root folder and per-channel configuration.
+        /// </summary>
+        public void SaveTarSettings(string rootPath, IDictionary<string, TarChannelConfig> configs)
+        {
+            TarRecordingsRootPath = string.IsNullOrWhiteSpace(rootPath)
+                ? DefaultTarRecordingsPath
+                : rootPath.Trim();
+
+            Dictionary<string, TarChannelConfig> normalized = new Dictionary<string, TarChannelConfig>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, TarChannelConfig> kvp in configs ?? new Dictionary<string, TarChannelConfig>())
+            {
+                string configKey = kvp.Key?.Trim();
+                if (string.IsNullOrWhiteSpace(configKey))
+                    continue;
+
+                normalized[configKey] = NormalizeTarChannelConfig(kvp.Value);
+            }
+
+            TarChannelConfigs = normalized;
+            SaveSettings();
+        }
+
+        public void MigrateResourceScopedSettings(IEnumerable<Codeplug.Channel> channels)
+        {
+            if (channels == null)
+                return;
+
+            ChannelOutputDevices ??= new Dictionary<string, int>();
+            ChannelOutputDeviceKeys ??= new Dictionary<string, string>();
+            ChannelPositions ??= new Dictionary<string, ChannelPosition>();
+            ChannelVolumes ??= new Dictionary<string, double>();
+            TarChannelConfigs ??= new Dictionary<string, TarChannelConfig>();
+            SelectedChannels ??= new List<string>();
+
+            bool changed = false;
+            HashSet<string> selectedChannelKeys = new HashSet<string>(SelectedChannels, StringComparer.OrdinalIgnoreCase);
+            foreach (Codeplug.Channel channel in channels)
+            {
+                if (channel == null || string.IsNullOrWhiteSpace(channel.Tgid))
+                    continue;
+
+                string resourceKey = ResourceIdentity.Build(channel.System, channel.Tgid);
+                if (string.IsNullOrWhiteSpace(resourceKey))
+                    continue;
+
+                if (!ChannelOutputDeviceKeys.ContainsKey(resourceKey) &&
+                    ChannelOutputDeviceKeys.TryGetValue(channel.Tgid, out string legacyDeviceKey))
+                {
+                    ChannelOutputDeviceKeys[resourceKey] = NormalizeAudioDeviceKey(legacyDeviceKey);
+                    changed = true;
+                }
+
+                if (!ChannelOutputDevices.ContainsKey(resourceKey) &&
+                    ChannelOutputDevices.TryGetValue(channel.Tgid, out int legacyDevice))
+                {
+                    ChannelOutputDevices[resourceKey] = NormalizeAudioDeviceIndex(legacyDevice);
+                    changed = true;
+                }
+
+                if (!TarChannelConfigs.ContainsKey(resourceKey))
+                {
+                    TarChannelConfig legacyConfig = null;
+                    if (!string.IsNullOrWhiteSpace(channel.Tgid))
+                        TarChannelConfigs.TryGetValue(channel.Tgid, out legacyConfig);
+                    if (legacyConfig == null && !string.IsNullOrWhiteSpace(channel.Name))
+                        TarChannelConfigs.TryGetValue(channel.Name, out legacyConfig);
+
+                    if (legacyConfig != null)
+                    {
+                        TarChannelConfigs[resourceKey] = NormalizeTarChannelConfig(legacyConfig);
+                        changed = true;
+                    }
+                }
+
+                if (!ChannelPositions.ContainsKey(resourceKey) &&
+                    !string.IsNullOrWhiteSpace(channel.Name) &&
+                    ChannelPositions.TryGetValue(channel.Name, out ChannelPosition legacyPosition))
+                {
+                    ChannelPositions[resourceKey] = legacyPosition;
+                    changed = true;
+                }
+
+                if (!ChannelVolumes.ContainsKey(resourceKey) &&
+                    !string.IsNullOrWhiteSpace(channel.Name) &&
+                    ChannelVolumes.TryGetValue(channel.Name, out double legacyVolume))
+                {
+                    ChannelVolumes[resourceKey] = legacyVolume;
+                    changed = true;
+                }
+
+                if (!selectedChannelKeys.Contains(resourceKey) &&
+                    ((!string.IsNullOrWhiteSpace(channel.Name) && selectedChannelKeys.Contains(channel.Name)) ||
+                     (!string.IsNullOrWhiteSpace(channel.Tgid) && selectedChannelKeys.Contains(channel.Tgid))))
+                {
+                    SelectedChannels.Add(resourceKey);
+                    selectedChannelKeys.Add(resourceKey);
+                    changed = true;
+                }
+            }
+
+            if (changed)
+                SaveSettings();
+        }
+
+        /// <summary>
+        /// Prunes saved state using system/talkgroup resource keys. Legacy name and
+        /// bare-TGID arguments remain in the signature for caller compatibility.
+        /// </summary>
+        public void PruneResourceSettings(IEnumerable<string> validChannelNames, IEnumerable<string> validTalkgroupIds, IEnumerable<string> validSystemNames, IEnumerable<string> validWebStreamNames = null, IEnumerable<string> validSelectableEncryptionKeys = null, IEnumerable<string> validResourceKeys = null)
+        {
+            HashSet<string> systemNames = new HashSet<string>(
+                validSystemNames?.Where(v => !string.IsNullOrWhiteSpace(v)) ?? Enumerable.Empty<string>(),
+                StringComparer.OrdinalIgnoreCase);
+            HashSet<string> webStreamNames = new HashSet<string>(
+                validWebStreamNames?.Where(v => !string.IsNullOrWhiteSpace(v)) ?? Enumerable.Empty<string>(),
+                StringComparer.OrdinalIgnoreCase);
+            HashSet<string> resourceKeys = new HashSet<string>(
+                validResourceKeys?.Where(v => !string.IsNullOrWhiteSpace(v)) ?? Enumerable.Empty<string>(),
+                StringComparer.OrdinalIgnoreCase);
+
+            HashSet<string> validAudioOutputKeys = new HashSet<string>(resourceKeys, StringComparer.OrdinalIgnoreCase);
+            validAudioOutputKeys.Add(MainWindow.PLAYBACKTG);
+            foreach (string webStreamName in webStreamNames)
+                validAudioOutputKeys.Add(webStreamName);
+            HashSet<string> validChannelResourceKeys = new HashSet<string>(resourceKeys, StringComparer.OrdinalIgnoreCase);
+            validChannelResourceKeys.Add(MainWindow.PLAYBACKCHNAME);
+
+            bool changed = false;
+            changed |= PruneDictionary(ChannelPositions, validChannelResourceKeys);
+            changed |= PruneDictionary(ChannelVolumes, validChannelResourceKeys);
+            changed |= PruneList(SelectedChannels, resourceKeys);
+            HashSet<string> validTarKeys = new HashSet<string>(resourceKeys, StringComparer.OrdinalIgnoreCase);
+
+            changed |= PruneDictionary(TarChannelConfigs, validTarKeys);
+            changed |= PruneDictionary(ChannelOutputDevices, validAudioOutputKeys);
+            changed |= PruneDictionary(ChannelOutputDeviceKeys, validAudioOutputKeys);
+            changed |= PruneDictionary(SystemStatusPositions, systemNames);
+            changed |= PruneDictionary(WebStreamPositions, webStreamNames);
+            changed |= PruneDictionary(WebStreamVolumes, webStreamNames);
+            changed |= PruneList(SelectedWebStreams, webStreamNames);
+            changed |= PruneAlertToneSchedules(resourceKeys);
+
+            HashSet<string> selectableEncryptionKeys = new HashSet<string>(
+                validSelectableEncryptionKeys?.Where(v => !string.IsNullOrWhiteSpace(v)) ?? Enumerable.Empty<string>(),
+                StringComparer.OrdinalIgnoreCase);
+            changed |= PruneDictionary(SelectableEncryptionStates, selectableEncryptionKeys);
+
+            if (changed)
+                SaveSettings();
+        }
+
+        private bool PruneAlertToneSchedules(HashSet<string> validResourceKeys)
+        {
+            if (AlertToneSchedules == null || validResourceKeys == null)
+                return false;
+
+            int originalCount = AlertToneSchedules.Count;
+            HashSet<string> validAlertToneIds = new HashSet<string>(
+                (AlertTones ?? new List<AlertToneConfig>())
+                    .Where(tone => !string.IsNullOrWhiteSpace(tone?.Id))
+                    .Select(tone => tone.Id),
+                StringComparer.OrdinalIgnoreCase);
+
+            AlertToneSchedules = NormalizeAlertToneScheduleConfigs(AlertToneSchedules)
+                .Where(schedule => validAlertToneIds.Contains(schedule.AlertToneId) &&
+                                   validResourceKeys.Contains(schedule.TargetResourceKey))
+                .ToList();
+
+            return AlertToneSchedules.Count != originalCount;
+        }
+
+        private static bool PruneList(List<string> list, HashSet<string> validKeys)
+        {
+            if (list == null || validKeys == null)
+                return false;
+
+            int originalCount = list.Count;
+            List<string> normalized = list
+                .Where(item => !string.IsNullOrWhiteSpace(item) && validKeys.Contains(item))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (normalized.Count == originalCount && list.SequenceEqual(normalized, StringComparer.OrdinalIgnoreCase))
+                return false;
+
+            list.Clear();
+            list.AddRange(normalized);
+            return true;
+        }
+
+        private static bool PruneDictionary<TValue>(Dictionary<string, TValue> dictionary, HashSet<string> validKeys)
+        {
+            if (dictionary == null || validKeys == null)
+                return false;
+
+            List<string> staleKeys = dictionary.Keys
+                .Where(key => !validKeys.Contains(key))
+                .ToList();
+            foreach (string key in staleKeys)
+                dictionary.Remove(key);
+
+            return staleKeys.Count > 0;
+        }
+
+        /// <summary>
+        /// Gets a copy of patch group memberships for a codeplug context.
+        /// </summary>
+        /// <param name="contextKey"></param>
+        /// <returns></returns>
+        public Dictionary<string, List<PatchTalkgroupMember>> GetPatchGroupMemberships(string contextKey)
+        {
+            string key = NormalizePatchMembershipKey(contextKey);
+            if (!PatchGroupMemberships.TryGetValue(key, out Dictionary<string, List<PatchTalkgroupMember>> memberships))
+                return new Dictionary<string, List<PatchTalkgroupMember>>();
+
+            Dictionary<string, List<PatchTalkgroupMember>> copy = new Dictionary<string, List<PatchTalkgroupMember>>();
+            foreach (KeyValuePair<string, List<PatchTalkgroupMember>> kvp in memberships)
+                copy[kvp.Key] = NormalizePatchMembers(kvp.Value);
+
+            return copy;
+        }
+
+        /// <summary>
+        /// Saves patch group memberships for a codeplug context.
+        /// </summary>
+        /// <param name="contextKey"></param>
+        /// <param name="memberships"></param>
+        public void SavePatchGroupMemberships(string contextKey, Dictionary<string, List<PatchTalkgroupMember>> memberships)
+        {
+            string key = NormalizePatchMembershipKey(contextKey);
+            Dictionary<string, List<PatchTalkgroupMember>> normalized = new Dictionary<string, List<PatchTalkgroupMember>>();
+            foreach (KeyValuePair<string, List<PatchTalkgroupMember>> kvp in memberships ?? new Dictionary<string, List<PatchTalkgroupMember>>())
+                normalized[kvp.Key] = NormalizePatchMembers(kvp.Value);
+
+            PatchGroupMemberships[key] = normalized;
+            SaveSettings();
+        }
+
+        /// <summary>
+        /// Gets a copy of patch group one-way modes for a codeplug context.
+        /// </summary>
+        /// <param name="contextKey"></param>
+        /// <returns></returns>
+        public Dictionary<string, bool> GetPatchGroupModes(string contextKey)
+        {
+            string key = NormalizePatchMembershipKey(contextKey);
+            if (!PatchGroupModes.TryGetValue(key, out Dictionary<string, bool> modes))
+                return new Dictionary<string, bool>();
+
+            Dictionary<string, bool> copy = new Dictionary<string, bool>();
+            foreach (KeyValuePair<string, bool> kvp in modes)
+            {
+                string groupName = kvp.Key?.Trim();
+                if (string.IsNullOrWhiteSpace(groupName))
+                    continue;
+                copy[groupName] = kvp.Value;
+            }
+
+            return copy;
+        }
+
+        /// <summary>
+        /// Saves patch group one-way modes for a codeplug context.
+        /// </summary>
+        /// <param name="contextKey"></param>
+        /// <param name="modes"></param>
+        public void SavePatchGroupModes(string contextKey, Dictionary<string, bool> modes)
+        {
+            string key = NormalizePatchMembershipKey(contextKey);
+            Dictionary<string, bool> normalized = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, bool> kvp in modes ?? new Dictionary<string, bool>())
+            {
+                string groupName = kvp.Key?.Trim();
+                if (string.IsNullOrWhiteSpace(groupName))
+                    continue;
+                normalized[groupName] = kvp.Value;
+            }
+
+            PatchGroupModes[key] = new Dictionary<string, bool>(normalized);
+            SaveSettings();
+        }
+
+        /// <summary>
+        /// Gets a copy of patch enabled state for a codeplug context.
+        /// </summary>
+        public Dictionary<string, bool> GetPatchGroupEnabledStates(string contextKey)
+        {
+            string key = NormalizePatchMembershipKey(contextKey);
+            if (!PatchGroupEnabledStates.TryGetValue(key, out Dictionary<string, bool> states))
+                return new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+
+            Dictionary<string, bool> copy = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, bool> kvp in states)
+            {
+                string groupName = kvp.Key?.Trim();
+                if (string.IsNullOrWhiteSpace(groupName))
+                    continue;
+                copy[groupName] = kvp.Value;
+            }
+
+            return copy;
+        }
+
+        /// <summary>
+        /// Saves patch enabled state for a codeplug context.
+        /// </summary>
+        public void SavePatchGroupEnabledStates(string contextKey, Dictionary<string, bool> states)
+        {
+            string key = NormalizePatchMembershipKey(contextKey);
+            Dictionary<string, bool> normalized = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, bool> kvp in states ?? new Dictionary<string, bool>())
+            {
+                string groupName = kvp.Key?.Trim();
+                if (string.IsNullOrWhiteSpace(groupName))
+                    continue;
+                normalized[groupName] = kvp.Value;
+            }
+
+            PatchGroupEnabledStates[key] = new Dictionary<string, bool>(normalized);
+            SaveSettings();
+        }
+
+        /// <summary>
+        /// Normalizes and de-duplicates patch membership entries.
+        /// </summary>
+        /// <param name="members"></param>
+        /// <returns></returns>
+        private static List<PatchTalkgroupMember> NormalizePatchMembers(IEnumerable<PatchTalkgroupMember> members)
+        {
+            return (members ?? Enumerable.Empty<PatchTalkgroupMember>())
+                .Where(m => !string.IsNullOrWhiteSpace(m?.SystemName) && !string.IsNullOrWhiteSpace(m?.Tgid))
+                .GroupBy(m => $"{m.SystemName.Trim().ToLowerInvariant()}|{m.Tgid.Trim()}")
+                .Select(g =>
+                {
+                    PatchTalkgroupMember first = g.First();
+                    return new PatchTalkgroupMember
+                    {
+                        SystemName = first.SystemName.Trim(),
+                        Tgid = first.Tgid.Trim()
+                    };
+                })
+                .ToList();
+        }
+
+        /// <summary>
+        /// Normalizes the settings key used to scope patch memberships.
+        /// </summary>
+        /// <param name="contextKey"></param>
+        /// <returns></returns>
+        private static string NormalizePatchMembershipKey(string contextKey)
+        {
+            if (string.IsNullOrWhiteSpace(contextKey))
+                return "__default__";
+
+            return contextKey.Trim().ToLowerInvariant();
+        }
+
+        private static TarChannelConfig NormalizeTarChannelConfig(TarChannelConfig config)
+        {
+            TarChannelConfig normalized = new TarChannelConfig
+            {
+                Enabled = config?.Enabled ?? false,
+                // An explicit retention value is valid even when recording is disabled.
+                RetentionDays = config?.RetentionDays ?? 7,
+                IgnoredSubscriberIds = (config?.IgnoredSubscriberIds ?? new List<uint>())
+                    .Where(id => id > 0)
+                    .Distinct()
+                    .OrderBy(id => id)
+                    .ToList()
+            };
+
+            if (normalized.RetentionDays < 0)
+                normalized.RetentionDays = 0;
+
+            return normalized;
         }
     } // public class SettingsManager
 } // namespace dvmconsole

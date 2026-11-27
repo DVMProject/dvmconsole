@@ -18,10 +18,11 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
-        
+
         <Menu materialDesign:MenuAssist.TopLevelMenuItemHeight="24" Grid.ColumnSpan="2" Background="{DynamicResource MaterialDesignPaper}">
             <MenuItem Header="_File">
                 <MenuItem Header="_Open Codeplug..." Click="OpenCodeplug_Click" />
+                <MenuItem Header="_Import / Export Settings" Click="SettingsTransfer_Click" />
                 <Separator />
                 <MenuItem Header="_Exit" Click="Exit_Click" />
             </MenuItem>
@@ -32,23 +33,29 @@
                 <MenuItem Header="_Inhibit Subscriber" Click="InhibitRID_Click" x:Name="menuInhibitSubscriber" />
                 <MenuItem Header="_Uninhibit Subscriber" Click="UninhibitRID_Click" x:Name="menuUninhibitSubscriber" />
                 <Separator />
-                <MenuItem Header="_QuickCall II" Click="ManualPage_Click" x:Name="menuQuickCall2" />
+                <MenuItem Header="_Tones">
+                    <MenuItem Header="_QCII" Click="TonePresets_Click" x:Name="menuTonePresets" />
+                    <MenuItem Header="_DTMF" Click="DtmfPresets_Click" x:Name="menuDtmfPresets" />
+                    <MenuItem Header="_Manage Custom Alert Tones" Click="ManageAlertTones_Click" />
+                </MenuItem>
             </MenuItem>
             <MenuItem Header="_Settings">
                 <MenuItem Header="_Toggle Push To Talk Mode" IsCheckable="True" Checked="TogglePTTMode_Click" Unchecked="TogglePTTMode_Click" x:Name="menuTogglePTTMode" />
-                <MenuItem Header="_Global PTT Keys All Channels" IsCheckable="True" Checked="ToggleGlobalPTTAllChannels_Click" Unchecked="ToggleGlobalPTTAllChannels_Click" x:Name="menuToggleGlobalPTTMode" />
+                <MenuItem Header="_Talk Permit Tone" IsCheckable="True" Checked="ToggleTalkPermitTone_Click" Unchecked="ToggleTalkPermitTone_Click" x:Name="menuTalkPermitTone" />
+                <MenuItem Header="_Mute RX Audio While Transmitting" IsCheckable="True" Checked="ToggleMuteRxAudioWhileTransmitting_Click" Unchecked="ToggleMuteRxAudioWhileTransmitting_Click" x:Name="menuMuteRxAudioWhileTransmitting" />
+                <MenuItem Header="_Retain Patch State on Startup" IsCheckable="True" Checked="ToggleRetainPatchStateOnStartup_Click" Unchecked="ToggleRetainPatchStateOnStartup_Click" x:Name="menuRetainPatchStateOnStartup" />
+                <MenuItem Header="_Restore Selected Channels On Startup" IsCheckable="True" Checked="ToggleRestoreSelectedChannels_Click" Unchecked="ToggleRestoreSelectedChannels_Click" x:Name="menuRestoreSelectedChannels" />
+                <Separator />
+                <MenuItem Header="_Clock Manager" Click="ClockManager_Click" />
                 <Separator />
                 <MenuItem Header="_Audio Settings" Click="AudioSettings_Click" />
                 <MenuItem Header="_Reset Settings" Click="ResetSettings_Click" />
                 <Separator />
                 <MenuItem Header="_Select Widgets to Display" Click="SelectWidgets_Click" />
-                <Separator />
-                <MenuItem Header="Alerts">
-                    <MenuItem Header="Add Alert Tone" Click="AddAlertTone_Click" />
-                </MenuItem>
+                <MenuItem Header="_Tab Manager" Click="TabManager_Click" x:Name="menuTabManager" />
                 <Separator />
                 <MenuItem Header="Keyboard Shortcuts">
-                    <MenuItem Header="Set Global PTT Keybind" Click="SetGlobalPTTKeybind"></MenuItem>
+                    <MenuItem Header="PTT Keybinds..." Click="SetGlobalPTTKeybind"></MenuItem>
                 </MenuItem>
             </MenuItem>
             <MenuItem Header="_View">
@@ -57,72 +64,104 @@
                 <MenuItem Header="_Dark Mode" IsCheckable="True" Checked="ToggleDarkMode_Click" Unchecked="ToggleDarkMode_Click" x:Name="menuDarkMode" />
                 <Separator />
                 <MenuItem Header="_Lock Widgets" IsCheckable="True" Checked="ToggleLockWidgets_Click" Unchecked="ToggleLockWidgets_Click" x:Name="menuToggleLockWidgets" />
+                <MenuItem Header="_Reset Tab Layout" Click="SnapCardsToGrid_Click" x:Name="menuSnapCardsToGrid" />
                 <MenuItem Header="_Fit Channel Display to Window Size" Click="ResizeCanvasToWindow_Click" x:Name="menuFitToWindow" />
-                <MenuItem Header="_Snap Call History To Window" IsCheckable="True" Checked="ToggleSnapCallHistory_Click" Unchecked="ToggleSnapCallHistory_Click" x:Name="menuSnapCallHistory" />
+                <MenuItem Header="_Snap Event History To Window" IsCheckable="True" Checked="ToggleSnapCallHistory_Click" Unchecked="ToggleSnapCallHistory_Click" x:Name="menuSnapCallHistory" />
+                <MenuItem Header="_Groups" Click="PatchGroups_Click" x:Name="menuPatchGroups" />
                 <Separator />
                 <MenuItem Header="_Always on Top" IsCheckable="True" Checked="ToggleKeepWindowOnTop_Click" Unchecked="ToggleKeepWindowOnTop_Click" x:Name="menuKeepWindowOnTop" />
             </MenuItem>
+            <MenuItem Header="_Tools">
+                <MenuItem Header="_Talkgroup Audio Recorder">
+                    <MenuItem Header="_Viewer" Click="TarViewer_Click" />
+                    <MenuItem Header="_Configuration" Click="TarConfiguration_Click" />
+                </MenuItem>
+                <Separator />
+                <MenuItem Header="_FNE Connection Manager" Click="FneConnectionManager_Click" />
+            </MenuItem>
+            <MenuItem Header="_Help">
+                <MenuItem Header="_Debug Logs" Click="DebugLogs_Click" />
+                <MenuItem Header="_Documentation" Click="Documentation_Click" />
+                <MenuItem Header="_About" Click="About_Click" />
+            </MenuItem>
         </Menu>
 
-        <ToolBarTray Grid.Row="1" Background="{DynamicResource MaterialDesignPaper}">
-            <ToolBar ClipToBounds="False" Style="{StaticResource MaterialDesignToolBar}" Background="{DynamicResource MaterialDesignPaper}">
-                <!-- Application Banner -->
-                <Image Width="224" Height="50" VerticalAlignment="Center" HorizontalAlignment="Left" Source="/dvmconsole;component/Assets/logo.png" Stretch="UniformToFill">
-                    <Image.RenderTransform>
-                        <TransformGroup>
-                            <ScaleTransform/>
-                            <SkewTransform AngleY="-0.164"/>
-                            <RotateTransform/>
-                            <TranslateTransform Y="-0.247"/>
-                        </TransformGroup>
-                    </Image.RenderTransform>
-                </Image>
+        <Grid Grid.Row="1" Grid.ColumnSpan="2" Background="{DynamicResource MaterialDesignPaper}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
 
+            <ToolBar Grid.Column="0" ClipToBounds="False" Style="{StaticResource MaterialDesignToolBar}" Background="{DynamicResource MaterialDesignPaper}">
+                <!-- Application Banner -->
+                <Image Width="48" Height="48" VerticalAlignment="Top" HorizontalAlignment="Left" Source="/dvmconsole;component/Assets/AppIcon.png" Stretch="Uniform" SnapsToDevicePixels="True"/>
                 <Separator />
 
                 <!-- Open Codeplug -->
                 <Button Height="42" Width="42" Click="OpenCodeplug_Click" ToolTip="Open Codeplug" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
-                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image HorizontalAlignment="Left" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/config.png" IsHitTestVisible="False" />
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                        Style="{StaticResource ConsoleToolbarButton}">
+                    <Control Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Config}" />
                 </Button>
 
                 <Separator />
 
                 <!-- Global PTT -->
                 <Button x:Name="btnGlobalPtt" Height="42" Width="110" ToolTip="Global PTT" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
-                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image HorizontalAlignment="Center" VerticalAlignment="Center" Width="64" Height="48" Source="/dvmconsole;component/Assets/instantptt.png" IsHitTestVisible="False">
-                        <Image.OpacityMask>
-                            <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-                                <GradientStop Color="Black"/>
-                                <GradientStop Color="White" Offset="1"/>
-                            </LinearGradientBrush>
-                        </Image.OpacityMask>
-                    </Image>
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                        Style="{StaticResource ConsoleToolbarButton}">
+                    <Control Width="38" Height="34" Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Ptt}" />
                 </Button>
 
                 <Separator />
 
-                <!-- Alert Tone 1, 2 and 3 -->
-                <Button x:Name="btnAlert1" Height="42" Width="42" Click="btnAlert1_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 1" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
-                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
+                <!-- Alert Tones -->
+                <Button x:Name="btnAlert1" Height="42" Width="42" Margin="0,0,4,0" Click="btnAlert1_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 1" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                        Style="{StaticResource ConsoleToolbarButton}">
                     <StackPanel Width="42">
-                        <Image HorizontalAlignment="Center" Width="32" Height="30" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" />
+                        <Control Height="28" Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Alert}" />
                         <TextBlock TextAlignment="Center">1</TextBlock>
                     </StackPanel>
                 </Button>
-                <Button x:Name="btnAlert2" Height="42" Width="42" Click="btnAlert2_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 2" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
-                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
+                <Button x:Name="btnAlert2" Height="42" Width="42" Margin="0,0,4,0" Click="btnAlert2_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 2" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                        Style="{StaticResource ConsoleToolbarButton}">
                     <StackPanel Width="42">
-                        <Image HorizontalAlignment="Center" Width="32" Height="30" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" />
+                        <Control Height="28" Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Alert}" />
                         <TextBlock TextAlignment="Center">2</TextBlock>
                     </StackPanel>
                 </Button>
-                <Button x:Name="btnAlert3" Height="42" Width="42" Click="btnAlert3_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 3" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
-                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
+                <Button x:Name="btnAlert3" Height="42" Width="42" Margin="0,0,4,0" Click="btnAlert3_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 3" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                        Style="{StaticResource ConsoleToolbarButton}">
                     <StackPanel Width="42">
-                        <Image HorizontalAlignment="Center" Width="32" Height="30" Source="/dvmconsole;component/Assets/alerttone.png" IsHitTestVisible="False" />
+                        <Control Height="28" Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Alert}" />
                         <TextBlock TextAlignment="Center">3</TextBlock>
+                    </StackPanel>
+                </Button>
+                <Button x:Name="btnAlert4" Height="42" Width="42" Margin="0,0,4,0" Click="btnAlert4_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 4" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                        Style="{StaticResource ConsoleToolbarButton}">
+                    <StackPanel Width="42">
+                        <Control Height="28" Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Alert}" />
+                        <TextBlock TextAlignment="Center">4</TextBlock>
+                    </StackPanel>
+                </Button>
+                <Button x:Name="btnAlert5" Height="42" Width="42" Margin="0,0,4,0" Click="btnAlert5_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 5" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                        Style="{StaticResource ConsoleToolbarButton}">
+                    <StackPanel Width="42">
+                        <Control Height="28" Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Alert}" />
+                        <TextBlock TextAlignment="Center">5</TextBlock>
+                    </StackPanel>
+                </Button>
+                <Button x:Name="btnAlert6" Height="42" Width="42" Click="btnAlert6_Click" FontSize="10" FontFamily="Arial" ToolTip="Alert Tone 6" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                        Style="{StaticResource ConsoleToolbarButton}">
+                    <StackPanel Width="42">
+                        <Control Height="28" Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Alert}" />
+                        <TextBlock TextAlignment="Center">6</TextBlock>
                     </StackPanel>
                 </Button>
 
@@ -130,43 +169,102 @@
 
                 <!-- Page Subscriber -->
                 <Button x:Name="btnPageSub" Height="42" Width="42" Click="PageRID_Click" ToolTip="Page Subscriber" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
-                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image HorizontalAlignment="Left" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/page.png" IsHitTestVisible="False" />
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                        Style="{StaticResource ConsoleToolbarButton}">
+                    <Control Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Page}" />
                 </Button>
 
                 <Separator />
 
                 <!-- Select/Unselect All -->
-                <Button x:Name="btnSelectAll" Height="42" Width="42" Click="SelectAll_Click" ToolTip="Select All/Unselect All" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
-                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image HorizontalAlignment="Left" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/select.png" IsHitTestVisible="False" />
+                <Button x:Name="btnSelectAll" Height="42" Width="42" Click="SelectAll_Click" ToolTip="Select/Unselect All On Current Tab" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                        Style="{StaticResource ConsoleToolbarButton}">
+                    <Control Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Select}" />
                 </Button>
 
                 <Separator />
 
                 <!-- Encryption Key Information -->
                 <Button x:Name="btnKeyStatus" Height="42" Width="42" Click="KeyStatus_Click" ToolTip="Encryption Key Information" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
-                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image HorizontalAlignment="Left" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/key.png" IsHitTestVisible="False" />
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                        Style="{StaticResource ConsoleToolbarButton}">
+                    <Control Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Key}" />
                 </Button>
 
                 <Separator />
 
-                <!-- Call History -->
-                <Button x:Name="btnCallHistory" Height="42" Width="42" Click="CallHist_Click" ToolTip="Call History" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
-                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image HorizontalAlignment="Left" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/history.png" IsHitTestVisible="False" />
+                <!-- Event History -->
+                <Button x:Name="btnCallHistory" Height="42" Width="42" Click="CallHist_Click" ToolTip="Event History" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                        Style="{StaticResource ConsoleToolbarButton}">
+                    <Control Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.History}" />
+                </Button>
+
+                <Separator />
+
+                <!-- Groups -->
+                <Button x:Name="btnPatchGroups" Height="42" Width="42" Click="PatchGroups_Click" ToolTip="Groups" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                        Style="{StaticResource ConsoleToolbarButton}">
+                    <Control Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Groups}" />
                 </Button>
 
                 <Separator />
 
                 <!-- Audio Settings -->
                 <Button x:Name="btnAudioSettings" Height="42" Width="42" Click="AudioSettings_Click" ToolTip="Audio Settings" materialDesign:ButtonAssist.CornerRadius="5" Padding="0"
-                        IsEnabled="{Binding DataContext.ControlsEnabled, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" Style="{StaticResource MaterialDesignPaperDarkButton}">
-                    <Image HorizontalAlignment="Left" VerticalAlignment="Center" Width="32" Height="32" Source="/dvmconsole;component/Assets/audio.png" IsHitTestVisible="False" />
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                        Style="{StaticResource ConsoleToolbarButton}">
+                    <Control Style="{StaticResource ConsoleToolbarIcon}" Template="{StaticResource ConsoleIcon.Audio}" />
                 </Button>
             </ToolBar>
-        </ToolBarTray>
+
+            <Border x:Name="ToolbarClockContainer"
+                    Grid.Column="1"
+                    Background="{DynamicResource MaterialDesignPaper}"
+                    Padding="0,4,12,4"
+                    Visibility="Collapsed">
+                <Viewbox Stretch="Uniform"
+                         StretchDirection="DownOnly"
+                         HorizontalAlignment="Right"
+                         VerticalAlignment="Center">
+                    <ItemsControl x:Name="ToolbarClockStrip">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Width="118"
+                                        Height="42"
+                                        Margin="8,0,0,0"
+                                        Padding="8,4"
+                                        CornerRadius="8"
+                                        BorderBrush="{DynamicResource MaterialDesignDivider}"
+                                        BorderThickness="1"
+                                        Background="{Binding BackgroundBrush}">
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding TimeZoneLabel}"
+                                                   HorizontalAlignment="Center"
+                                                   FontSize="9"
+                                                   Foreground="{Binding ForegroundBrush}"
+                                                   Opacity="0.76" />
+                                        <TextBlock Text="{Binding TimeText}"
+                                                   HorizontalAlignment="Center"
+                                                   FontFamily="Consolas"
+                                                   FontSize="16"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{Binding ForegroundBrush}" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Viewbox>
+            </Border>
+        </Grid>
 
         <!-- Tab Control for Resource Views -->
         <TabControl x:Name="resourceTabs" Grid.Row="2" Grid.ColumnSpan="2" Grid.RowSpan="2" VerticalAlignment="Stretch" HorizontalAlignment="Stretch"
@@ -177,7 +275,7 @@
         <ScrollViewer x:Name="canvasScrollViewer" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" Visibility="Collapsed">
             <Canvas x:Name="channelsCanvas" VerticalAlignment="Top">
                 <Canvas.Background>
-                    <ImageBrush x:Name="channelsCanvasBg" ImageSource="/dvmconsole;component/Assets/bg_main_hd_light.png" Stretch="UniformToFill" />
+                    <ImageBrush x:Name="channelsCanvasBg" ImageSource="/dvmconsole;component/Assets/bg_main_hd_dark.png" Stretch="UniformToFill" />
                 </Canvas.Background>
             </Canvas>
         </ScrollViewer>

@@ -1,0 +1,174 @@
+<Window x:Class="dvmconsole.ClockManagerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        Title="Clock Manager"
+        Width="720"
+        Height="520"
+        MinWidth="640"
+        MinHeight="440"
+        WindowStartupLocation="CenterOwner"
+        Style="{StaticResource MaterialDesignWindow}"
+        Background="{DynamicResource MaterialDesignPaper}"
+        FontFamily="{DynamicResource MaterialDesignFont}"
+        TextElement.Foreground="{DynamicResource MaterialDesignBody}"
+        Icon="/dvmconsole;component/Assets/AppIcon.ico">
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="12" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="12" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="8" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="16" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0">
+            <TextBlock FontSize="18"
+                       FontWeight="SemiBold"
+                       Text="Toolbar Clocks" />
+            <TextBlock Margin="0,6,0,0"
+                       Opacity="0.8"
+                       Text="Enable up to eight clocks for the top-right toolbar area, choose each clock's UTC offset, and color-code the boxes." />
+        </StackPanel>
+
+        <Border Grid.Row="2"
+                Padding="12"
+                CornerRadius="8"
+                BorderBrush="{DynamicResource MaterialDesignDivider}"
+                BorderThickness="1"
+                Background="{DynamicResource MaterialDesignCardBackground}">
+            <StackPanel Orientation="Horizontal">
+                <CheckBox Content="Use 24-hour time"
+                          IsChecked="{Binding Use24HourTime, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                          Margin="0,0,24,0"
+                          VerticalAlignment="Center" />
+                <CheckBox Content="Show seconds"
+                          IsChecked="{Binding ShowSeconds, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                          VerticalAlignment="Center" />
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="4"
+                Padding="1"
+                CornerRadius="8"
+                BorderBrush="{DynamicResource MaterialDesignDivider}"
+                BorderThickness="1"
+                Background="{DynamicResource MaterialDesignCardBackground}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0"
+                      Margin="12,10,12,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="90" />
+                        <ColumnDefinition Width="70" />
+                        <ColumnDefinition Width="180" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Column="0"
+                               FontWeight="SemiBold"
+                               Text="Clock" />
+                    <TextBlock Grid.Column="1"
+                               FontWeight="SemiBold"
+                               Text="Show" />
+                    <TextBlock Grid.Column="2"
+                               FontWeight="SemiBold"
+                               Text="Time Zone" />
+                    <TextBlock Grid.Column="3"
+                               FontWeight="SemiBold"
+                               Text="Color" />
+                </Grid>
+
+                <ScrollViewer Grid.Row="1"
+                              VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding ClockRows}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="12,0,12,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="90" />
+                                        <ColumnDefinition Width="70" />
+                                        <ColumnDefinition Width="180" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBlock Grid.Column="0"
+                                               Text="{Binding SlotLabel}"
+                                               VerticalAlignment="Center" />
+
+                                    <CheckBox Grid.Column="1"
+                                              IsChecked="{Binding Enabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              HorizontalAlignment="Left"
+                                              VerticalAlignment="Center" />
+
+                                    <ComboBox Grid.Column="2"
+                                              Margin="0,0,12,0"
+                                              ItemsSource="{Binding DataContext.AvailableTimeZones, RelativeSource={RelativeSource AncestorType=Window}}"
+                                              SelectedValuePath="OffsetHours"
+                                              DisplayMemberPath="Label"
+                                              SelectedValue="{Binding UtcOffsetHours, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+                                    <ComboBox Grid.Column="3"
+                                              ItemsSource="{Binding DataContext.AvailableColors, RelativeSource={RelativeSource AncestorType=Window}}"
+                                              SelectedValuePath="ColorHex"
+                                              SelectedValue="{Binding ColorHex, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <DockPanel LastChildFill="True">
+                                                    <Border Width="18"
+                                                            Height="18"
+                                                            Margin="0,0,8,0"
+                                                            CornerRadius="3"
+                                                            BorderBrush="{DynamicResource MaterialDesignDivider}"
+                                                            BorderThickness="1"
+                                                            Background="{Binding ColorBrush}" />
+                                                    <TextBlock Text="{Binding Label}"
+                                                               VerticalAlignment="Center" />
+                                                </DockPanel>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
+        <TextBlock Grid.Row="6"
+                   x:Name="StatusTextBlock"
+                   Foreground="#FF2E7D32"
+                   Visibility="Collapsed" />
+
+        <DockPanel Grid.Row="8"
+                   LastChildFill="False">
+            <StackPanel Orientation="Horizontal"
+                        DockPanel.Dock="Left">
+                <Button Content="Close"
+                        Width="90"
+                        Height="34"
+                        Click="Close_Click"
+                        Style="{StaticResource MaterialDesignOutlinedButton}" />
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal"
+                        DockPanel.Dock="Right">
+                <Button Content="Save"
+                        Width="90"
+                        Height="34"
+                        Click="Save_Click"
+                        Style="{StaticResource MaterialDesignRaisedButton}" />
+            </StackPanel>
+        </DockPanel>
+    </Grid>
+</Window>

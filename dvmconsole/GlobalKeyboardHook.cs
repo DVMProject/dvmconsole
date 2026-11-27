@@ -8,6 +8,8 @@
 * @license CC-BY-SA-4.0 License (https://creativecommons.org/licenses/by-sa/4.0/legalcode)
 * Code copied in its entirety from https://stackoverflow.com/a/57710850
 *
+*   Project contributors: DVMProject authors
+*
 */
 
 
@@ -206,6 +208,9 @@ public class GlobalKeyboardHook : IDisposable
     EventHandler<GlobalKeyboardHookEventArgs> handler;
     public IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam)
     {
+        if (nCode < 0)
+            return CallNextHookEx(IntPtr.Zero, nCode, wParam, lParam);
+
         bool fEatKeyStroke = false;
 
         var wparamTyped = wParam.ToInt32();

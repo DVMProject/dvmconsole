@@ -1,0 +1,114 @@
+# Alert Tones
+
+The console supports built-in and custom alert tones.
+
+Alert tones provide paging, alerts, and channel hold tones.
+
+---
+
+# Sending Alert Tones
+
+Toolbar alert tone buttons send configured alert audio to the appropriate selected or primary resource depending on the current workflow.
+
+Alert tone transmit still uses the configured resource, system, talkgroup, mode, and validation rules.
+
+If the target TG is unavailable on the connected FNE, the console blocks the action and shows:
+
+```
+Target TG unavailable on FNE
+```
+
+---
+
+# Channel Hold
+
+Enable the channel marker/hold control on each selected resource that needs a repeating hold tone. Multiple resources can be held at once; each 10-second cycle sends their tones together instead of waiting for one resource to finish before starting the next.
+
+Busy, receiving, disabled, and RX-only resources are skipped. Turning hold off on one resource stops its tone without clearing hold on the others. Hold cycles do not clear your selected alert-tone group targets.
+
+---
+
+# Alert Tone Manager
+
+Open from:
+
+```
+Commands > Tones > Manage Custom Alert Tones
+```
+
+The Alert Tone Manager lets you:
+
+- view custom alert tones
+- add a new alert tone
+- rename an alert tone
+- replace the backing audio file
+- assign a tone to a tab
+- schedule one-time or recurring timed announcements
+- delete a custom alert tone
+- save changes without closing the manager
+
+Changes are saved through the normal settings system.
+
+---
+
+# Timed Announcements
+
+The Timed Announcements tab lets a custom alert tone play automatically on a specific resource.
+
+Each scheduled announcement stores:
+
+- enabled/disabled state
+- alert tone
+- target resource
+- one-time or recurring mode
+- next run time using the PC's local time
+- repeat interval in minutes for recurring announcements
+
+One-time announcements disable themselves after they run. Recurring announcements advance to the next future run time after each send.
+
+Double-click **Next Run** and enter `yyyy-MM-dd HH:mm` using 24-hour local time (for example, `2026-10-01 14:30`). Press Enter or leave the field to finish editing, then click **Save**. Invalid dates or times are highlighted and must be corrected before saving.
+
+---
+
+# Audio File Requirements
+
+Alert tone audio files must be compatible with the console audio pipeline.
+
+The console validates alert tone files when sending and expects:
+
+- PCM
+- 16-bit
+- mono
+- 8000 Hz
+
+If a file does not match, the console displays an error.
+
+---
+
+# Deleting Alert Tones
+
+Deleting a custom alert tone removes it from:
+
+- the manager list
+- the UI
+- saved settings
+- saved tab assignment and related custom tone state
+
+Use the confirmation prompt to avoid accidental removal.
+
+---
+
+# Tab Assignment
+
+Custom alert tones can be assigned to a tab/resource tab when supported by the current codeplug layout.
+
+This keeps custom tones near the resources you use with them.
+
+---
+
+# Operational Notes
+
+- Alert tone playback is local and transmitted over the selected target path when sent.
+- Alert tone sends do not bypass talkgroup validation.
+- If an alert tone is renamed, the display name shown in the UI updates and persists after restart.
+- If the backing file is replaced, verify the new file uses the required audio format.
