@@ -18,6 +18,13 @@ Use Console to select talkgroups, transmit with push-to-talk (PTT), send alert t
 >
 > DVMConsole **R02A00** is intended for use with **DVMHost/FNE R06A00 or newer**. Older FNE builds are not recommended and may behave unpredictably. Review older codeplugs before upgrading, especially those created for R01A00; resource configuration has changed significantly.
 
+> [!NOTE]
+> **Stable or development?**
+>
+> `main` contains the latest stable release and receives updates when a new release is ready. For newer features and fixes, check the [development branches](https://github.com/DVMProject/dvmconsole/branches) ending in `_dev` and download their **Pre-release** builds from [GitHub Releases](https://github.com/DVMProject/dvmconsole/releases).
+>
+> We aim to keep development builds usable, but they are still work in progress and may have bugs. Before requesting a feature or building from source, check whether it is already available on dev.
+
 ## What You Need
 
 - Windows 10 or newer
@@ -57,6 +64,15 @@ The same documentation is also built into the app under `Help > Documentation`.
 ## Building From Source
 
 Most users should use the downloads above. For developers, the [Building guide](dvmconsole/Docs/Getting%20Started/02-Building.md) covers Visual Studio, the .NET SDK, submodules, native codec requirements, and release packaging.
+
+## Contributing
+
+Base your changes on the latest active `_dev` branch and open pull requests against that branch, **not `main`**. The DVM team reviews and merges contributions.
+
+- Keep each PR focused on one fix or feature. Leave unrelated cleanup and formatting out.
+- Follow the existing code style and behavior. Avoid major refactors unless needed for the change; discuss broader changes with the team first.
+- Build and test your changes, and include a short explanation of what changed and how you tested it. Call out anything you could not test.
+- Update relevant examples and docs when behavior changes. Never include private codeplugs, credentials, keys, recordings, or local test files.
 
 ## Project Notes
 

@@ -7,6 +7,12 @@ on:
   push:
     branches: ['r*_dev']
   workflow_dispatch:
+    inputs:
+      stable_release:
+        description: 'Prepare a stable release draft (main only)'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -35,6 +41,16 @@ jobs:
       run:
         shell: pwsh
     steps:
+      - name: Validate stable release request
+        shell: pwsh
+        env:
+          STABLE_RELEASE: ${{ inputs.stable_release }}
+        run: |
+          if ($env:STABLE_RELEASE -eq 'true' -and
+              ($env:GITHUB_EVENT_NAME -ne 'workflow_dispatch' -or $env:GITHUB_REF -ne 'refs/heads/main')) {
+            throw 'Stable release drafts must be requested manually from main.'
+          }
+
       - name: Check out Console and pinned submodules
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -90,10 +106,12 @@ jobs:
           compression-level: 0
           retention-days: 30
 
-  prerelease:
-    name: Publish dev prerelease
+  release:
+    name: ${{ inputs.stable_release && 'Prepare stable release draft' || 'Publish dev prerelease' }}
     needs: package
-    if: github.ref_type == 'branch' && startsWith(github.ref_name, 'r') && endsWith(github.ref_name, '_dev')
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.stable_release && github.ref == 'refs/heads/main') ||
+      (!inputs.stable_release && github.ref_type == 'branch' && startsWith(github.ref_name, 'r') && endsWith(github.ref_name, '_dev'))
     runs-on: windows-2022
     timeout-minutes: 10
     permissions:
@@ -105,12 +123,18 @@ jobs:
           pattern: DVMConsole-win-*-${{ github.sha }}
           path: packages
 
-      - name: Publish complete prerelease
+      - name: Prepare release and publish dev builds
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          STABLE_RELEASE: ${{ inputs.stable_release }}
         run: |
           $ErrorActionPreference = 'Stop'
+          $stable = $env:STABLE_RELEASE -eq 'true'
+          if ($stable -and
+              ($env:GITHUB_EVENT_NAME -ne 'workflow_dispatch' -or $env:GITHUB_REF -ne 'refs/heads/main')) {
+            throw 'Stable release drafts must be requested manually from main.'
+          }
           $version = (Get-Content "packages/DVMConsole-win-x86-$env:GITHUB_SHA/release-version.txt" -Raw).Trim()
           if ($version -cnotmatch '^R[0-9]{2}A[0-9]{2}$') { throw 'Invalid Console release version.' }
           $release = New-Item -ItemType Directory -Path release-assets
@@ -134,8 +158,20 @@ jobs:
           $shortSha = $env:GITHUB_SHA.Substring(0, 7)
           $tag = "$version-dev-$shortSha-$env:GITHUB_RUN_ID.$env:GITHUB_RUN_ATTEMPT"
           $title = "Console $version dev - $shortSha (build $env:GITHUB_RUN_NUMBER.$env:GITHUB_RUN_ATTEMPT)"
+          $notice = 'Development build for testing, not a stable release.'
+          if ($stable) {
+            $tag = $version
+            $title = "Console $version"
+            $notice = 'Stable release candidate. Review these packages and complete the release notes before publishing.'
+            # Never attach new binaries to a tag that may identify an older commit.
+            $refs = gh api "repos/$env:GITHUB_REPOSITORY/git/matching-refs/tags/$tag"
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot check existing release tags.' }
+            if (@($refs | ConvertFrom-Json | Where-Object { $_.ref -ceq "refs/tags/$tag" }).Count -gt 0) {
+              throw "Tag $tag already exists. Review the existing release instead of replacing it."
+            }
+          }
           @(
-            'Development build for testing, not a stable release.'
+            $notice
             ''
             "Download DVMConsole-$version-win-x86.zip or DVMConsole-$version-win-x64.zip and extract the complete ZIP."
             'Install the matching .NET 10 Desktop Runtime. The native vocoder is included.'
@@ -145,6 +181,19 @@ jobs:
             "Console commit: $env:GITHUB_SHA"
             "Build: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
           ) | Set-Content release-notes.md -Encoding utf8
+          if ($stable) {
+            # Stable downloads stay private until a maintainer reviews and publishes the draft.
+            gh release create $tag @assets --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title $title --notes-file release-notes.md --draft --prerelease=false
+            if ($LASTEXITCODE -ne 0) { throw 'Stable draft upload failed; check for an incomplete draft before retrying.' }
+            @(
+              "## Console $version draft ready"
+              ''
+              "Open [Releases]($env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/releases), edit the draft, and review its downloads and release notes."
+              'Replace the candidate notice, leave **Set as a pre-release** unchecked, select **Set as latest release**, then publish when ready.'
+              'This workflow has not published the stable release or changed the current Latest release.'
+            ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+            return
+          }
           # Keep incomplete uploads private, and never replace an older build's assets.
           gh release create $tag @assets --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title $title --notes-file release-notes.md --draft --prerelease --latest=false
           if ($LASTEXITCODE -ne 0) { throw 'Prerelease upload failed; any partial draft remains unpublished.' }
