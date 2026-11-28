@@ -66,7 +66,8 @@ namespace dvmconsole
         /// <param name="dstId"></param>
         /// <param name="grantDemand"></param>
         /// <param name="streamId">Voice stream being ended; zero retains FNECore's default stream behavior.</param>
-        public void SendP25TDU(uint srcId, uint dstId, bool grantDemand = false, uint streamId = 0)
+        /// <param name="encrypted">Selected transmit encryption state for a grant demand.</param>
+        public void SendP25TDU(uint srcId, uint dstId, bool grantDemand = false, uint streamId = 0, bool encrypted = false)
         {
             RemoteCallData callData = new RemoteCallData()
             {
@@ -77,7 +78,7 @@ namespace dvmconsole
             };
 
             if (grantDemand)
-                SendP25TDU(callData, grantDemand);
+                SendP25TDU(callData, grantDemand, encrypted);
             else
             {
                 for (int i = 0; i < 4; i++)

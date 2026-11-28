@@ -3599,7 +3599,7 @@ namespace dvmconsole
                 srcId = uint.Parse(cpgChannel.GetSourceRid(system));
                 dstId = uint.Parse(cpgChannel.Tgid);
                 if (sendStartSignal && cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                    fne.SendP25TDU(srcId, dstId, true);
+                    fne.SendP25TDU(srcId, dstId, true, encrypted: channel.IsTxEncrypted && cpgChannel.HasEncryptionConfig());
 
                 audioManager.PlayOneShot(channel.AudioOutputKey, pcmData, cancellationToken);
 
@@ -6064,7 +6064,7 @@ namespace dvmconsole
                     return;
 
                 if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                    fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true);
+                    fne.SendP25TDU(uint.Parse(system.Rid), uint.Parse(cpgChannel.Tgid), true, encrypted: e.IsTxEncrypted && cpgChannel.HasEncryptionConfig());
             }
             else
             {
@@ -6179,7 +6179,7 @@ namespace dvmconsole
                 BeginTarTxRecording(e, system, cpgChannel, e.TxStreamId);
 
                 if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                    fne.SendP25TDU(srcId, dstId, true);
+                    fne.SendP25TDU(srcId, dstId, true, encrypted: e.IsTxEncrypted && cpgChannel.HasEncryptionConfig());
 
                 PlayTalkPermitTone();
             }
@@ -7169,7 +7169,7 @@ namespace dvmconsole
                 BeginTarTxRecording(channelBox, system, cpgChannel, channelBox.TxStreamId);
 
                 if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                    fne.SendP25TDU(sourceId, dstId, true);
+                    fne.SendP25TDU(sourceId, dstId, true, encrypted: channelBox.IsTxEncrypted && cpgChannel.HasEncryptionConfig());
 
                 lock (patchPttSync)
                 {
@@ -7449,7 +7449,7 @@ namespace dvmconsole
             try
             {
                 if (cpgChannel.GetChannelMode() == Codeplug.ChannelMode.P25)
-                    fne.SendP25TDU(sourceId, dstId, true, streamId);
+                    fne.SendP25TDU(sourceId, dstId, true, streamId, encrypted: channelBox.IsTxEncrypted && cpgChannel.HasEncryptionConfig());
 
                 Log.WriteLine($"Patch forward started: {channelBox.ChannelName} ({systemName} TG {tgid}) stream {streamId}, source {sourceId}.");
                 return streamId;
